@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contact — Apex Lift Solutions</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;0,900;1,700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav id="navbar">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <span class="logo-apex">APEX</span>
+        <span class="logo-sub">LIFT SOLUTIONS</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="services.html">Services</a></li>
+        <li><a href="plans.html">Service Plans</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="contact.html" class="active">Contact</a></li>
+        <li><a href="careers.html">Careers</a></li>
+      </ul>
+      <a href="contact.html" class="nav-cta">Get a Quote</a>
+      <button class="hamburger" id="hamburger" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+    <div class="mobile-menu" id="mobileMenu">
+      <a href="index.html">Home</a>
+      <a href="services.html">Services</a>
+      <a href="plans.html">Service Plans</a>
+      <a href="about.html">About</a>
+      <a href="contact.html">Contact</a>
+      <a href="careers.html">Careers</a>
+      <a href="contact.html" class="mobile-cta">Get a Quote</a>
+    </div>
+  </nav>
+
+  <!-- PAGE HERO -->
+  <section class="page-hero">
+    <div class="hero-bg"><div class="hero-grid"></div><div class="hero-glow"></div></div>
+    <div class="container page-hero-content">
+      <span class="section-tag">GET IN TOUCH</span>
+      <h1>Request a <em>Free Quote</em></h1>
+      <p>Tell us about your fleet and we'll get back to you within one business day.</p>
+    </div>
+  </section>
+
+  <!-- CONTACT SECTION -->
+  <section id="contact" style="padding: 100px 0; background: var(--dark); border-top: 1px solid var(--border);">
+    <div class="container">
+      <div class="contact-inner">
+        <form class="contact-form" id="contactForm"
+              action="https://formspree.io/f/myklrjov"
+              method="POST">
+          <!-- Formspree hidden config -->
+          <input type="hidden" name="_subject" value="New Quote Request — Apex Lift Solutions" />
+          <input type="hidden" name="_next" value="" />
+          <input type="text" name="_gotcha" style="display:none" />
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="name">Full Name *</label>
+              <input type="text" id="name" name="Full Name" placeholder="John Smith" required />
+            </div>
+            <div class="form-group">
+              <label for="company">Company</label>
+              <input type="text" id="company" name="Company" placeholder="Your Company LLC" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="email">Email Address *</label>
+              <input type="email" id="email" name="email" placeholder="john@company.com" required />
+            </div>
+            <div class="form-group">
+              <label for="phone">Phone Number</label>
+              <input type="tel" id="phone" name="Phone Number" placeholder="(555) 000-0000" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="service">Service Needed</label>
+            <select id="service" name="Service Needed">
+              <option value="">Select a service...</option>
+              <option>Emergency Repair</option>
+              <option>Diagnostic Visit</option>
+              <option>Preventive Maintenance</option>
+              <option>6-Month Service Plan</option>
+              <option>12-Month Service Plan</option>
+              <option>General Question</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="fleet">Number of Forklifts</label>
+            <select id="fleet" name="Number of Forklifts">
+              <option value="">Select fleet size...</option>
+              <option>1</option>
+              <option>2–5</option>
+              <option>6–10</option>
+              <option>11–25</option>
+              <option>25+</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="message">Message</label>
+            <textarea id="message" name="Message" rows="4" placeholder="Tell us about your equipment, what issues you're experiencing, or any questions you have..."></textarea>
+          </div>
+          <button type="submit" class="btn-primary form-submit">Send Request</button>
+          <div class="form-success" id="formSuccess">✓ Message sent! We'll be in touch shortly.</div>
+        </form>
+        <div class="contact-info">
+          <div class="info-block">
+            <div class="info-icon">📍</div>
+            <div>
+              <strong>Location</strong>
+              <p>Serving the local area and surrounding region.<br/>Contact us to confirm service availability.</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">📞</div>
+            <div>
+              <strong>Phone</strong>
+              <p>(555) 000-0000</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">✉️</div>
+            <div>
+              <strong>Email</strong>
+              <p>apexliftsolutions1@gmail.com</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">🕒</div>
+            <div>
+              <strong>Hours</strong>
+              <p>Mon–Fri: 7am – 6pm<br/>Emergency: 24/7</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">🔧</div>
+            <div>
+              <strong>Service Area</strong>
+              <p>We come to your facility. Ask about coverage in your area.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-logo">
+        <span class="logo-apex">APEX</span>
+        <span class="logo-sub">LIFT SOLUTIONS</span>
+      </div>
+      <p class="footer-copy">© 2025 Apex Lift Solutions. All rights reserved.</p>
+      <div class="footer-links">
+        <a href="services.html">Services</a>
+        <a href="plans.html">Plans</a>
+        <a href="contact.html">Contact</a>
+        <a href="careers.html">Careers</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    if (sessionStorage.getItem("apex_auth") !== "true") { window.location.href = "password.html"; }
+  </script>
+  <script src="script.js"></script>
+</body>
+</html>
