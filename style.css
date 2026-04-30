@@ -98,6 +98,22 @@ em { color: var(--red); font-style: normal; }
 .section-header p { color: var(--grey-light); max-width: 540px; margin: 0 auto; }
 .section-header.light h2, .section-header.light p { color: var(--white); }
 
+/* ——— LOGO IMAGE ——— */
+.nav-logo-img {
+  height: 44px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+  max-width: 220px;
+}
+.footer-logo-img {
+  height: 38px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+  max-width: 180px;
+}
+
 /* ——— NAV ——— */
 #navbar {
   position: fixed;
