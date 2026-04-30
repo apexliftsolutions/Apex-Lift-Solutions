@@ -5,7 +5,170 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Service Plans — Apex Lift Solutions</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta property="og:image" content="og-image.png" />
+  <meta property="og:title" content="Apex Lift Solutions — Forklift Repair &amp; Service" />
+  <meta property="og:description" content="Expert forklift repair and preventive maintenance on a monthly service plan." />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;0,900;1,700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    .plans-full-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      margin-bottom: 80px;
+    }
+    .plan-card {
+      background: var(--dark);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .plan-card-featured {
+      background: var(--dark-2);
+    }
+    .plan-card-best {
+      background: var(--red);
+      color: #fff;
+      font-family: var(--font-head);
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 7px;
+    }
+    .plan-card-header {
+      padding: 32px 28px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .plan-card-badge {
+      font-family: var(--font-head);
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--grey);
+      margin-bottom: 8px;
+      display: block;
+    }
+    .plan-card-badge.red { color: var(--red); }
+    .plan-card h3 {
+      font-family: var(--font-head);
+      font-size: 1.6rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      line-height: 1.05;
+      margin-bottom: 8px;
+    }
+    .plan-card-interval {
+      font-family: var(--font-head);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--grey);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .plan-card-interval span {
+      display: inline-block;
+      background: rgba(204,0,0,0.1);
+      border: 1px solid rgba(204,0,0,0.3);
+      color: var(--red);
+      padding: 2px 8px;
+      font-size: 0.7rem;
+    }
+    .plan-card-desc {
+      color: var(--grey-light);
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    .plan-card-body {
+      padding: 24px 28px 32px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .plan-card-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+      margin-bottom: 24px;
+    }
+    .plan-card-features li {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 0.85rem;
+      color: var(--grey-light);
+      line-height: 1.5;
+    }
+    .plan-card-features li .check {
+      width: 18px;
+      height: 18px;
+      font-size: 0.6rem;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .billing-note {
+      background: var(--dark-2);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--red);
+      padding: 40px;
+      margin-top: 80px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+    }
+    .billing-note h3 {
+      font-family: var(--font-head);
+      font-size: 1.5rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .billing-note p { color: var(--grey-light); font-size: 0.9rem; line-height: 1.7; }
+    .billing-options { display: flex; flex-direction: column; gap: 16px; }
+    .billing-option {
+      background: var(--dark);
+      border: 1px solid var(--border);
+      padding: 20px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .billing-option-icon { font-size: 1.5rem; flex-shrink: 0; }
+    .billing-option strong { display: block; font-family: var(--font-head); font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+    .billing-option p { color: var(--grey-light); font-size: 0.85rem; margin: 0; line-height: 1.5; }
+    .coming-soon-badge {
+      display: inline-block;
+      background: rgba(204,0,0,0.1);
+      border: 1px solid rgba(204,0,0,0.3);
+      color: var(--red);
+      font-family: var(--font-head);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    @media (max-width: 768px) {
+      .billing-note { grid-template-columns: 1fr; }
+      .plans-full-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 500px) {
+      .plans-full-grid { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
 
@@ -13,8 +176,7 @@
   <nav id="navbar">
     <div class="nav-inner">
       <a href="index.html" class="nav-logo">
-        <span class="logo-apex">APEX</span>
-        <span class="logo-sub">LIFT SOLUTIONS</span>
+        <img src="logo.jpg" alt="Apex Lift Solutions" class="nav-logo-img" />
       </a>
       <ul class="nav-links">
         <li><a href="index.html">Home</a></li>
@@ -44,142 +206,266 @@
   <section class="page-hero">
     <div class="hero-bg"><div class="hero-grid"></div><div class="hero-glow"></div></div>
     <div class="container page-hero-content">
-      <span class="section-tag">MONTHLY SERVICE PLANS</span>
-      <h1>Simple <em>Flat-Rate</em> Pricing</h1>
-      <p>No surprise invoices. No nickel-and-diming. Pick a plan and know exactly what you're paying every month.</p>
+      <span class="section-tag">SUBSCRIPTION SERVICE PLANS</span>
+      <h1>Maintenance <em>You Can Count On</em></h1>
+      <p>Flat-rate monthly billing. Scheduled checkups every 90 days. Pick the plan length that works for your operation.</p>
     </div>
   </section>
 
   <!-- PLANS -->
   <section style="padding: 100px 0;">
     <div class="container">
+
       <div class="section-header">
         <span class="section-tag">CHOOSE YOUR PLAN</span>
-        <h2>6-Month or <span class="red">12-Month</span> Coverage</h2>
-        <p>Both plans include scheduled monthly visits, priority service response, and parts discounts. Pricing is per forklift unit — contact us for fleet quotes.</p>
+        <h2>5 Plans. <span class="red">One Simple Promise.</span></h2>
+        <p>Every plan includes scheduled maintenance checkups every 90 days, priority service response, and parts discounts. Pricing is custom — contact us for a quote based on your fleet.</p>
       </div>
 
-      <div class="pricing-grid">
+      <div class="plans-full-grid">
 
-        <!-- 6-MONTH PLAN -->
-        <div class="pricing-card reveal">
-          <div class="pricing-header">
-            <div class="pricing-badge">6-MONTH PLAN</div>
+        <!-- 6 MONTH -->
+        <div class="plan-card reveal">
+          <div class="plan-card-header">
+            <span class="plan-card-badge">6-MONTH PLAN</span>
+            <h3>Starter</h3>
+            <div class="plan-card-interval">Billed monthly <span>6 MO. TERM</span></div>
+            <p class="plan-card-desc">Perfect for getting started. Short commitment, full service coverage, and 90-day checkups included.</p>
+          </div>
+          <div class="plan-card-body">
+            <ul class="plan-card-features">
+              <li><span class="check">✓</span> Maintenance checkup every 90 days</li>
+              <li><span class="check">✓</span> Fluid checks and top-offs</li>
+              <li><span class="check">✓</span> Filter inspection & replacement</li>
+              <li><span class="check">✓</span> Full safety checklist each visit</li>
+              <li><span class="check">✓</span> Priority repair scheduling</li>
+              <li><span class="check">✓</span> Service records on file</li>
+              <li><span class="check">✓</span> Parts & labor discount</li>
+            </ul>
+            <a href="contact.html" class="btn-secondary" style="text-align:center;">Inquire About Pricing</a>
+          </div>
+        </div>
+
+        <!-- 1 YEAR -->
+        <div class="plan-card reveal" data-delay="80">
+          <div class="plan-card-header">
+            <span class="plan-card-badge">1-YEAR PLAN</span>
             <h3>Standard</h3>
-            <div class="pricing-price">
-              <span class="price-from">Starting at</span>
-              <span class="price-amount">Contact Us</span>
-              <span class="price-per">/ unit / month</span>
-            </div>
-            <p class="pricing-desc">Great for businesses testing the waters or with seasonal operations. Solid coverage, predictable pricing, no long-term lock-in.</p>
+            <div class="plan-card-interval">Billed monthly <span>12 MO. TERM</span></div>
+            <p class="plan-card-desc">Our most popular entry plan. A full year of protection at a better monthly rate than the 6-month.</p>
           </div>
-          <div class="pricing-body">
-            <ul class="pricing-features">
-              <li><span class="check">✓</span> 1 scheduled maintenance visit per month</li>
+          <div class="plan-card-body">
+            <ul class="plan-card-features">
+              <li><span class="check">✓</span> Maintenance checkup every 90 days</li>
               <li><span class="check">✓</span> Fluid checks and top-offs</li>
-              <li><span class="check">✓</span> Filter inspection and replacement</li>
+              <li><span class="check">✓</span> Filter inspection & replacement</li>
               <li><span class="check">✓</span> Full safety checklist each visit</li>
-              <li><span class="check">✓</span> Priority scheduling for repair calls</li>
-              <li><span class="check">✓</span> 10% discount on parts and labor</li>
-              <li><span class="check">✓</span> Service records kept on file</li>
-              <li class="feature-no"><span class="check-no">—</span> Additional monthly visits</li>
-              <li class="feature-no"><span class="check-no">—</span> Extended parts discount</li>
-              <li class="feature-no"><span class="check-no">—</span> Fastest response guarantee</li>
+              <li><span class="check">✓</span> Priority repair scheduling</li>
+              <li><span class="check">✓</span> Service records on file</li>
+              <li><span class="check">✓</span> Enhanced parts & labor discount</li>
             </ul>
-            <a href="contact.html" class="btn-secondary" style="width: 100%; text-align: center; display: block; margin-top: 32px;">Get Started</a>
+            <a href="contact.html" class="btn-secondary" style="text-align:center;">Inquire About Pricing</a>
           </div>
         </div>
 
-        <!-- 12-MONTH PLAN -->
-        <div class="pricing-card pricing-card-featured reveal" data-delay="150">
-          <div class="pricing-best">BEST VALUE</div>
-          <div class="pricing-header">
-            <div class="pricing-badge red-badge">12-MONTH PLAN</div>
-            <h3>Full Coverage</h3>
-            <div class="pricing-price">
-              <span class="price-from">Starting at</span>
-              <span class="price-amount">Contact Us</span>
-              <span class="price-per">/ unit / month</span>
-            </div>
-            <p class="pricing-desc">Our best plan for businesses that rely on their forklifts every day. Maximum protection, maximum savings, and our top-tier response commitment.</p>
+        <!-- 2 YEAR -->
+        <div class="plan-card plan-card-featured reveal" data-delay="160">
+          <div class="plan-card-best">MOST POPULAR</div>
+          <div class="plan-card-header">
+            <span class="plan-card-badge red">2-YEAR PLAN</span>
+            <h3>Pro</h3>
+            <div class="plan-card-interval">Billed monthly <span>24 MO. TERM</span></div>
+            <p class="plan-card-desc">The sweet spot. Two years of coverage, better savings, and our dedicated service contact included.</p>
           </div>
-          <div class="pricing-body">
-            <ul class="pricing-features">
-              <li><span class="check">✓</span> 2 scheduled maintenance visits per month</li>
+          <div class="plan-card-body">
+            <ul class="plan-card-features">
+              <li><span class="check">✓</span> Maintenance checkup every 90 days</li>
               <li><span class="check">✓</span> Fluid checks and top-offs</li>
-              <li><span class="check">✓</span> Filter inspection and replacement</li>
+              <li><span class="check">✓</span> Filter inspection & replacement</li>
               <li><span class="check">✓</span> Full safety checklist each visit</li>
-              <li><span class="check">✓</span> <strong>Priority emergency response</strong></li>
-              <li><span class="check">✓</span> <strong>20% discount on parts and labor</strong></li>
-              <li><span class="check">✓</span> Service records kept on file</li>
-              <li><span class="check">✓</span> Additional visits available at plan rate</li>
-              <li><span class="check">✓</span> Seasonal tune-up included</li>
+              <li><span class="check">✓</span> Priority emergency response</li>
+              <li><span class="check">✓</span> Service records on file</li>
+              <li><span class="check">✓</span> Greater parts & labor discount</li>
               <li><span class="check">✓</span> Dedicated service contact</li>
+              <li><span class="check">✓</span> Seasonal tune-up included</li>
             </ul>
-            <a href="contact.html" class="btn-primary" style="width: 100%; text-align: center; display: block; margin-top: 32px;">Get Started</a>
+            <a href="contact.html" class="btn-primary" style="text-align:center;">Inquire About Pricing</a>
+          </div>
+        </div>
+
+        <!-- 3 YEAR -->
+        <div class="plan-card reveal" data-delay="240">
+          <div class="plan-card-header">
+            <span class="plan-card-badge">3-YEAR PLAN</span>
+            <h3>Elite</h3>
+            <div class="plan-card-interval">Billed monthly <span>36 MO. TERM</span></div>
+            <p class="plan-card-desc">For operations that run hard and can't afford downtime. Maximum protection and our best service guarantee.</p>
+          </div>
+          <div class="plan-card-body">
+            <ul class="plan-card-features">
+              <li><span class="check">✓</span> Maintenance checkup every 90 days</li>
+              <li><span class="check">✓</span> Fluid checks and top-offs</li>
+              <li><span class="check">✓</span> Filter inspection & replacement</li>
+              <li><span class="check">✓</span> Full safety checklist each visit</li>
+              <li><span class="check">✓</span> Top-priority emergency response</li>
+              <li><span class="check">✓</span> Service records on file</li>
+              <li><span class="check">✓</span> Maximum parts & labor discount</li>
+              <li><span class="check">✓</span> Dedicated service contact</li>
+              <li><span class="check">✓</span> 2x seasonal tune-ups per year</li>
+              <li><span class="check">✓</span> Fleet performance report</li>
+            </ul>
+            <a href="contact.html" class="btn-secondary" style="text-align:center;">Inquire About Pricing</a>
+          </div>
+        </div>
+
+        <!-- 4 YEAR -->
+        <div class="plan-card plan-card-featured reveal" data-delay="320">
+          <div class="plan-card-best">BEST VALUE</div>
+          <div class="plan-card-header">
+            <span class="plan-card-badge red">4-YEAR PLAN</span>
+            <h3>Ultimate</h3>
+            <div class="plan-card-interval">Billed monthly <span>48 MO. TERM</span></div>
+            <p class="plan-card-desc">Our best rate, longest protection, and the full suite of services. Built for businesses that are here for the long run.</p>
+          </div>
+          <div class="plan-card-body">
+            <ul class="plan-card-features">
+              <li><span class="check">✓</span> Maintenance checkup every 90 days</li>
+              <li><span class="check">✓</span> Fluid checks and top-offs</li>
+              <li><span class="check">✓</span> Filter inspection & replacement</li>
+              <li><span class="check">✓</span> Full safety checklist each visit</li>
+              <li><span class="check">✓</span> Top-priority emergency response</li>
+              <li><span class="check">✓</span> Service records on file</li>
+              <li><span class="check">✓</span> Best-in-class parts & labor discount</li>
+              <li><span class="check">✓</span> Dedicated service contact</li>
+              <li><span class="check">✓</span> 2x seasonal tune-ups per year</li>
+              <li><span class="check">✓</span> Fleet performance report</li>
+              <li><span class="check">✓</span> Lowest locked-in monthly rate</li>
+            </ul>
+            <a href="contact.html" class="btn-primary" style="text-align:center;">Inquire About Pricing</a>
           </div>
         </div>
 
       </div>
 
-      <!-- PLAN NOTES -->
-      <div class="plan-notes">
-        <h3>How It Works</h3>
-        <div class="plan-steps">
-          <div class="plan-step reveal">
-            <div class="step-num">01</div>
-            <strong>Contact Us</strong>
-            <p>Tell us about your fleet — how many units, what type, and what issues you've been having.</p>
+      <!-- WHAT'S INCLUDED IN EVERY PLAN -->
+      <div class="section-header" style="margin-bottom: 40px;">
+        <span class="section-tag">EVERY PLAN INCLUDES</span>
+        <h2>Your 90-Day <span class="red">Checkup</span></h2>
+        <p>No matter which plan you choose, every 90 days our technician comes to your facility for a full scheduled maintenance visit.</p>
+      </div>
+      <div class="plan-steps" style="margin-bottom: 80px;">
+        <div class="plan-step reveal">
+          <div class="step-num">01</div>
+          <strong>Fluid Service</strong>
+          <p>Oil, hydraulic fluid, and coolant checked, topped off, or changed as needed.</p>
+        </div>
+        <div class="plan-step reveal" data-delay="100">
+          <div class="step-num">02</div>
+          <strong>Filter & Belts</strong>
+          <p>Air, oil, and fuel filters inspected. Belts and chains adjusted or replaced.</p>
+        </div>
+        <div class="plan-step reveal" data-delay="200">
+          <div class="step-num">03</div>
+          <strong>Safety Check</strong>
+          <p>Horns, lights, brakes, backup alarms, and all safety systems tested and verified.</p>
+        </div>
+        <div class="plan-step reveal" data-delay="300">
+          <div class="step-num">04</div>
+          <strong>Service Report</strong>
+          <p>Written report of everything checked, work performed, and any issues flagged.</p>
+        </div>
+      </div>
+
+      <!-- BILLING OPTIONS NOTE -->
+      <div class="billing-note reveal">
+        <div>
+          <span class="section-tag">BILLING & ACCOUNTS</span>
+          <h3>Flexible Payment Options</h3>
+          <p>All plans are billed monthly on a subscription basis. We're building out a full customer portal where you'll be able to manage your account, view service history, and pay online. In the meantime, reach out and we'll get you set up directly.</p>
+          <a href="contact.html" class="btn-primary" style="margin-top: 24px; display: inline-block;">Contact Us to Get Started</a>
+        </div>
+        <div class="billing-options">
+          <div class="billing-option">
+            <div class="billing-option-icon">💳</div>
+            <div>
+              <strong>Monthly Subscription <span class="coming-soon-badge">Coming Soon</span></strong>
+              <p>Log in to your account, manage your plan, view service records, and pay your monthly bill automatically.</p>
+            </div>
           </div>
-          <div class="plan-step reveal" data-delay="100">
-            <div class="step-num">02</div>
-            <strong>Get a Quote</strong>
-            <p>We'll give you a flat monthly rate based on your equipment and plan choice. No hidden fees.</p>
+          <div class="billing-option">
+            <div class="billing-option-icon">🧾</div>
+            <div>
+              <strong>Pay by Invoice <span class="coming-soon-badge">Coming Soon</span></strong>
+              <p>Enter your invoice number on our website to pay a specific invoice by card — no login required.</p>
+            </div>
           </div>
-          <div class="plan-step reveal" data-delay="200">
-            <div class="step-num">03</div>
-            <strong>Sign Your Plan</strong>
-            <p>Choose 6 or 12 months, sign your agreement, and we'll schedule your first visit.</p>
+          <div class="billing-option">
+            <div class="billing-option-icon">📧</div>
+            <div>
+              <strong>Direct Billing — Available Now</strong>
+              <p>We'll send invoices directly to your email. Pay by card via secure link. Simple and fast.</p>
+            </div>
           </div>
-          <div class="plan-step reveal" data-delay="300">
-            <div class="step-num">04</div>
-            <strong>Stay Running</strong>
-            <p>We show up on schedule, keep records, and respond fast when you need us most.</p>
-          </div>
+        </div>
+      </div>
+
+      <!-- HOW IT WORKS -->
+      <div class="section-header" style="margin-top: 80px;">
+        <span class="section-tag">GET STARTED</span>
+        <h2>How It <span class="red">Works</span></h2>
+      </div>
+      <div class="plan-steps">
+        <div class="plan-step reveal">
+          <div class="step-num">01</div>
+          <strong>Contact Us</strong>
+          <p>Tell us about your fleet — how many units, what type, and your location.</p>
+        </div>
+        <div class="plan-step reveal" data-delay="100">
+          <div class="step-num">02</div>
+          <strong>Get Your Quote</strong>
+          <p>We'll send you a custom monthly rate based on your fleet size and plan choice.</p>
+        </div>
+        <div class="plan-step reveal" data-delay="200">
+          <div class="step-num">03</div>
+          <strong>Sign &amp; Start</strong>
+          <p>Sign your service agreement and we'll schedule your first 90-day checkup.</p>
+        </div>
+        <div class="plan-step reveal" data-delay="300">
+          <div class="step-num">04</div>
+          <strong>Stay Running</strong>
+          <p>We show up every 90 days and respond fast when you need us between visits.</p>
         </div>
       </div>
 
       <!-- FAQ -->
-      <div class="faq-section">
-        <div class="section-header" style="margin-top: 80px;">
-          <span class="section-tag">QUESTIONS</span>
-          <h2>Frequently <span class="red">Asked</span></h2>
+      <div class="section-header" style="margin-top: 80px;">
+        <span class="section-tag">QUESTIONS</span>
+        <h2>Frequently <span class="red">Asked</span></h2>
+      </div>
+      <div class="faq-grid">
+        <div class="faq-item reveal">
+          <strong>What's included in every 90-day checkup?</strong>
+          <p>Fluid checks and top-offs, filter inspection, belt and chain adjustment, full safety system testing, lubrication of all moving parts, and a written service report.</p>
         </div>
-        <div class="faq-grid">
-          <div class="faq-item reveal">
-            <strong>What's included in a "maintenance visit"?</strong>
-            <p>Each visit covers a full safety inspection, fluid checks and top-offs, filter inspection, lubrication of moving parts, and a written service report.</p>
-          </div>
-          <div class="faq-item reveal" data-delay="100">
-            <strong>What if I need a repair between scheduled visits?</strong>
-            <p>Plan members get priority scheduling for repair calls. You'll be moved to the front of the line, and parts/labor are discounted at your plan rate.</p>
-          </div>
-          <div class="faq-item reveal" data-delay="0">
-            <strong>Can I add more forklifts to my plan?</strong>
-            <p>Absolutely. We'll simply add the additional units at the per-unit plan rate. Fleet discounts are available — ask us about it.</p>
-          </div>
-          <div class="faq-item reveal" data-delay="100">
-            <strong>What happens at the end of my plan?</strong>
-            <p>We'll reach out before your plan expires to discuss renewal. You can upgrade, switch plans, or go month-to-month at standard rates.</p>
-          </div>
-          <div class="faq-item reveal">
-            <strong>Do you service electric forklifts?</strong>
-            <p>Yes — we service electric, LPG, diesel, and gasoline forklifts. Battery and charging system service is included.</p>
-          </div>
-          <div class="faq-item reveal" data-delay="100">
-            <strong>Is there a contract?</strong>
-            <p>Yes, both plans are on a service agreement. The 6-month and 12-month commitments are what allow us to offer discounted flat rates.</p>
-          </div>
+        <div class="faq-item reveal" data-delay="100">
+          <strong>What if I need a repair between checkups?</strong>
+          <p>Plan members get priority scheduling. We'll get a tech out fast, and your plan rate applies to parts and labor.</p>
+        </div>
+        <div class="faq-item reveal">
+          <strong>Can I add more forklifts to my plan?</strong>
+          <p>Yes — additional units can be added at any time at the per-unit plan rate. Fleet discounts available, just ask.</p>
+        </div>
+        <div class="faq-item reveal" data-delay="100">
+          <strong>How does monthly billing work?</strong>
+          <p>You'll be billed the same amount every month for the duration of your plan term. No surprise charges.</p>
+        </div>
+        <div class="faq-item reveal">
+          <strong>What happens when my plan ends?</strong>
+          <p>We'll reach out before it expires to discuss renewal. You can upgrade, switch plans, or continue month-to-month.</p>
+        </div>
+        <div class="faq-item reveal" data-delay="100">
+          <strong>How do I get pricing?</strong>
+          <p>Pricing is custom based on your fleet size, equipment type, and location. Email us at info@apexliftsolutionsusa.com and we'll get you a quote fast.</p>
         </div>
       </div>
 
@@ -192,7 +478,7 @@
       <div class="cta-inner">
         <div>
           <h2>Ready to Lock In Your Rate?</h2>
-          <p>Contact us for a custom quote based on your fleet size and location.</p>
+          <p>Email us at info@apexliftsolutionsusa.com for a custom quote.</p>
         </div>
         <div class="cta-actions">
           <a href="contact.html" class="btn-primary">Get a Quote</a>
@@ -206,8 +492,7 @@
   <footer>
     <div class="container footer-inner">
       <div class="footer-logo">
-        <span class="logo-apex">APEX</span>
-        <span class="logo-sub">LIFT SOLUTIONS</span>
+        <img src="logo.jpg" alt="Apex Lift Solutions" class="footer-logo-img" />
       </div>
       <p class="footer-copy">© 2025 Apex Lift Solutions. All rights reserved.</p>
       <div class="footer-links">

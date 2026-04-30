@@ -98,6 +98,21 @@ em { color: var(--red); font-style: normal; }
 .section-header p { color: var(--grey-light); max-width: 540px; margin: 0 auto; }
 .section-header.light h2, .section-header.light p { color: var(--white); }
 
+
+/* ——— LOGO IMAGE ——— */
+.nav-logo-img {
+  height: 72px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+}
+.footer-logo-img {
+  height: 60px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+}
+
 /* ——— NAV ——— */
 #navbar {
   position: fixed;
@@ -114,7 +129,7 @@ em { color: var(--red); font-style: normal; }
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px;
-  height: 72px;
+  height: 88px;
   display: flex;
   align-items: center;
   gap: 32px;
