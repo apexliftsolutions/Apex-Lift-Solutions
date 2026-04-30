@@ -98,23 +98,6 @@ em { color: var(--red); font-style: normal; }
 .section-header p { color: var(--grey-light); max-width: 540px; margin: 0 auto; }
 .section-header.light h2, .section-header.light p { color: var(--white); }
 
-
-/* ——— LOGO IMAGE ——— */
-.nav-logo-img {
-  height: 64px;
-  width: auto;
-  display: block;
-  object-fit: contain;
-  max-width: 260px;
-}
-.footer-logo-img {
-  height: 56px;
-  width: auto;
-  display: block;
-  object-fit: contain;
-  max-width: 220px;
-}
-
 /* ——— NAV ——— */
 #navbar {
   position: fixed;
@@ -131,7 +114,7 @@ em { color: var(--red); font-style: normal; }
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px;
-  height: 88px;
+  height: 72px;
   display: flex;
   align-items: center;
   gap: 32px;
@@ -652,6 +635,38 @@ em { color: var(--red); font-style: normal; }
 .job-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .job-tag { font-family: var(--font-head); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--grey-light); border: 1px solid var(--border); padding: 4px 10px; }
 .job-info p { color: var(--grey-light); font-size: 0.9rem; line-height: 1.6; }
+
+
+/* ——— FILE UPLOAD NOTE ——— */
+.file-upload-box {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: var(--dark-2);
+  border: 1px dashed rgba(204,0,0,0.4);
+  padding: 20px;
+}
+.file-icon {
+  font-size: 1.8rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.file-upload-box strong {
+  display: block;
+  font-family: var(--font-head);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+  color: var(--white);
+}
+.file-upload-box p {
+  color: var(--grey-light);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin: 0;
+}
 
 /* ——— FOOTER ——— */
 footer {

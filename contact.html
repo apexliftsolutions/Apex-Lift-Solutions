@@ -6,10 +6,7 @@
   <title>Contact — Apex Lift Solutions</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
-  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
-  <meta name="theme-color" content="#000000" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <meta property="og:image" content="og-image.png" />
   <meta property="og:title" content="Apex Lift Solutions — Forklift Repair &amp; Service" />
   <meta property="og:description" content="Expert forklift repair and preventive maintenance on a monthly service plan." />
@@ -21,7 +18,8 @@
   <nav id="navbar">
     <div class="nav-inner">
       <a href="index.html" class="nav-logo">
-        <img src="logo.jpg" alt="Apex Lift Solutions" class="nav-logo-img" />
+        <span class="logo-apex">APEX</span>
+        <span class="logo-sub">LIFT SOLUTIONS</span>
       </a>
       <ul class="nav-links">
         <li><a href="index.html">Home</a></li>
@@ -117,8 +115,20 @@
             <label for="message">Message</label>
             <textarea id="message" name="Message" rows="4" placeholder="Tell us about your equipment, what issues you're experiencing, or any questions you have..."></textarea>
           </div>
+          <div class="form-group">
+            <label>Photos or Documents <span style="color:var(--grey);font-weight:400;">(optional)</span></label>
+            <div class="file-upload-note">
+              <div class="file-upload-box">
+                <span class="file-icon">📎</span>
+                <div>
+                  <strong>Have photos of the issue?</strong>
+                  <p>After submitting, email any photos or documents to <a href="mailto:info@apexliftsolutionsusa.com" style="color:var(--red);">info@apexliftsolutionsusa.com</a> with your name in the subject line. This helps us diagnose the problem faster.</p>
+                </div>
+              </div>
+            </div>
+          </div>
           <button type="submit" class="btn-primary form-submit">Send Request</button>
-          <div class="form-success" id="formSuccess">✓ Message sent! We'll be in touch shortly.</div>
+          <div class="form-success" id="formSuccess">✓ Message sent! If you have photos, email them to info@apexliftsolutionsusa.com — we'll be in touch shortly.</div>
         </form>
         <div class="contact-info">
           <div class="info-block">
@@ -139,7 +149,7 @@
             <div class="info-icon">✉️</div>
             <div>
               <strong>Email</strong>
-              <p>info@apexliftsolutionsusa.com</p>
+              <p>info@apexliftsolutionsusa.com<br/>service@apexliftsolutionsusa.com<br/>jobs@apexliftsolutionsusa.com</p>
             </div>
           </div>
           <div class="info-block">
@@ -165,7 +175,8 @@
   <footer>
     <div class="container footer-inner">
       <div class="footer-logo">
-        <img src="logo.jpg" alt="Apex Lift Solutions" class="footer-logo-img" />
+        <span class="logo-apex">APEX</span>
+        <span class="logo-sub">LIFT SOLUTIONS</span>
       </div>
       <p class="footer-copy">© 2025 Apex Lift Solutions. All rights reserved.</p>
       <div class="footer-links">

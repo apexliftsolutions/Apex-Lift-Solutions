@@ -6,10 +6,7 @@
   <title>Careers — Apex Lift Solutions</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
-  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
-  <meta name="theme-color" content="#000000" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <meta property="og:image" content="og-image.png" />
   <meta property="og:title" content="Apex Lift Solutions — Forklift Repair &amp; Service" />
   <meta property="og:description" content="Expert forklift repair and preventive maintenance on a monthly service plan." />
@@ -21,7 +18,8 @@
   <nav id="navbar">
     <div class="nav-inner">
       <a href="index.html" class="nav-logo">
-        <img src="logo.jpg" alt="Apex Lift Solutions" class="nav-logo-img" />
+        <span class="logo-apex">APEX</span>
+        <span class="logo-sub">LIFT SOLUTIONS</span>
       </a>
       <ul class="nav-links">
         <li><a href="index.html">Home</a></li>
@@ -209,8 +207,24 @@
                 <option>More than 1 month out</option>
               </select>
             </div>
+            <div class="form-group">
+              <label for="a-resume">Resume / CV</label>
+              <div class="file-upload-note">
+                <div class="file-upload-box">
+                  <span class="file-icon">📎</span>
+                  <div>
+                    <strong>Attach Your Resume</strong>
+                    <p>After submitting this form, please email your resume or any supporting files to <a href="mailto:jobs@apexliftsolutionsusa.com" style="color:var(--red);">jobs@apexliftsolutionsusa.com</a> with your name in the subject line. We'll match it to your application.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="a-portfolio">Portfolio / Work Samples Link <span style="color:var(--grey);font-weight:400;">(optional)</span></label>
+              <input type="url" id="a-portfolio" name="Portfolio Link" placeholder="https://drive.google.com/... or any link to your work" />
+            </div>
             <button type="submit" class="btn-primary form-submit">Submit Application</button>
-            <div class="form-success" id="applySuccess">✓ Application received! We'll review it and reach out soon.</div>
+            <div class="form-success" id="applySuccess">✓ Application received! Please email your resume to jobs@apexliftsolutionsusa.com — we'll be in touch soon.</div>
           </form>
         </div>
       </div>
@@ -222,7 +236,8 @@
   <footer>
     <div class="container footer-inner">
       <div class="footer-logo">
-        <img src="logo.jpg" alt="Apex Lift Solutions" class="footer-logo-img" />
+        <span class="logo-apex">APEX</span>
+        <span class="logo-sub">LIFT SOLUTIONS</span>
       </div>
       <p class="footer-copy">© 2025 Apex Lift Solutions. All rights reserved.</p>
       <div class="footer-links">
