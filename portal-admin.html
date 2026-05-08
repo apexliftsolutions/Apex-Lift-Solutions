@@ -7,11 +7,10 @@
 <link rel="stylesheet" href="style.css" />
 <link rel="icon" type="image/x-icon" href="favicon.ico" />
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
-
 <style>
   body{background:var(--black)}
   .admin-layout{display:flex;min-height:100vh}
-  .admin-sidebar{width:260px;background:var(--dark);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+  .admin-sidebar{width:260px;background:var(--dark);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;overflow-y:auto}
   .sidebar-logo{padding:24px 20px;border-bottom:1px solid var(--border)}
   .sidebar-logo img{height:38px;width:auto;object-fit:contain}
   .sidebar-label{font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--red);margin-top:6px;display:block}
@@ -26,17 +25,16 @@
   .logout-btn{width:100%;background:transparent;border:1px solid var(--border);color:var(--grey);font-family:var(--font-head);font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:10px;cursor:pointer;margin-top:10px;transition:all .2s}
   .logout-btn:hover{border-color:var(--red);color:var(--red)}
   .admin-main{margin-left:260px;flex:1;padding:40px}
-  .admin-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+  .admin-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:14px}
   .admin-header h1{font-family:var(--font-head);font-size:2rem;font-weight:900;text-transform:uppercase}
   .admin-header h1 em{color:var(--red);font-style:normal}
-  .view{display:none}
-  .view.active{display:block}
+  .view{display:none}.view.active{display:block}
   .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:32px}
   .stat-card{background:var(--dark);padding:28px 24px}
   .stat-card .label{font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--grey);margin-bottom:8px}
   .stat-card .value{font-family:var(--font-head);font-size:2.2rem;font-weight:900;color:var(--white);line-height:1}
   .stat-card .value.red{color:var(--red)}
-  .table-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .table-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}
   .table-header h2{font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase}
   .data-table{width:100%;border-collapse:collapse;background:var(--dark);border:1px solid var(--border)}
   .data-table th{background:var(--dark-2);font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--grey);padding:14px 16px;text-align:left;border-bottom:1px solid var(--border)}
@@ -50,12 +48,20 @@
   .badge-paid{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3)}
   .badge-unpaid{background:rgba(255,165,0,.15);color:orange;border:1px solid rgba(255,165,0,.3)}
   .badge-active{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3)}
-  .action-btn{background:transparent;border:1px solid var(--border);color:var(--grey-light);font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;cursor:pointer;transition:all .2s;margin-right:6px}
+  .badge-hidden{background:rgba(100,100,100,.15);color:#888;border:1px solid rgba(100,100,100,.3)}
+  .action-btn{background:transparent;border:1px solid var(--border);color:var(--grey-light);font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;cursor:pointer;transition:all .2s;margin-right:4px;margin-bottom:3px}
   .action-btn:hover{border-color:var(--red);color:var(--red)}
   .action-btn.primary{background:var(--red);border-color:var(--red);color:#fff}
   .action-btn.primary:hover{background:#a00000}
   .action-btn.green{background:#1a3a1a;border-color:#4caf50;color:#4caf50}
   .action-btn.green:hover{background:#4caf50;color:#fff}
+  .action-btn.danger{border-color:rgba(255,68,68,.4);color:#ff4444}
+  .action-btn.danger:hover{background:rgba(255,68,68,.1)}
+  .filter-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .filter-select{background:var(--dark-2);border:1px solid var(--border);color:var(--white);font-family:var(--font-head);font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;outline:none;cursor:pointer}
+  .search-input{background:var(--dark-2);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.88rem;padding:8px 14px;outline:none;transition:border-color .2s;width:220px}
+  .search-input:focus{border-color:var(--red)}
+  .search-input::placeholder{color:var(--grey)}
   .form-card{background:var(--dark);border:1px solid var(--border);padding:32px;margin-bottom:24px}
   .form-card h3{font-family:var(--font-head);font-size:1.2rem;font-weight:900;text-transform:uppercase;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border)}
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
@@ -63,38 +69,24 @@
   .form-group input,.form-group select,.form-group textarea{width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;transition:border-color .2s;border-radius:0}
   .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--red)}
   .form-group select option{background:var(--dark)}
-  .line-item{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:12px;align-items:end;margin-bottom:12px}
+  /* Line items — added qty column */
+  .pw-wrap{position:relative}.pw-wrap input{padding-right:44px!important;box-sizing:border-box}
+  .pw-eye{position:absolute;right:0;top:0;bottom:0;width:40px;background:transparent;border:none;cursor:pointer;color:var(--grey);font-size:.95rem}
+  .pw-eye:hover{color:var(--white)}
+  .line-item{display:grid;grid-template-columns:2fr .6fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:12px}
   .quote-total{text-align:right;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
   .quote-total span{font-family:var(--font-head);font-size:1.8rem;font-weight:900;color:var(--red)}
   .remove-line{background:transparent;border:1px solid var(--border);color:#ff4444;font-size:1rem;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;padding:20px}
+  .modal-overlay.open{display:flex}
+  .modal{background:var(--dark);border:1px solid var(--border);border-top:3px solid var(--red);padding:32px;width:100%}
+  .modal h3{font-family:var(--font-head);font-size:1.2rem;font-weight:900;text-transform:uppercase}
+  .req-att-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+  .req-att-img{border:1px solid var(--border);cursor:pointer}
+  .req-att-img img{width:120px;height:90px;object-fit:cover;display:block}
+  .req-att-img:hover img{opacity:.8}
+  .req-att-pdf{width:120px;height:90px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--dark-2);border:1px solid var(--border);text-decoration:none}
   .success-toast{position:fixed;bottom:24px;right:24px;background:#1a3a1a;border:1px solid #4caf50;color:#4caf50;font-family:var(--font-head);font-size:.85rem;font-weight:700;letter-spacing:.05em;padding:16px 24px;display:none;z-index:9999;animation:fadeUp .3s ease}
-  /* ── Mobile sidebar toggle ── */
-  .mob-toggle{display:none;position:fixed;top:12px;left:12px;z-index:200;background:var(--red);border:none;cursor:pointer;width:42px;height:42px;align-items:center;justify-content:center;flex-direction:column;gap:5px;padding:0}
-  .mob-toggle span{display:block;width:22px;height:2px;background:#fff;transition:all .25s}
-  .mob-toggle.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
-  .mob-toggle.open span:nth-child(2){opacity:0}
-  .mob-toggle.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
-  .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99}
-  .sidebar-overlay.show{display:block}
-  @media(max-width:768px){
-    .mob-toggle{display:flex}
-    .admin-sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:150;overflow-y:auto}
-    .admin-sidebar.open{transform:translateX(0)}
-    .admin-main{margin-left:0;padding:20px;padding-top:64px}
-    .stats-grid{grid-template-columns:1fr 1fr!important}
-    .data-table{font-size:.78rem}
-    .data-table th,.data-table td{padding:10px 8px}
-    .form-grid{grid-template-columns:1fr!important}
-    .line-item{grid-template-columns:1fr 1fr!important}
-    .line-item .item-desc{grid-column:1/-1}
-    .admin-header{flex-direction:column;align-items:flex-start}
-    .filter-row{flex-direction:column;align-items:stretch}
-    .filter-row .search-input{width:100%}
-  }
-  @media(max-width:480px){
-    .stats-grid{grid-template-columns:1fr!important}
-    .admin-main{padding:16px;padding-top:64px}
-  }
   .new-badge{background:var(--red);color:#fff;font-family:var(--font-head);font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;margin-left:6px;vertical-align:middle;animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -102,16 +94,22 @@
   .refresh-btn:hover{border-color:var(--white);color:var(--white)}
   .alert-banner{background:rgba(204,0,0,.1);border:1px solid rgba(204,0,0,.3);color:var(--white);padding:16px 20px;margin-bottom:24px;font-family:var(--font-head);font-size:.9rem;font-weight:600;letter-spacing:.04em;display:none}
   .alert-banner.show{display:flex;align-items:center;gap:12px}
-  /* Real-time pulse indicator */
   .live-dot{display:inline-block;width:8px;height:8px;background:#4caf50;border-radius:50%;margin-right:6px;animation:pulse 1.5s infinite}
   .live-label{font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4caf50}
+  .tabs{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:20px}
+  .tab-btn{background:var(--dark-2);color:var(--grey);font-family:var(--font-head);font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:10px 18px;border:none;cursor:pointer;transition:all .2s}
+  .tab-btn.active{background:var(--red);color:#fff}
+  /* File upload */
+  .file-upload-area{border:2px dashed var(--border);padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;margin-top:8px}
+  .file-upload-area:hover{border-color:var(--red)}
+  .file-upload-area input[type=file]{display:none}
+  .file-upload-area .upload-label{font-family:var(--font-head);font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);cursor:pointer}
+  .uploaded-files{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px}
+  .file-chip{background:var(--dark-2);border:1px solid var(--border);padding:4px 10px;font-family:var(--font-head);font-size:.7rem;color:var(--grey-light);display:flex;align-items:center;gap:6px}
+  .file-chip button{background:none;border:none;color:#ff4444;cursor:pointer;font-size:.9rem;padding:0}
 </style>
 </head>
 <body>
-<button class="mob-toggle" id="mob-toggle" onclick="toggleSidebar()" aria-label="Menu">
-  <span></span><span></span><span></span>
-</button>
-<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 <div class="admin-layout">
 <aside class="admin-sidebar">
   <div class="sidebar-logo">
@@ -124,6 +122,8 @@
     <a class="nav-item" onclick="showView('create-quote',this)" href="#"><span class="icon">✏️</span> Create Quote</a>
     <a class="nav-item" onclick="showView('invoices',this)" href="#"><span class="icon">🧾</span> Invoices</a>
     <a class="nav-item" onclick="showView('customers',this)" href="#"><span class="icon">👥</span> Customers</a>
+    <a class="nav-item" onclick="showView('requests',this)" href="#"><span class="icon">📩</span> Requests <span id="req-badge" class="new-badge" style="display:none"></span></a>
+    <a class="nav-item" onclick="showView('history',this)" href="#"><span class="icon">🔧</span> Service History</a>
     <a class="nav-item" onclick="showView('settings',this)" href="#"><span class="icon">⚙️</span> Settings</a>
     <a class="nav-item" href="index.html"><span class="icon">🌐</span> Back to Site</a>
   </nav>
@@ -136,12 +136,7 @@
 </aside>
 
 <main class="admin-main">
-
-  <!-- ALERT BANNER for new customer responses -->
-  <div class="alert-banner" id="alert-banner">
-    <span>🔔</span>
-    <span id="alert-text"></span>
-  </div>
+  <div class="alert-banner" id="alert-banner"><span>🔔</span><span id="alert-text"></span></div>
 
   <!-- DASHBOARD -->
   <div class="view active" id="view-dashboard">
@@ -168,12 +163,22 @@
     <div class="admin-header">
       <h1>All <em>Quotes</em></h1>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <select id="quotes-filter" onchange="renderAllQuotes()" style="background:var(--dark-2);border:1px solid var(--border);color:var(--white);font-family:var(--font-head);font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;outline:none;cursor:pointer;">
-          <option value="">All Companies</option>
-        </select>
-        <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+        <button class="refresh-btn" onclick="renderAllQuotes()">↻ Refresh</button>
         <button class="action-btn primary" onclick="showView('create-quote')">+ New Quote</button>
       </div>
+    </div>
+    <!-- Filter/Search row -->
+    <div class="filter-row">
+      <select id="quotes-company-filter" class="filter-select" onchange="renderAllQuotes()">
+        <option value="">All Companies</option>
+      </select>
+      <select id="quotes-status-filter" class="filter-select" onchange="renderAllQuotes()">
+        <option value="">All Statuses</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="declined">Declined</option>
+      </select>
+      <input type="text" id="quotes-search" class="search-input" placeholder="Search customer / quote #…" oninput="renderAllQuotes()"/>
     </div>
     <table class="data-table"><thead><tr><th>Quote #</th><th>Customer</th><th>Description</th><th>Amount</th><th>Status</th><th>Responded</th><th>Actions</th></tr></thead>
     <tbody id="all-quotes-table"><tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody></table>
@@ -193,11 +198,11 @@
         </div>
         <div class="form-group">
           <label>Customer Email</label>
-          <input type="text" id="q-email" placeholder="Auto-filled" readonly style="opacity:.55;cursor:not-allowed;"/>
+          <input type="text" id="q-email" readonly style="opacity:.55;cursor:not-allowed;"/>
         </div>
         <div class="form-group">
           <label>Company</label>
-          <input type="text" id="q-company" placeholder="Auto-filled" readonly style="opacity:.55;cursor:not-allowed;"/>
+          <input type="text" id="q-company" readonly style="opacity:.55;cursor:not-allowed;"/>
         </div>
         <div class="form-group">
           <label>Forklift Make / Model</label>
@@ -210,15 +215,32 @@
       </div>
       <div style="margin-top:24px;">
         <h3>Line Items</h3>
+        <div style="display:grid;grid-template-columns:2fr .6fr 1fr 1fr auto;gap:10px;margin-bottom:8px;">
+          <span style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);">Description</span>
+          <span style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);">Qty</span>
+          <span style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);">Type</span>
+          <span style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);">Unit Price ($)</span>
+          <span></span>
+        </div>
         <div id="line-items-container">
           <div class="line-item">
-            <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. LBR Bracket" class="item-desc"/></div>
-            <div class="form-group"><label>Type</label><select class="item-type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select></div>
-            <div class="form-group"><label>Amount ($)</label><input type="number" placeholder="0.00" class="item-amount" step="0.01" oninput="updateTotal()"/></div>
+            <input type="text" placeholder="e.g. LBR Bracket" class="item-desc" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"/>
+            <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;" oninput="updateTotal()"/>
+            <select class="item-type" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
+            <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"/>
             <button class="remove-line" onclick="removeLine(this)">×</button>
           </div>
         </div>
         <button class="action-btn" onclick="addLine()" style="margin-top:8px;">+ Add Line Item</button>
+      </div>
+      <!-- File attachments -->
+      <div style="margin-top:24px;">
+        <h3>Attachments <span style="color:var(--grey);font-weight:400;font-size:.8rem;text-transform:none;letter-spacing:0;">(optional — photos, diagrams)</span></h3>
+        <div class="file-upload-area" onclick="document.getElementById('quote-files').click()">
+          <label class="upload-label">📎 Click to attach files (photos, PDFs)</label>
+          <input type="file" id="quote-files" multiple accept="image/*,.pdf,.txt,.doc,.docx" onchange="handleFileSelect(this)"/>
+        </div>
+        <div class="uploaded-files" id="uploaded-files-list"></div>
       </div>
       <div class="quote-total">Total: <span id="quote-total-display">$0.00</span></div>
     </div>
@@ -232,12 +254,19 @@
   <div class="view" id="view-invoices">
     <div class="admin-header">
       <h1>All <em>Invoices</em></h1>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <select id="invoices-filter" onchange="renderInvoices()" style="background:var(--dark-2);border:1px solid var(--border);color:var(--white);font-family:var(--font-head);font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;outline:none;cursor:pointer;">
-          <option value="">All Companies</option>
-        </select>
-        <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
-      </div>
+      <button class="refresh-btn" onclick="renderInvoices()">↻ Refresh</button>
+    </div>
+    <div class="filter-row">
+      <select id="invoices-company-filter" class="filter-select" onchange="renderInvoices()">
+        <option value="">All Companies</option>
+      </select>
+      <select id="invoices-status-filter" class="filter-select" onchange="renderInvoices()">
+        <option value="">All Statuses</option>
+        <option value="unpaid">Unpaid</option>
+        <option value="paid">Paid</option>
+        <option value="hidden">Hidden</option>
+      </select>
+      <input type="text" id="invoices-search" class="search-input" placeholder="Search customer / invoice #…" oninput="renderInvoices()"/>
     </div>
     <table class="data-table"><thead><tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Due Date</th><th>Paid On</th><th>Actions</th></tr></thead>
     <tbody id="invoices-table"><tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody></table>
@@ -246,23 +275,32 @@
   <!-- CUSTOMERS -->
   <div class="view" id="view-customers">
     <div class="admin-header"><h1>All <em>Customers</em></h1></div>
+    <div class="filter-row">
+      <input type="text" id="customers-search" class="search-input" placeholder="Search name / email / company…" oninput="renderCustomers()"/>
+      <select id="customers-status-filter" class="filter-select" onchange="renderCustomers()">
+        <option value="">All Statuses</option>
+        <option value="pending">Pending</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </div>
     <table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th>Since</th><th>Actions</th></tr></thead>
     <tbody id="customers-table"><tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody></table>
   </div>
 
-  <!-- SETTINGS / CHANGE PASSWORD -->
+  <!-- SETTINGS -->
   <div class="view" id="view-settings">
     <div class="admin-header"><h1>Admin <em>Settings</em></h1></div>
     <div class="form-card" style="max-width:480px;">
       <h3>Change Admin Password</h3>
-      <p style="color:var(--grey-light);font-size:.9rem;margin-bottom:20px;line-height:1.65;">Your password is managed securely by Supabase Auth. Enter a new password below — it will be updated immediately.</p>
-      <div class="form-group">
-        <label style="font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">New Password</label>
-        <input type="password" id="admin-new-pass" placeholder="Min 8 characters" autocomplete="new-password" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:1rem;padding:12px 14px;outline:none;border-radius:0;width:100%;transition:border-color .2s;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border)'"/>
+      <p style="color:var(--grey-light);font-size:.9rem;margin-bottom:20px;line-height:1.65;">Password is managed by Supabase Auth. Changes take effect immediately.</p>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label>New Password</label>
+        <input type="password" id="admin-new-pass" placeholder="Min 8 characters" autocomplete="new-password"/>
       </div>
-      <div class="form-group">
-        <label style="font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Confirm New Password</label>
-        <input type="password" id="admin-new-pass2" placeholder="Repeat password" autocomplete="new-password" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:1rem;padding:12px 14px;outline:none;border-radius:0;width:100%;transition:border-color .2s;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border)'"/>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label>Confirm New Password</label>
+        <input type="password" id="admin-new-pass2" placeholder="Repeat password" autocomplete="new-password"/>
       </div>
       <div id="pw-err" style="color:#ff4444;font-size:.82rem;font-family:var(--font-head);font-weight:600;display:none;padding:10px;border:1px solid #ff4444;text-align:center;margin-bottom:10px;"></div>
       <div id="pw-suc" style="color:#4caf50;font-size:.82rem;font-family:var(--font-head);font-weight:600;display:none;padding:10px;border:1px solid #4caf50;text-align:center;margin-bottom:10px;"></div>
@@ -270,232 +308,313 @@
     </div>
   </div>
 
+  <!-- SERVICE REQUESTS -->
+  <div class="view" id="view-requests">
+    <div class="admin-header">
+      <h1>Service <em>Requests</em></h1>
+      <button class="refresh-btn" onclick="renderRequests()">↻ Refresh</button>
+    </div>
+    <div class="filter-row">
+      <select id="req-status-filter" class="filter-select" onchange="renderRequests()">
+        <option value="">All Statuses</option>
+        <option value="open">Open</option>
+        <option value="quoted">Quoted</option>
+        <option value="closed">Closed</option>
+      </select>
+      <input type="text" id="req-search" class="search-input" placeholder="Search customer / company…" oninput="renderRequests()"/>
+    </div>
+    <table class="data-table" id="requests-table-wrap">
+      <thead><tr><th>Req #</th><th>Customer</th><th>Equipment</th><th>Issue</th><th>Urgency</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody id="requests-table"><tr><td colspan="8" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- SERVICE HISTORY -->
+  <div class="view" id="view-history">
+    <div class="admin-header">
+      <h1>Service <em>History</em></h1>
+      <button class="action-btn primary" onclick="openAddHistoryModal()">+ Add Record</button>
+    </div>
+    <div class="filter-row">
+      <select id="history-customer-filter" class="filter-select" onchange="renderHistory()">
+        <option value="">All Customers</option>
+      </select>
+      <select id="history-paid-filter" class="filter-select" onchange="renderHistory()">
+        <option value="">All</option>
+        <option value="paid">Paid</option>
+        <option value="unpaid">Unpaid</option>
+      </select>
+      <input type="text" id="history-search" class="search-input" placeholder="Search customer / equipment…" oninput="renderHistory()"/>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>ID</th><th>Customer</th><th>Equipment</th><th>Description</th><th>Technician</th><th>Date</th><th>Amount</th><th>Paid</th><th>Actions</th></tr></thead>
+      <tbody id="history-table"><tr><td colspan="9" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ADD / EDIT SERVICE HISTORY MODAL -->
+  <div class="modal-overlay" id="history-modal" style="z-index:600;">
+    <div class="modal" style="max-width:600px;max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <h3 id="history-modal-title">Add Service Record</h3>
+        <button class="action-btn" onclick="closeHistoryModal()">✕ Close</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="form-group" style="grid-column:1/-1;">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Customer *</label>
+          <select id="hist-customer" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;" onchange="fillHistCustomer()">
+            <option value="">— Select customer —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Equipment</label>
+          <input type="text" id="hist-equipment" placeholder="e.g. Toyota 8FGU25" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;box-sizing:border-box;"/>
+        </div>
+        <div class="form-group">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Technician</label>
+          <input type="text" id="hist-tech" placeholder="Technician name" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;box-sizing:border-box;"/>
+        </div>
+        <div class="form-group">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Service Date</label>
+          <input type="date" id="hist-date" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;box-sizing:border-box;"/>
+        </div>
+        <div class="form-group">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Amount Charged ($)</label>
+          <input type="number" id="hist-amount" placeholder="0.00" step="0.01" min="0" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;box-sizing:border-box;"/>
+        </div>
+        <div class="form-group">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Payment Status</label>
+          <select id="hist-paid" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;">
+            <option value="false">Unpaid / Invoiced separately</option>
+            <option value="true">Paid in full</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Description of Work *</label>
+          <textarea id="hist-desc" rows="3" placeholder="Describe the work performed…" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px;">Internal Notes</label>
+          <textarea id="hist-notes" rows="2" placeholder="Parts used, observations, follow-up needed…" style="width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;border-radius:0;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+      </div>
+      <div id="hist-err" style="color:#ff4444;font-family:var(--font-head);font-size:.8rem;font-weight:700;display:none;padding:10px;border:1px solid #ff4444;text-align:center;margin:12px 0;"></div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn-primary" onclick="saveHistoryRecord()">Save Record</button>
+        <button class="action-btn" onclick="closeHistoryModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- REQUEST DETAIL MODAL -->
+  <div class="modal-overlay" id="req-detail-modal" style="z-index:500;">
+    <div class="modal" style="max-width:680px;max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+        <h3 id="req-detail-id" style="margin:0;">Request</h3>
+        <div style="display:flex;gap:8px;">
+          <button class="action-btn green" id="req-quote-btn" onclick="quoteFromRequest()">✏️ Create Quote</button>
+          <button class="action-btn" onclick="closeReqModal()">✕ Close</button>
+        </div>
+      </div>
+      <div id="req-detail-body"></div>
+    </div>
+  </div>
 </main>
 </div>
 <div class="success-toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://js.stripe.com/v3/"></script>
 <script src="portal-data.js"></script>
 <script>
-// Auth guard — waits for DOM + Supabase to be fully ready
-// Auth guard — waits for DOM + Supabase to be fully ready
-  let _currentUser = null;
+// ── CONSTANTS ─────────────────────────────────
+const EJS_SVC  = 'service_lfi9ixk';
+const EJS_NOTIF = 'template_jpqlmic'; // Business notification template
+// emailjs.init called inside initAdmin() after scripts load
 
-  async function initAdmin() {
-
-    try {
-      // 1. Validate Session
-      const session = await Auth.getSession();
-
-      if (!session || session.user.email !== 'admin@apexliftsolutionsusa.com') {
-        await Auth.signOut();
-        localStorage.clear();
-        sessionStorage.clear();
-        window.location.href = 'portal-login.html';
-        return;
-      }
-
-      _currentUser = session.user;
-      document.getElementById('admin-name').textContent = 'Apex Admin';
-
-    } catch(authErr) {
-      // CIRCUIT BREAKER: Stop the loop and show the error on screen
-      document.body.innerHTML = `
-        <div style="padding:50px; text-align:center;">
-          <h2 style="color:#ff4444; margin-bottom: 20px;">Authentication Error</h2>
-          <p style="color:var(--grey-light); margin-bottom: 20px;">${authErr.message}</p>
-          <a href="portal-login.html" class="btn-primary">Return to Login</a>
-        </div>`;
-      return;
-    }
-
-    // 2. Load Dashboard Data (Isolated so data errors don't cause redirects)
-    try {
-      await refreshAll();
-      await loadCustomerDropdown();
-    } catch(dataErr) {
-      console.error('Data Error:', dataErr);
-      document.getElementById('dash-quotes-table').innerHTML = `
-        <tr><td colspan="6" style="text-align:center;color:#ff4444;padding:24px;">
-          Dashboard loaded, but failed to fetch database records.
-        </td></tr>`;
-    }
-  }
-
-// Wait for DOM to be ready before running auth
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initAdmin);
-} else {
-  initAdmin();
-}
-
-// Track last known status of quotes so we can detect changes
+let _currentUser = null;
+let _allCustomers = [];
+let _pendingFiles = []; // files staged for upload with quote
 let lastQuoteStatuses = {};
 
+// ── AUTH GUARD ────────────────────────────────
+async function initAdmin() {
+  // Init EmailJS after SDK is loaded
+  emailjs.init('P0tnD3LQqQ6Pujijz');
+
+  try {
+    const session = await Auth.getSession();
+    if (!session || session.user.email !== 'admin@apexliftsolutionsusa.com') {
+      await Auth.signOut();
+      window.location.href = 'portal-login.html';
+      return;
+    }
+    _currentUser = session.user;
+    document.getElementById('admin-name').textContent = 'Apex Admin';
+    await refreshAll();
+    await loadCustomerDropdown();
+  } catch(e) {
+    console.error('Init error:', e);
+    window.location.href = 'portal-login.html';
+  }
+}
+document.readyState === 'loading'
+  ? document.addEventListener('DOMContentLoaded', initAdmin)
+  : initAdmin();
+
+// ── HELPERS ───────────────────────────────────
 function badge(s) {
-  const m = {pending:'badge-pending',approved:'badge-approved',declined:'badge-declined',paid:'badge-paid',unpaid:'badge-unpaid',active:'badge-active'};
+  const m = {pending:'badge-pending',approved:'badge-approved',declined:'badge-declined',
+             paid:'badge-paid',unpaid:'badge-unpaid',active:'badge-active',hidden:'badge-hidden'};
   return `<span class="badge ${m[s]||''}">${s}</span>`;
 }
-
-function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-US');
+function fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-US') : '—'; }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3500);
 }
 
+// ── EMAIL NOTIFICATIONS ───────────────────────
+async function sendEmail(to_email, to_name, subject, message) {
+  try {
+    console.log('Sending email to:', to_email, '| Subject:', subject);
+    const result = await emailjs.send(EJS_SVC, EJS_NOTIF, { to_email, to_name, subject, message });
+    console.log('Email sent OK:', result.status, result.text);
+  } catch(e) {
+    console.error('Email failed — service:', EJS_SVC, '| template:', EJS_NOTIF, '| error:', e);
+  }
+}
+
+// ── STATS ─────────────────────────────────────
 async function renderStats() {
   const [quotes, invoices, customers] = await Promise.all([
-    DB.getAllQuotes(),
-    DB.getAllInvoices(),
-    DB.getAllCustomers()
+    DB.getAllQuotes(), DB.getAllInvoices(), DB.getAllCustomers()
   ]);
   const pending = quotes.filter(q => q.status === 'pending').length;
-  const unpaid = invoices.filter(i => i.status === 'unpaid').length;
-  const revenue = invoices.filter(i => i.status === 'paid').reduce((s,i) => s + parseFloat(i.amount), 0);
-
-  // Show pending badge on nav
+  const unpaid  = invoices.filter(i => i.status === 'unpaid').length;
+  const revenue = invoices.filter(i => i.status === 'paid').reduce((s,i)=>s+parseFloat(i.amount),0);
   const pb = document.getElementById('pending-badge');
-  if (pending > 0) { pb.style.display = 'inline'; pb.textContent = pending + ' NEW'; }
-  else pb.style.display = 'none';
-
+  if (pending > 0) { pb.style.display='inline'; pb.textContent=pending+' NEW'; } else pb.style.display='none';
   document.getElementById('stats-grid').innerHTML = `
     <div class="stat-card"><div class="label">Total Customers</div><div class="value">${customers.length}</div></div>
     <div class="stat-card"><div class="label">Open Quotes</div><div class="value ${pending>0?'red':''}">${pending}</div></div>
     <div class="stat-card"><div class="label">Unpaid Invoices</div><div class="value ${unpaid>0?'red':''}">${unpaid}</div></div>
-    <div class="stat-card"><div class="label">Revenue Collected</div><div class="value">$${revenue.toFixed(2)}</div></div>
-  `;
-
-  // Detect and alert on status changes since last poll
+    <div class="stat-card"><div class="label">Revenue Collected</div><div class="value">$${revenue.toFixed(2)}</div></div>`;
+  // Detect quote status changes
   const changed = quotes.filter(q => {
     const prev = lastQuoteStatuses[q.id];
-    return prev && prev !== q.status && (q.status === 'approved' || q.status === 'declined');
+    return prev && prev !== q.status && (q.status==='approved'||q.status==='declined');
   });
   if (changed.length > 0) {
     const last = changed[0];
-    const banner = document.getElementById('alert-banner');
     document.getElementById('alert-text').textContent =
-      `🔔 ${last.customer_name} ${last.status === 'approved' ? '✓ APPROVED' : '✗ DECLINED'} quote ${last.id} for $${parseFloat(last.amount).toFixed(2)}`;
-    banner.className = 'alert-banner show';
-    // Play a soft notification tone if supported
-    try { new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAA...').play(); } catch(e) {}
+      `${last.customer_name} ${last.status==='approved'?'✓ APPROVED':'✗ DECLINED'} quote ${last.id} for $${parseFloat(last.amount).toFixed(2)}`;
+    document.getElementById('alert-banner').className = 'alert-banner show';
   }
-  // Update last known statuses
   quotes.forEach(q => { lastQuoteStatuses[q.id] = q.status; });
-
-  // ADD THIS LINE AT THE BOTTOM:
-  renderQuotes(quotes);
-
-  return { quotes, invoices };
-}
-// This function replaces the "Approve" button with a label if status is not 'pending'
-async function renderQuotes(quotesList) {
-  const list = quotesList || await DB.getAllQuotes();
-  const table = document.getElementById('quotes-table');
-  if (!table) return;
-
-  table.innerHTML = list.map(q => `
-    <tr>
-      <td>${esc(q.customer_name)} <br><small>${esc(q.company)}</small></td>
-      <td><strong>$${parseFloat(q.amount).toFixed(2)}</strong></td>
-      <td>
-        ${q.status === 'pending' ?
-          `<button id="btn-approve-${q.id}" class="action-btn green" onclick="approveQuote('${q.id}')">Approve & Invoice</button>` :
-          `<span style="color:#4caf50; font-weight:700;">✓ INVOICE SENT</span>`
-        }
-        <button class="action-btn" style="color:#ff4444" onclick="deleteQuote('${q.id}')">Delete</button>
-      </td>
-    </tr>
-  `).join('');
 }
 
-async function approveQuote(id) {
-  const btn = document.getElementById(`btn-approve-${id}`);
-  if (btn) {
-    btn.disabled = true; // Stop double clicks immediately
-    btn.textContent = 'Processing...';
-  }
-
-  try {
-    const inv = await DB.quoteToInvoice(id);
-    if (inv) {
-      // Update the quote status so it doesn't show the button anymore
-      await DB.updateQuoteStatus(id, 'approved');
-      showToast('Invoice generated successfully.');
-      renderStats(); // This will trigger the table refresh
-    }
-  } catch (e) {
-    showToast('Error: Could not send invoice.');
-    if (btn) { btn.disabled = false; btn.textContent = 'Approve & Invoice'; }
-  }
-}
-
+// ── DASHBOARD QUOTES ─────────────────────────
 async function renderDashQuotes() {
   const quotes = await DB.getAllQuotes();
-  document.getElementById('dash-quotes-table').innerHTML = quotes.slice(0,5).map(q => `
+  document.getElementById('dash-quotes-table').innerHTML = quotes.slice(0,6).map(q=>`
     <tr>
-      <td><strong style="color:var(--white)">${q.id}</strong></td>
-      <td>${esc(q.customer_name)} — ${esc(q.company||"")}</td>
+      <td><strong style="color:var(--white)">${esc(q.id)}</strong></td>
+      <td>${esc(q.customer_name)} — <span style="color:var(--grey);font-size:.8rem;">${esc(q.company||'')}</span></td>
       <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
-      <td>${badge(q.status)}${q.status !== 'pending' && q.responded_at ? `<span style="color:var(--grey);font-size:.75rem;margin-left:8px;">${fmtDate(q.responded_at)}</span>` : ''}</td>
-      <td>${fmtDate(q.created_at || q.date)}</td>
+      <td>${badge(q.status)}</td>
+      <td>${fmtDate(q.created_at)}</td>
       <td>
-        ${q.status === 'approved' ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Create Invoice</button>` : ''}
+        ${q.status==='approved'&&!q.invoiced?`<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>`:
+          q.invoiced?`<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>`:''}
         <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
       </td>
-    </tr>
-  `).join('');
+    </tr>`).join('');
 }
 
+// ── ALL QUOTES (with search + filter) ────────
 async function renderAllQuotes() {
   let quotes = await DB.getAllQuotes();
-  // Apply company filter
-  const filter = document.getElementById('quotes-filter')?.value;
-  if (filter) quotes = quotes.filter(q => q.company === filter);
+  const company = document.getElementById('quotes-company-filter')?.value;
+  const status  = document.getElementById('quotes-status-filter')?.value;
+  const search  = (document.getElementById('quotes-search')?.value||'').toLowerCase();
+  if (company) quotes = quotes.filter(q => q.company === company);
+  if (status)  quotes = quotes.filter(q => q.status === status);
+  if (search)  quotes = quotes.filter(q =>
+    (q.customer_name||'').toLowerCase().includes(search) ||
+    (q.id||'').toLowerCase().includes(search) ||
+    (q.customer_email||'').toLowerCase().includes(search));
   document.getElementById('all-quotes-table').innerHTML = !quotes.length
-    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No quotes found.</td></tr>'
-    : quotes.map(q => `
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No quotes match your filters.</td></tr>'
+    : quotes.map(q=>`
     <tr>
-      <td><strong style="color:var(--white)">${q.id}</strong></td>
+      <td><strong style="color:var(--white)">${esc(q.id)}</strong></td>
       <td>${esc(q.customer_name)}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(q.customer_email)}</span></td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem;">${esc(q.description||q.desc||"")}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem;">${esc(q.description||'')}</td>
       <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
       <td>${badge(q.status)}</td>
       <td>${fmtDate(q.responded_at)}</td>
       <td>
-        ${q.status === 'approved' ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` : ''}
+        ${q.status==='approved'&&!q.invoiced?`<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>`:
+          q.invoiced?`<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>`:''}
         <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
+        <button class="action-btn danger" onclick="deleteQuote('${q.id}')">Delete</button>
       </td>
-    </tr>
-  `).join('');
+    </tr>`).join('');
 }
 
+// ── INVOICES (with search + filter + hide) ────
 async function renderInvoices() {
   let invoices = await DB.getAllInvoices();
-  // Apply company filter
-  const filter = document.getElementById('invoices-filter')?.value;
-  if (filter) invoices = invoices.filter(i => i.company === filter);
+  const company = document.getElementById('invoices-company-filter')?.value;
+  const status  = document.getElementById('invoices-status-filter')?.value;
+  const search  = (document.getElementById('invoices-search')?.value||'').toLowerCase();
+  // By default hide hidden invoices unless filter set to hidden
+  if (status === 'hidden') {
+    invoices = invoices.filter(i => i.status === 'hidden');
+  } else {
+    if (company) invoices = invoices.filter(i => i.company === company);
+    if (status)  invoices = invoices.filter(i => i.status === status);
+    else         invoices = invoices.filter(i => i.status !== 'hidden');
+    if (search)  invoices = invoices.filter(i =>
+      (i.customer_name||'').toLowerCase().includes(search) ||
+      (i.id||'').toLowerCase().includes(search) ||
+      (i.company||'').toLowerCase().includes(search));
+  }
   document.getElementById('invoices-table').innerHTML = !invoices.length
-    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No invoices found.</td></tr>'
-    : invoices.map(i => `
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No invoices match your filters.</td></tr>'
+    : invoices.map(i=>`
     <tr>
-      <td><strong style="color:var(--white)">${i.id}</strong></td>
-      <td>${esc(i.customer_name||"")}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company||"")}</span></td>
+      <td><strong style="color:var(--white)">${esc(i.id)}</strong></td>
+      <td>${esc(i.customer_name||'')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company||'')}</span></td>
       <td><strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong></td>
       <td>${badge(i.status)}</td>
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
       <td>
-        ${i.status === 'unpaid' ? `<button class="action-btn green" onclick="markPaid('${i.id}')">✓ Mark Paid</button>` : ''}
+        ${i.status==='unpaid'?`<button class="action-btn green" onclick="markPaid('${i.id}')">✓ Mark Paid</button>`:''}
+        ${i.status!=='hidden'?`<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`:`<button class="action-btn green" onclick="unhideInvoice('${i.id}')">Unhide</button>`}
+        <button class="action-btn danger" onclick="deleteInvoice('${i.id}')">Delete</button>
       </td>
-    </tr>
-  `).join('');
+    </tr>`).join('');
 }
 
+// ── CUSTOMERS (with search + filter) ─────────
 async function renderCustomers() {
   const customers = await DB.getAllCustomers();
-  document.getElementById('customers-table').innerHTML = customers.length === 0
-    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No customers yet.</td></tr>'
-    : customers.map(c => `
+  const search = (document.getElementById('customers-search')?.value||'').toLowerCase();
+  const status = document.getElementById('customers-status-filter')?.value;
+  let list = customers;
+  if (search) list = list.filter(c =>
+    (c.name||'').toLowerCase().includes(search) ||
+    (c.email||'').toLowerCase().includes(search) ||
+    (c.company||'').toLowerCase().includes(search));
+  if (status) list = list.filter(c => c.status === status);
+  document.getElementById('customers-table').innerHTML = !list.length
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No customers match your filters.</td></tr>'
+    : list.map(c=>`
     <tr>
       <td><strong style="color:var(--white)">${esc(c.name||'—')}</strong></td>
       <td>${esc(c.company||'—')}</td>
@@ -504,211 +623,645 @@ async function renderCustomers() {
       <td>${badge(c.status)}</td>
       <td>${esc(c.since||'—')}</td>
       <td>
-        ${c.status !== 'active'   ? `<button class="action-btn green"   onclick="setCustomerStatus('${esc(String(c.id))}','active')">✓ Activate</button>` : ''}
-        ${c.status === 'active'   ? `<button class="action-btn"         onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Deactivate</button>` : ''}
-        ${c.status === 'pending'  ? `<button class="action-btn"         onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Reject</button>` : ''}
-        <button class="action-btn" style="border-color:#ff4444;color:#ff4444;" onclick="deleteCustomer('${esc(String(c.id))}','${esc(c.name||c.email)}')">Delete</button>
+        ${c.status!=='active'?`<button class="action-btn green" onclick="activateCustomer('${esc(String(c.id))}','${esc(c.email)}','${esc(c.name||'')}')">✓ Activate</button>`:''}
+        ${c.status==='active'?`<button class="action-btn" onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Deactivate</button>`:''}
+        ${c.status==='pending'?`<button class="action-btn danger" onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Reject</button>`:''}
+        <button class="action-btn danger" onclick="deleteCustomer('${esc(String(c.id))}','${esc(c.name||c.email)}')">Delete</button>
       </td>
-    </tr>
-  `).join('');
+    </tr>`).join('');
 }
 
+// ── CUSTOMER ACTIONS ─────────────────────────
+async function activateCustomer(id, email, name) {
+  await DB.updateCustomerStatus(id, 'active');
+  await sendEmail(email, name||'Customer',
+    'Your Apex Lift Solutions Account is Approved!',
+    `Hi ${name||'there'},\n\nYour portal account has been approved! You can now sign in at:\napexliftsolutionsusa.com/portal-login.html\n\nFrom your portal you can view quotes, approve or decline them, see invoices, and track your service history.\n\nQuestions? Call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
+  showToast('✓ Customer activated and notified by email!');
+  await renderCustomers(); await loadCustomerDropdown();
+}
 async function setCustomerStatus(id, status) {
   await DB.updateCustomerStatus(id, status);
-  showToast(`✓ Customer ${status === 'active' ? 'activated' : status === 'inactive' ? 'deactivated' : status}!`);
-  await renderCustomers();
-  await loadCustomerDropdown();
-  await renderStats();
+  showToast(`✓ Customer ${status}!`);
+  await renderCustomers(); await loadCustomerDropdown();
 }
-
 async function deleteCustomer(id, name) {
-  if (!confirm(`Permanently delete customer "${name}"? This cannot be undone.`)) return;
+  if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
   const ok = await DB.deleteCustomer(id);
-  if (ok) { showToast('✓ Customer deleted.'); await renderCustomers(); await loadCustomerDropdown(); await renderStats(); }
-  else alert('Delete failed. The customer may have associated quotes or invoices.');
+  if (ok) { showToast('✓ Customer deleted.'); await renderCustomers(); await loadCustomerDropdown(); }
+  else alert('Delete failed — customer may have associated records.');
 }
 
-async function viewQuoteDetail(id) {
-  const quotes = await DB.getAllQuotes();
-  const q = quotes.find(x => x.id === id);
-  if (!q) return;
-  const items = q.items ? q.items.map(i => `  • ${i.desc} (${i.type}): $${parseFloat(i.amount).toFixed(2)}`).join('\n') : '';
-  alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${esc(q.customer_name)} — ${esc(q.company||"")}\nEquipment: ${esc(q.equipment || 'N/A')}\nStatus: ${q.status.toUpperCase()}${q.responded_at ? ' on ' + fmtDate(q.responded_at) : ''}\n\nDescription:\n${q.description||q.desc||''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
-}
-
-async function convertToInvoice(quoteId) {
-  if (!confirm(`Convert quote ${quoteId} to an invoice and send to customer?`)) return;
-  const inv = await DB.quoteToInvoice(quoteId);
-  if (inv) {
-    showToast(`✓ Invoice ${inv.id} created for $${parseFloat(inv.amount).toFixed(2)}!`);
-    await refreshAll();
-    showView('invoices');
-  }
-}
-
+// ── INVOICE ACTIONS ───────────────────────────
 async function markPaid(id) {
   await DB.markInvoicePaid(id);
+  const invs = await DB.getAllInvoices();
+  const inv = invs.find(i=>i.id===id);
+  if (inv) {
+    // Email customer receipt
+    await sendEmail(inv.customer_email, inv.customer_name||'Customer',
+      `Payment Confirmed — Invoice ${inv.id}`,
+      `Hi ${inv.customer_name||'there'},\n\nYour payment for invoice ${inv.id} ($${parseFloat(inv.amount).toFixed(2)}) has been confirmed.\n\nThank you for your business! Log in to view your full receipt:\napexliftsolutionsusa.com/portal-login.html\n\nQuestions? Call (516) 644-7187.\n\n— Apex Lift Solutions`);
+    // Also notify admin
+    await sendEmail('admin@apexliftsolutionsusa.com', 'Apex Admin',
+      `Invoice ${inv.id} Marked Paid — $${parseFloat(inv.amount).toFixed(2)}`,
+      `Invoice ${inv.id} for ${inv.customer_name||'customer'} ($${parseFloat(inv.amount).toFixed(2)}) has been marked as paid.\nCustomer: ${inv.customer_email}`);
+    await sendEmail('apexliftsolutions1@gmail.com', 'Apex Admin',
+      `Invoice ${inv.id} Marked Paid — $${parseFloat(inv.amount).toFixed(2)}`,
+      `Invoice ${inv.id} for ${inv.customer_name||'customer'} ($${parseFloat(inv.amount).toFixed(2)}) has been marked as paid.\nCustomer: ${inv.customer_email}`);
+  }
+  showToast('✓ ' + id + ' marked as paid — customer notified!');
   renderInvoices();
-  showToast('✓ ' + id + ' marked as paid!');
+}
+async function hideInvoice(id) {
+  await SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, { status: 'hidden' });
+  showToast('Invoice hidden (use "Hidden" filter to view it).');
+  renderInvoices();
+}
+async function unhideInvoice(id) {
+  await SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, { status: 'unpaid' });
+  showToast('Invoice restored to unpaid.');
+  renderInvoices();
+}
+async function deleteInvoice(id) {
+  if (!confirm(`Permanently delete invoice ${id}? This cannot be undone.`)) return;
+  await SB.delete('invoices', `id=eq.${encodeURIComponent(id)}`);
+  showToast('✓ Invoice deleted.');
+  renderInvoices();
 }
 
+// ── QUOTE ACTIONS ─────────────────────────────
+async function convertToInvoice(quoteId) {
+  if (!confirm(`Convert quote ${quoteId} to an invoice?`)) return;
+  const inv = await DB.quoteToInvoice(quoteId);
+  if (inv) {
+    await DB.updateQuoteField(quoteId, { invoiced: true });
+    // Build line item breakdown for email
+    const invLines = inv.items && inv.items.length
+      ? '\n\nWork Summary:\n' + inv.items.map(i => {
+          const qty = parseFloat(i.qty)||1;
+          const unit = parseFloat(i.unit_price||i.amount||0);
+          return `  • ${i.desc||'Service'} x${qty} @ $${unit.toFixed(2)} = $${(qty*unit).toFixed(2)}`;
+        }).join('\n')
+      : '';
+    await sendEmail(inv.customer_email, inv.customer_name||'Customer',
+      `Invoice ${inv.id} Ready — $${parseFloat(inv.amount).toFixed(2)} Due`,
+      `Hi ${inv.customer_name||'there'},\n\nYour invoice ${inv.id} for $${parseFloat(inv.amount).toFixed(2)} is ready for payment.\nDue Date: ${new Date(inv.due).toLocaleDateString('en-US')}${invLines}\n\nTotal Due: $${parseFloat(inv.amount).toFixed(2)}\n\nLog in to review and pay online:\napexliftsolutionsusa.com/portal-login.html\n\nOr call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
+    showToast(`✓ Invoice ${inv.id} created — customer notified!`);
+    await refreshAll(); showView('invoices');
+  }
+}
+async function deleteQuote(id) {
+  if (!confirm(`Delete quote ${id}?`)) return;
+  await DB.deleteQuote(id);
+  showToast('✓ Quote deleted.');
+  renderAllQuotes();
+}
+async function viewQuoteDetail(id) {
+  const quotes = await DB.getAllQuotes();
+  const q = quotes.find(x=>x.id===id);
+  if (!q) return;
+  const items = q.items ? q.items.map(i=>`  • ${i.desc} x${i.qty||1} (${i.type}): $${parseFloat(i.unit_price||i.amount||0).toFixed(2)} ea = $${(parseFloat(i.unit_price||i.amount||0)*(i.qty||1)).toFixed(2)}`).join('\n') : '';
+  alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${q.customer_name} — ${q.company||''}\nEquipment: ${q.equipment||'N/A'}\nStatus: ${q.status.toUpperCase()}${q.responded_at?' on '+fmtDate(q.responded_at):''}\n\nDescription:\n${q.description||''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
+}
+
+// ── FILE HANDLING ─────────────────────────────
+function handleFileSelect(input) {
+  _pendingFiles = Array.from(input.files);
+  const list = document.getElementById('uploaded-files-list');
+  list.innerHTML = _pendingFiles.map((f,i)=>`
+    <div class="file-chip">
+      📎 ${esc(f.name)}
+      <button onclick="removeFile(${i})" title="Remove">×</button>
+    </div>`).join('');
+}
+function removeFile(idx) {
+  _pendingFiles.splice(idx, 1);
+  handleFileSelect({ files: _pendingFiles });
+}
+async function uploadFiles(quoteId) {
+  if (!_pendingFiles.length) return [];
+  const urls = [];
+  for (const file of _pendingFiles) {
+    // Sanitize filename — remove spaces and special chars that break URLs
+    const safeName = file.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9._-]/g,'');
+    const path = `quotes/${quoteId}/${Date.now()}_${safeName}`;
+    console.log('Uploading:', path, 'size:', file.size, 'type:', file.type);
+    const { data, error } = await _sb.storage
+      .from('apex-uploads')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (error) {
+      console.error('Upload failed:', error.message, error);
+    } else {
+      const { data: urlData } = _sb.storage.from('apex-uploads').getPublicUrl(path);
+      console.log('Upload OK, URL:', urlData.publicUrl);
+      urls.push(urlData.publicUrl);
+    }
+  }
+  return urls;
+}
+
+// ── CUSTOMER DROPDOWN ─────────────────────────
+async function loadCustomerDropdown() {
+  _allCustomers = await DB.getAllCustomers();
+  const sel = document.getElementById('q-customer-select');
+  if (sel) {
+    const active = _allCustomers.filter(x=>x.status==='active');
+    sel.innerHTML = active.length===0
+      ? '<option value="">— No active customers yet —</option>'
+      : '<option value="">— Select a customer —</option>' +
+        active.map(x=>`<option value="${esc(x.email)}" data-name="${esc(x.name||'')}" data-company="${esc(x.company||'')}" data-id="${esc(String(x.id||''))}">${esc(x.name||'')}${x.company?' — '+esc(x.company):''} &lt;${esc(x.email)}&gt;</option>`).join('');
+    document.getElementById('q-email').value='';
+    document.getElementById('q-company').value='';
+  }
+  const companies=[...new Set(_allCustomers.map(x=>x.company).filter(Boolean))].sort();
+  const opts='<option value="">All Companies</option>'+companies.map(co=>`<option value="${esc(co)}">${esc(co)}</option>`).join('');
+  ['quotes-company-filter','invoices-company-filter'].forEach(id=>{
+    const el=document.getElementById(id); if(el){const v=el.value;el.innerHTML=opts;el.value=v;}
+  });
+}
+function selectCustomer() {
+  const sel=document.getElementById('q-customer-select');
+  const opt=sel.options[sel.selectedIndex];
+  document.getElementById('q-email').value=opt.value||'';
+  document.getElementById('q-company').value=opt.dataset.company||'';
+}
+
+// ── LINE ITEMS ────────────────────────────────
 function addLine() {
-  const c = document.getElementById('line-items-container');
-  const d = document.createElement('div');
-  d.className = 'line-item';
-  d.innerHTML = `
-    <div class="form-group"><label>Description</label><input type="text" placeholder="Description" class="item-desc"/></div>
-    <div class="form-group"><label>Type</label><select class="item-type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select></div>
-    <div class="form-group"><label>Amount ($)</label><input type="number" placeholder="0.00" class="item-amount" step="0.01" oninput="updateTotal()"/></div>
+  const c=document.getElementById('line-items-container');
+  const d=document.createElement('div'); d.className='line-item';
+  d.innerHTML=`
+    <input type="text" placeholder="Description" class="item-desc" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"/>
+    <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;" oninput="updateTotal()"/>
+    <select class="item-type" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
+    <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"/>
     <button class="remove-line" onclick="removeLine(this)">×</button>`;
   c.appendChild(d);
 }
-
 function removeLine(btn) { btn.closest('.line-item').remove(); updateTotal(); }
-
 function updateTotal() {
-  const total = [...document.querySelectorAll('.item-amount')].reduce((s,e) => s+(parseFloat(e.value)||0), 0);
-  document.getElementById('quote-total-display').textContent = '$' + total.toFixed(2);
+  const total=[...document.querySelectorAll('.line-item')].reduce((s,row)=>{
+    const qty=parseFloat(row.querySelector('.item-qty')?.value)||1;
+    const unit=parseFloat(row.querySelector('.item-unit')?.value)||0;
+    return s+(qty*unit);
+  },0);
+  document.getElementById('quote-total-display').textContent='$'+total.toFixed(2);
 }
 
-// ── CUSTOMER DROPDOWN ────────────────────────
-let _allCustomers = [];
-
-async function loadCustomerDropdown() {
-  _allCustomers = await DB.getAllCustomers();
-
-  // Create-quote dropdown — only active customers, live from Supabase
-  const sel = document.getElementById('q-customer-select');
-  if (sel) {
-    const active = _allCustomers.filter(x => x.status === 'active');
-    sel.innerHTML = active.length === 0
-      ? '<option value="">— No active customers yet —</option>'
-      : '<option value="">— Select a customer —</option>' +
-        active.map(x =>
-          `<option value="${esc(x.email)}" data-name="${esc(x.name||'')}" data-company="${esc(x.company||'')}" data-id="${esc(String(x.id||''))}">${esc(x.name||'')}${x.company?' — '+esc(x.company):''} &lt;${esc(x.email)}&gt;</option>`
-        ).join('');
-    document.getElementById('q-email').value = '';
-    document.getElementById('q-company').value = '';
-  }
-
-  // Company filter dropdowns for quotes and invoices
-  const companies = [...new Set(_allCustomers.map(x => x.company).filter(Boolean))].sort();
-  const filterOpts = '<option value="">All Companies</option>' +
-    companies.map(co => `<option value="${esc(co)}">${esc(co)}</option>`).join('');
-  const qf = document.getElementById('quotes-filter');
-  const inf = document.getElementById('invoices-filter');
-  if (qf) { const cur = qf.value; qf.innerHTML = filterOpts; qf.value = cur; }
-  if (inf) { const cur = inf.value; inf.innerHTML = filterOpts; inf.value = cur; }
-}
-function selectCustomer() {
-  const sel  = document.getElementById('q-customer-select');
-  const opt  = sel.options[sel.selectedIndex];
-  document.getElementById('q-email').value   = opt.value || '';
-  document.getElementById('q-company').value = opt.dataset.company || '';
-}
-
+// ── SAVE QUOTE ────────────────────────────────
 async function saveQuote() {
-  const sel = document.getElementById('q-customer-select');
-  if (!sel || !sel.value) { alert('Please select a customer from the dropdown.'); return; }
-  const email   = document.getElementById('q-email').value.trim();
-  const company = document.getElementById('q-company').value.trim();
-  const opt     = sel.options[sel.selectedIndex];
-  const name    = opt.dataset.name || '';
-  const custId  = opt.dataset.id || null;
-  if (!email) { alert('Customer email missing. Please re-select the customer.'); return; }
-  const items = [...document.querySelectorAll('.line-item')].map(row => ({
-    desc: row.querySelector('.item-desc').value || 'Service',
-    type: row.querySelector('.item-type').value,
-    amount: parseFloat(row.querySelector('.item-amount').value) || 0
-  })).filter(i => i.amount > 0);
-  const total = items.reduce((s,i) => s+i.amount, 0);
-  if (total === 0) { alert('Please add at least one line item with an amount.'); return; }
-  const newQuote = {
-    customer_id: custId,
-    customer_email: email,
-    customer_name: name,
-    company,
-    equipment: document.getElementById('q-equipment').value.trim(),
-    description: document.getElementById('q-desc').value.trim() || 'Forklift Service',
-    items,
-    amount: total,
-    status: 'pending'
+  const sel=document.getElementById('q-customer-select');
+  if (!sel||!sel.value){alert('Please select a customer.');return;}
+  const email=document.getElementById('q-email').value.trim();
+  const company=document.getElementById('q-company').value.trim();
+  const opt=sel.options[sel.selectedIndex];
+  const name=opt.dataset.name||'';
+  const custId=opt.dataset.id||null;
+  if (!email){alert('Customer email missing. Re-select the customer.');return;}
+  const items=[...document.querySelectorAll('.line-item')].map(row=>({
+    desc:row.querySelector('.item-desc').value||'Service',
+    qty:parseFloat(row.querySelector('.item-qty')?.value)||1,
+    type:row.querySelector('.item-type').value,
+    unit_price:parseFloat(row.querySelector('.item-unit')?.value)||0,
+    amount:(parseFloat(row.querySelector('.item-qty')?.value)||1)*(parseFloat(row.querySelector('.item-unit')?.value)||0)
+  })).filter(i=>i.amount>0);
+  const total=items.reduce((s,i)=>s+i.amount,0);
+  if (total===0){alert('Add at least one line item with an amount.');return;}
+  const newQuote={
+    customer_id:custId, customer_email:email, customer_name:name, company,
+    equipment:document.getElementById('q-equipment').value.trim(),
+    description:document.getElementById('q-desc').value.trim()||'Forklift Service',
+    items, amount:total, status:'pending'
   };
-  const saved = await DB.addQuote(newQuote);
-  if (!saved) { alert('Error saving quote. Please try again.'); return; }
-  showToast(`✓ Quote sent to ${name}!`);
+  const saved=await DB.addQuote(newQuote);
+  if (!saved){alert('Error saving quote. Please try again.');return;}
+  // Upload any attached files
+  if (_pendingFiles.length) {
+    const urls=await uploadFiles(saved.id);
+    if (urls.length) await DB.updateQuoteField(saved.id,{attachments:urls});
+  }
+  // Send email notification
+  // Build attachment links for email (EmailJS can't attach files, so we send public URLs)
+  const attLinks = (_pendingFiles.length && saved.attachments && saved.attachments.length)
+    ? '\n\nAttachments (click to view):\n' + saved.attachments.map((url, i) => `${i+1}. ${url}`).join('\n')
+    : '';
+  await sendEmail(email, name,
+    `New Quote from Apex Lift Solutions — $${total.toFixed(2)}`,
+    `Hi ${name},\n\nYou have a new quote (${saved.id}) for $${total.toFixed(2)} ready for your review.\n\nLog in to approve or decline (attachments viewable in portal):\napexliftsolutionsusa.com/portal-login.html${attLinks}\n\nOnce approved, we will contact you within 1 business day to schedule.\nQuestions? Call (516) 644-7187.\n\n— Apex Lift Solutions`);
+  showToast(`✓ Quote sent to ${name} — email notification sent!`);
   // Reset form
-  document.getElementById('q-customer-select').value = '';
-  document.getElementById('q-email').value = '';
-  document.getElementById('q-company').value = '';
-  document.getElementById('q-equipment').value = '';
-  document.getElementById('q-desc').value = '';
-  document.getElementById('line-items-container').innerHTML = `
+  sel.value=''; document.getElementById('q-email').value=''; document.getElementById('q-company').value='';
+  document.getElementById('q-equipment').value=''; document.getElementById('q-desc').value='';
+  _pendingFiles=[]; document.getElementById('uploaded-files-list').innerHTML='';
+  document.getElementById('line-items-container').innerHTML=`
     <div class="line-item">
-      <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. LBR Bracket" class="item-desc"/></div>
-      <div class="form-group"><label>Type</label><select class="item-type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select></div>
-      <div class="form-group"><label>Amount ($)</label><input type="number" placeholder="0.00" class="item-amount" step="0.01" oninput="updateTotal()"/></div>
+      <input type="text" placeholder="e.g. LBR Bracket" class="item-desc" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"/>
+      <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;" oninput="updateTotal()"/>
+      <select class="item-type" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
+      <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()" style="background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;"/>
       <button class="remove-line" onclick="removeLine(this)">×</button>
     </div>`;
-  document.getElementById('quote-total-display').textContent = '$0.00';
-  await refreshAll('quotes');
-  showView('quotes');
+  document.getElementById('quote-total-display').textContent='$0.00';
+  await refreshAll(); showView('quotes');
 }
 
+// ── NAVIGATION ────────────────────────────────
 function showView(v, el) {
-  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
-  document.getElementById('view-' + v).classList.add('active');
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
   if (el) el.classList.add('active');
-  refreshAll(v);
+  else {
+    // Highlight correct sidebar item
+    document.querySelectorAll('.nav-item').forEach(n=>{
+      if (n.getAttribute('onclick')&&n.getAttribute('onclick').includes(`'${v}'`)) n.classList.add('active');
+    });
+  }
+  if (v==='quotes')    renderAllQuotes();
+  else if (v==='invoices')  renderInvoices();
+  else if (v==='customers') renderCustomers();
+  else if (v==='requests')  renderRequests();
+  else if (v==='history')   renderHistory();
+  else if (v==='dashboard') { renderStats(); renderDashQuotes(); }
 }
 
-async function refreshAll(v) {
+async function refreshAll() {
   await renderStats();
   await renderDashQuotes();
-  if (v === 'quotes' || document.getElementById('view-quotes').classList.contains('active')) await renderAllQuotes();
-  if (v === 'invoices' || document.getElementById('view-invoices').classList.contains('active')) await renderInvoices();
-  if (v === 'customers' || document.getElementById('view-customers').classList.contains('active')) await renderCustomers();
+  if (document.getElementById('view-quotes').classList.contains('active'))    await renderAllQuotes();
+  if (document.getElementById('view-invoices').classList.contains('active'))  await renderInvoices();
+  if (document.getElementById('view-customers').classList.contains('active')) await renderCustomers();
+  if (document.getElementById('view-requests').classList.contains('active'))  await renderRequests();
+  if (document.getElementById('view-history').classList.contains('active'))   await renderHistory();
 }
 
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.style.display = 'block';
-  setTimeout(() => t.style.display = 'none', 3500);
-}
-
+// ── PASSWORD CHANGE ───────────────────────────
 async function changeAdminPassword() {
-  const pass  = document.getElementById('admin-new-pass').value;
-  const pass2 = document.getElementById('admin-new-pass2').value;
-  const err   = document.getElementById('pw-err');
-  const suc   = document.getElementById('pw-suc');
-  err.style.display = 'none'; suc.style.display = 'none';
-  if (pass.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.style.display = 'block'; return; }
-  if (pass !== pass2)  { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
-  const result = await Auth.updatePassword(pass);
-  if (result.error) {
-    err.textContent = 'Error: ' + result.error;
+  const pass=document.getElementById('admin-new-pass').value;
+  const pass2=document.getElementById('admin-new-pass2').value;
+  const err=document.getElementById('pw-err'); const suc=document.getElementById('pw-suc');
+  err.style.display='none'; suc.style.display='none';
+  if (pass.length<8){err.textContent='Password must be at least 8 characters.';err.style.display='block';return;}
+  if (pass!==pass2){err.textContent='Passwords do not match.';err.style.display='block';return;}
+  const result=await Auth.updatePassword(pass);
+  if (result.error){err.textContent='Error: '+result.error;err.style.display='block';}
+  else{suc.textContent='✓ Password updated!';suc.style.display='block';
+    document.getElementById('admin-new-pass').value=''; document.getElementById('admin-new-pass2').value='';}
+}
+
+// ── SERVICE REQUESTS ─────────────────────────
+let _currentRequest = null;
+
+async function renderRequests() {
+  const tbody = document.getElementById('requests-table');
+  let requests = await SB.get('service_requests', '?order=created_at.desc');
+  const statusF = document.getElementById('req-status-filter')?.value;
+  const search  = (document.getElementById('req-search')?.value || '').toLowerCase();
+  if (statusF) requests = requests.filter(r => r.status === statusF);
+  if (search)  requests = requests.filter(r =>
+    (r.customer_name||'').toLowerCase().includes(search) ||
+    (r.company||'').toLowerCase().includes(search) ||
+    (r.id||'').toLowerCase().includes(search));
+
+  // Update badge
+  const openCount = requests.filter(r => r.status === 'open').length;
+  const rb = document.getElementById('req-badge');
+  if (rb) { if (openCount > 0) { rb.style.display='inline'; rb.textContent=openCount+' NEW'; } else rb.style.display='none'; }
+
+  if (!requests.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--grey);padding:32px;">No service requests yet.</td></tr>';
+    return;
+  }
+
+  const urgencyColor = { normal:'var(--grey)', urgent:'orange', emergency:'#ff4444' };
+  tbody.innerHTML = requests.map(r => `
+    <tr>
+      <td><strong style="color:var(--white)">${esc(r.id)}</strong></td>
+      <td>${esc(r.customer_name||'')}<br/><span style="color:var(--grey);font-size:.78rem;">${esc(r.company||'')}</span></td>
+      <td style="font-size:.85rem;">${esc(r.equipment||'—')}</td>
+      <td style="font-size:.85rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.issue_type||'—')}</td>
+      <td><span style="font-family:var(--font-head);font-size:.72rem;font-weight:700;color:${urgencyColor[r.urgency]||'var(--grey)'};">${(r.urgency||'normal').toUpperCase()}</span></td>
+      <td style="font-size:.82rem;">${fmtDate(r.created_at)}</td>
+      <td>${badge(r.status)}</td>
+      <td>
+        <button class="action-btn primary" onclick="openReqDetail('${esc(r.id)}')">View</button>
+        <button class="action-btn green" onclick="openReqDetailAndQuote('${esc(r.id)}')">→ Quote</button>
+        <button class="action-btn" onclick="setReqStatus('${esc(r.id)}','closed')">Close</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function openReqDetail(id, autoQuote) {
+  const requests = await SB.get('service_requests', `?id=eq.${encodeURIComponent(id)}`);
+  const r = requests[0]; if (!r) return;
+  _currentRequest = r;
+
+  document.getElementById('req-detail-id').textContent = r.id;
+
+  const urgencyColor = { normal:'var(--grey)', urgent:'orange', emergency:'#ff4444' };
+  const attHtml = r.attachments && r.attachments.length
+    ? `<div style="margin-top:16px;">
+        <div style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;">📎 Attachments — click to open</div>
+        <div class="req-att-grid">
+          ${r.attachments.map(url => {
+            const raw  = decodeURIComponent(url.split('/').pop().split('?')[0]);
+            const name = raw.replace(/^\d+_/,'');
+            const short = name.length > 18 ? name.slice(0,16)+'…' : name;
+            if (url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('.txt') || url.toLowerCase().includes('.doc')) {
+              return `<a href="${url}" target="_blank" class="req-att-pdf"><span style="font-size:1.8rem;">📄</span><small style="font-family:var(--font-head);font-size:.58rem;color:var(--grey);margin-top:3px;text-align:center;padding:0 4px;">${esc(short)}</small></a>`;
+            }
+            return `<a href="${url}" target="_blank" class="req-att-img" title="${esc(name)}"><img src="${url}" alt="${esc(name)}" onerror="this.parentElement.style.display='none'"/></a>`;
+          }).join('')}
+        </div>
+       </div>`
+    : '<p style="color:var(--grey);font-size:.85rem;margin-top:10px;">No attachments.</p>';
+
+  document.getElementById('req-detail-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Customer</label><div style="color:var(--white);">${esc(r.customer_name||'—')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Company</label><div style="color:var(--white);">${esc(r.company||'—')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Email</label><div style="color:var(--white);">${esc(r.customer_email)}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Equipment</label><div style="color:var(--white);">${esc(r.equipment||'Not specified')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Issue Type</label><div style="color:var(--white);">${esc(r.issue_type||'—')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Urgency</label><div style="color:${urgencyColor[r.urgency]||'var(--grey)'};font-weight:700;">${(r.urgency||'normal').toUpperCase()}</div></div>
+      <div class="form-group" style="grid-column:1/-1;"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Date Submitted</label><div style="color:var(--white);">${fmtDate(r.created_at)}</div></div>
+    </div>
+    <div style="background:var(--dark-2);border:1px solid var(--border);padding:16px;margin-bottom:16px;">
+      <div style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;">Description</div>
+      <p style="color:var(--white);line-height:1.7;white-space:pre-wrap;">${esc(r.description)}</p>
+    </div>
+    ${attHtml}
+    <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="action-btn green" onclick="quoteFromRequest()">✏️ Create Quote from This Request</button>
+      <button class="action-btn" onclick="setReqStatus('${esc(r.id)}','closed');closeReqModal();">✓ Mark Closed</button>
+    </div>`;
+
+  document.getElementById('req-detail-modal').className = 'modal-overlay open';
+  if (autoQuote) quoteFromRequest();
+}
+
+function openReqDetailAndQuote(id) { openReqDetail(id, true); }
+
+function closeReqModal() {
+  document.getElementById('req-detail-modal').className = 'modal-overlay';
+  _currentRequest = null;
+}
+
+async function setReqStatus(id, status) {
+  await SB.patch('service_requests', `id=eq.${encodeURIComponent(id)}`, { status });
+  renderRequests();
+  showToast(`✓ Request marked ${status}.`);
+}
+
+function quoteFromRequest() {
+  if (!_currentRequest) return;
+  closeReqModal();
+  // Pre-fill the create quote form with request data
+  showView('create-quote');
+  // Wait a tick for the view to render
+  setTimeout(async () => {
+    // Set equipment field
+    const eqEl = document.getElementById('q-equipment');
+    if (eqEl) eqEl.value = _currentRequest.equipment || '';
+    // Set description
+    const descEl = document.getElementById('q-desc');
+    if (descEl) descEl.value = _currentRequest.description || '';
+    // Find and select the customer in the dropdown
+    const sel = document.getElementById('q-customer-select');
+    if (sel && _currentRequest.customer_email) {
+      for (let opt of sel.options) {
+        if (opt.value === _currentRequest.customer_email) {
+          sel.value = opt.value;
+          selectCustomer();
+          break;
+        }
+      }
+    }
+    showToast('Quote form pre-filled from service request!');
+    // Mark request as quoted
+    await setReqStatus(_currentRequest.id, 'quoted');
+  }, 200);
+}
+
+// ── SERVICE HISTORY ──────────────────────────
+let _editingHistId = null;
+
+async function renderHistory() {
+  const tbody = document.getElementById('history-table');
+  let rows = await SB.get('service_history', '?order=date.desc');
+
+  // Populate customer filter from all customers
+  const custFilter = document.getElementById('history-customer-filter');
+  if (custFilter && custFilter.options.length <= 1) {
+    const custs = _allCustomers.length ? _allCustomers : await DB.getAllCustomers();
+    const names = [...new Set(custs.map(c => c.company||c.name).filter(Boolean))].sort();
+    names.forEach(n => {
+      const o = document.createElement('option'); o.value = n; o.textContent = n;
+      custFilter.appendChild(o);
+    });
+  }
+
+  const custF   = document.getElementById('history-customer-filter')?.value;
+  const paidF   = document.getElementById('history-paid-filter')?.value;
+  const search  = (document.getElementById('history-search')?.value||'').toLowerCase();
+
+  if (custF)   rows = rows.filter(r => r.company===custF || r.customer_name?.includes(custF));
+  if (paidF === 'paid')   rows = rows.filter(r => r.paid);
+  if (paidF === 'unpaid') rows = rows.filter(r => !r.paid);
+  if (search)  rows = rows.filter(r =>
+    (r.customer_name||'').toLowerCase().includes(search) ||
+    (r.equipment||'').toLowerCase().includes(search) ||
+    (r.description||'').toLowerCase().includes(search));
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--grey);padding:32px;">No service history records yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td><strong style="color:var(--white);font-size:.82rem;">${esc(r.id)}</strong></td>
+      <td>${esc(r.customer_name||'—')}<br/><span style="color:var(--grey);font-size:.76rem;">${esc(r.company||'')}</span></td>
+      <td style="font-size:.85rem;">${esc(r.equipment||'—')}</td>
+      <td style="font-size:.85rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.description||'')}">${esc(r.description||'—')}</td>
+      <td style="font-size:.85rem;">${esc(r.tech||'—')}</td>
+      <td style="font-size:.82rem;">${r.date ? new Date(r.date).toLocaleDateString('en-US') : '—'}</td>
+      <td style="color:var(--red);font-family:var(--font-head);font-weight:700;">${r.amount ? '$'+parseFloat(r.amount).toFixed(2) : '—'}</td>
+      <td>
+        ${r.paid
+          ? '<span style="color:#4caf50;font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;">✓ PAID</span>'
+          : r.amount
+            ? '<span style="color:orange;font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;">UNPAID</span>'
+            : '<span style="color:var(--grey);font-family:var(--font-head);font-size:.72rem;">—</span>'
+        }
+        ${!r.paid && r.amount ? `<button class="action-btn green" style="margin-top:4px;display:block;" onclick="markHistPaid('${esc(r.id)}')">✓ Mark Paid</button>` : ''}
+      </td>
+      <td>
+        <button class="action-btn" onclick="openEditHistory('${esc(r.id)}')">Edit</button>
+        <button class="action-btn danger" onclick="deleteHistory('${esc(r.id)}')">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function openAddHistoryModal() {
+  _editingHistId = null;
+  document.getElementById('history-modal-title').textContent = 'Add Service Record';
+  document.getElementById('hist-err').style.display = 'none';
+  // Reset fields
+  ['hist-equipment','hist-tech','hist-desc','hist-notes','hist-amount'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('hist-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('hist-paid').value = 'false';
+  // Ensure customers are loaded
+  if (!_allCustomers.length) _allCustomers = await DB.getAllCustomers();
+  // Populate customer dropdown with ALL customers (not just active)
+  const sel = document.getElementById('hist-customer');
+  sel.innerHTML = '<option value="">— Select customer —</option>' +
+    _allCustomers.map(x =>
+      `<option value="${esc(String(x.id))}">${esc(x.name||x.email)}${x.company?' — '+esc(x.company):''}</option>`
+    ).join('');
+  document.getElementById('history-modal').className = 'modal-overlay open';
+}
+
+async function openEditHistory(id) {
+  const rows = await SB.get('service_history', `?id=eq.${encodeURIComponent(id)}`);
+  const r = rows[0]; if (!r) return;
+  _editingHistId = id;
+  document.getElementById('history-modal-title').textContent = 'Edit Service Record ' + id;
+  document.getElementById('hist-err').style.display = 'none';
+
+  // Ensure customers loaded
+  if (!_allCustomers.length) _allCustomers = await DB.getAllCustomers();
+  // Populate customer dropdown
+  const sel = document.getElementById('hist-customer');
+  sel.innerHTML = '<option value="">— Select customer —</option>' +
+    _allCustomers.map(x =>
+      `<option value="${esc(String(x.id))}">${esc(x.name||x.email)}${x.company?' — '+esc(x.company):''}</option>`
+    ).join('');
+
+  // Set values
+  sel.value = r.customer_id || '';
+  document.getElementById('hist-equipment').value = r.equipment || '';
+  document.getElementById('hist-tech').value      = r.tech      || '';
+  document.getElementById('hist-desc').value      = r.description || '';
+  document.getElementById('hist-notes').value     = r.notes     || '';
+  document.getElementById('hist-amount').value    = r.amount    || '';
+  document.getElementById('hist-paid').value      = r.paid ? 'true' : 'false';
+  document.getElementById('hist-date').value      = r.date ? r.date.slice(0,10) : '';
+
+  document.getElementById('history-modal').className = 'modal-overlay open';
+}
+
+function fillHistCustomer() {
+  // Auto-fill hidden fields from selected customer (used in saveHistoryRecord)
+}
+
+function closeHistoryModal() {
+  document.getElementById('history-modal').className = 'modal-overlay';
+  _editingHistId = null;
+}
+
+async function saveHistoryRecord() {
+  const sel    = document.getElementById('hist-customer');
+  const custId = sel.value;
+  const desc   = document.getElementById('hist-desc').value.trim();
+  const err    = document.getElementById('hist-err');
+  err.style.display = 'none';
+
+  if (!custId) { err.textContent = 'Please select a customer.'; err.style.display='block'; return; }
+  if (!desc)   { err.textContent = 'Description of work is required.'; err.style.display='block'; return; }
+
+  // Look up customer from cached _allCustomers list — reliable, no dataset needed
+  const cust = _allCustomers.find(x => String(x.id) === String(custId)) || {};
+  if (!cust.email) { err.textContent = 'Could not find customer details. Please refresh and try again.'; err.style.display='block'; return; }
+
+  const isPaid  = document.getElementById('hist-paid').value === 'true';
+  const amount  = parseFloat(document.getElementById('hist-amount').value) || null;
+  const dateVal = document.getElementById('hist-date').value;
+
+  const record = {
+    customer_id:    custId,
+    customer_email: cust.email,
+    customer_name:  cust.name   || '',
+    company:        cust.company || '',
+    equipment:  document.getElementById('hist-equipment').value.trim(),
+    tech:       document.getElementById('hist-tech').value.trim(),
+    description: desc,
+    notes:      document.getElementById('hist-notes').value.trim(),
+    amount,
+    paid:       isPaid,
+    paid_at:    isPaid ? new Date().toISOString() : null,
+    date:       dateVal ? new Date(dateVal).toISOString() : new Date().toISOString()
+  };
+
+  try {
+    if (_editingHistId) {
+      // PATCH existing record
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/service_history?id=eq.${encodeURIComponent(_editingHistId)}`, {
+        method: 'PATCH',
+        headers: await SB.headers(),
+        body: JSON.stringify(record)
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error('History PATCH error:', res.status, txt);
+        err.textContent = 'Update failed: ' + txt;
+        err.style.display = 'block'; return;
+      }
+    } else {
+      // POST new record
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/service_history`, {
+        method: 'POST',
+        headers: await SB.headers(),
+        body: JSON.stringify(record)
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error('History POST error:', res.status, txt);
+        err.textContent = 'Save failed: ' + txt;
+        err.style.display = 'block'; return;
+      }
+    }
+    closeHistoryModal();
+    showToast(_editingHistId ? '✓ Service record updated!' : '✓ Service record added!');
+    renderHistory();
+  } catch(e) {
+    console.error('History save exception:', e);
+    err.textContent = 'Connection error. Please try again.';
     err.style.display = 'block';
-  } else {
-    suc.textContent = '✓ Password updated successfully!';
-    suc.style.display = 'block';
-    document.getElementById('admin-new-pass').value = '';
-    document.getElementById('admin-new-pass2').value = '';
   }
 }
 
-async function logout() { await Auth.signOut(); window.location.href = 'portal-login.html'; }
+async function markHistPaid(id) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/service_history?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: await SB.headers(),
+    body: JSON.stringify({ paid: true, paid_at: new Date().toISOString() })
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    console.error('markHistPaid error:', res.status, txt);
+    showToast('Error marking paid: ' + txt);
+  } else {
+    showToast('✓ Marked as paid!');
+    renderHistory();
+  }
+}
 
-// Auto-refresh every 10 seconds — guarded so it only runs after auth
-setTimeout(() => {
-  setInterval(() => {
-    if (!_currentUser) return;
-    // Detect which view is currently active
-    const activeView = document.querySelector('.view.active');
-    const v = activeView ? activeView.id.replace('view-', '') : 'dashboard';
-    refreshAll(v);
-  }, 10000);
-}, 3000);
+async function deleteHistory(id) {
+  if (!confirm('Delete this service record? This cannot be undone.')) return;
+  await SB.delete('service_history', `id=eq.${encodeURIComponent(id)}`);
+  showToast('✓ Record deleted.');
+  renderHistory();
+}
+
+async function logout() { await Auth.signOut(); window.location.href='portal-login.html'; }
+
+// Auto-refresh every 12s
+setTimeout(()=>{
+  setInterval(()=>{ if(_currentUser) refreshAll(); },12000);
+},4000);
 </script>
 </body>
 </html>
