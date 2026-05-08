@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Portal — Apex Lift Solutions</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body{background:var(--black)}
+    .admin-layout{display:flex;min-height:100vh}
+    .admin-sidebar{width:260px;background:var(--dark);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+    .sidebar-logo{padding:24px 20px;border-bottom:1px solid var(--border)}
+    .sidebar-logo img{height:38px;width:auto;object-fit:contain}
+    .sidebar-label{font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--red);margin-top:6px;display:block}
+    .sidebar-nav{flex:1;padding:16px 0}
+    .nav-item{display:flex;align-items:center;gap:12px;padding:13px 20px;color:var(--grey-light);font-family:var(--font-head);font-size:.88rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;transition:all .2s;border-left:3px solid transparent;text-decoration:none}
+    .nav-item:hover{color:var(--white);background:rgba(255,255,255,.04)}
+    .nav-item.active{color:var(--white);border-left-color:var(--red);background:rgba(204,0,0,.08)}
+    .nav-item .icon{font-size:1.1rem;width:20px;text-align:center}
+    .sidebar-footer{padding:16px 20px;border-top:1px solid var(--border)}
+    .admin-badge{background:var(--red);color:#fff;font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;padding:3px 8px;display:inline-block;margin-bottom:8px}
+    .sidebar-footer p{color:var(--grey);font-size:.82rem}
+    .logout-btn{width:100%;background:transparent;border:1px solid var(--border);color:var(--grey);font-family:var(--font-head);font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:10px;cursor:pointer;margin-top:10px;transition:all .2s}
+    .logout-btn:hover{border-color:var(--red);color:var(--red)}
+    .admin-main{margin-left:260px;flex:1;padding:40px}
+    .admin-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+    .admin-header h1{font-family:var(--font-head);font-size:2rem;font-weight:900;text-transform:uppercase}
+    .admin-header h1 em{color:var(--red);font-style:normal}
+    .view{display:none}
+    .view.active{display:block}
+    .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);margin-bottom:32px}
+    .stat-card{background:var(--dark);padding:28px 24px}
+    .stat-card .label{font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--grey);margin-bottom:8px}
+    .stat-card .value{font-family:var(--font-head);font-size:2.2rem;font-weight:900;color:var(--white);line-height:1}
+    .stat-card .value.red{color:var(--red)}
+    .table-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .table-header h2{font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase}
+    .data-table{width:100%;border-collapse:collapse;background:var(--dark);border:1px solid var(--border)}
+    .data-table th{background:var(--dark-2);font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--grey);padding:14px 16px;text-align:left;border-bottom:1px solid var(--border)}
+    .data-table td{padding:14px 16px;font-size:.92rem;color:var(--grey-light);border-bottom:1px solid rgba(255,255,255,.04)}
+    .data-table tr:last-child td{border-bottom:none}
+    .data-table tr:hover td{background:rgba(255,255,255,.02);color:var(--white)}
+    .badge{display:inline-block;font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px}
+    .badge-pending{background:rgba(255,165,0,.15);color:orange;border:1px solid rgba(255,165,0,.3)}
+    .badge-approved{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3)}
+    .badge-declined{background:rgba(255,68,68,.15);color:#ff4444;border:1px solid rgba(255,68,68,.3)}
+    .badge-paid{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3)}
+    .badge-unpaid{background:rgba(255,165,0,.15);color:orange;border:1px solid rgba(255,165,0,.3)}
+    .badge-active{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3)}
+    .action-btn{background:transparent;border:1px solid var(--border);color:var(--grey-light);font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;cursor:pointer;transition:all .2s;margin-right:6px}
+    .action-btn:hover{border-color:var(--red);color:var(--red)}
+    .action-btn.primary{background:var(--red);border-color:var(--red);color:#fff}
+    .action-btn.primary:hover{background:#a00000}
+    .action-btn.green{background:#1a3a1a;border-color:#4caf50;color:#4caf50}
+    .action-btn.green:hover{background:#4caf50;color:#fff}
+    .form-card{background:var(--dark);border:1px solid var(--border);padding:32px;margin-bottom:24px}
+    .form-card h3{font-family:var(--font-head);font-size:1.2rem;font-weight:900;text-transform:uppercase;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .form-group label{font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:6px}
+    .form-group input,.form-group select,.form-group textarea{width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:11px 14px;outline:none;transition:border-color .2s;border-radius:0}
+    .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--red)}
+    .form-group select option{background:var(--dark)}
+    .line-item{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:12px;align-items:end;margin-bottom:12px}
+    .quote-total{text-align:right;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+    .quote-total span{font-family:var(--font-head);font-size:1.8rem;font-weight:900;color:var(--red)}
+    .remove-line{background:transparent;border:1px solid var(--border);color:#ff4444;font-size:1rem;width:36px;height:36px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .action-btn.green{background:#1a3a1a;border-color:#4caf50;color:#4caf50}
+    .action-btn.green:hover{background:#4caf50;color:#fff}
+    .action-btn.danger{border-color:rgba(255,68,68,.4);color:#ff4444}
+    .action-btn.danger:hover{background:rgba(255,68,68,.1)}
+    .success-toast{position:fixed;bottom:24px;right:24px;background:#1a3a1a;border:1px solid #4caf50;color:#4caf50;font-family:var(--font-head);font-size:.85rem;font-weight:700;letter-spacing:.05em;padding:16px 24px;display:none;z-index:9999;animation:fadeUp .3s ease}
+    .new-badge{background:var(--red);color:#fff;font-family:var(--font-head);font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;margin-left:6px;vertical-align:middle;animation:pulse 1.5s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    .refresh-btn{background:transparent;border:1px solid var(--border);color:var(--grey);font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 14px;cursor:pointer;transition:all .2s}
+    .refresh-btn:hover{border-color:var(--white);color:var(--white)}
+    .alert-banner{background:rgba(204,0,0,.1);border:1px solid rgba(204,0,0,.3);color:var(--white);padding:16px 20px;margin-bottom:24px;font-family:var(--font-head);font-size:.9rem;font-weight:600;letter-spacing:.04em;display:none}
+    .alert-banner.show{display:flex;align-items:center;gap:12px}
+    /* Real-time pulse indicator */
+    .live-dot{display:inline-block;width:8px;height:8px;background:#4caf50;border-radius:50%;margin-right:6px;animation:pulse 1.5s infinite}
+    .live-label{font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4caf50}
+  </style>
+</head>
+<body>
+<script src="portal-data.js"></script>
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <div class="sidebar-logo">
+      <img src="logo.jpg" alt="Apex Lift Solutions"/>
+      <span class="sidebar-label">Admin Portal</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-item active" onclick="showView('dashboard')" href="#"><span class="icon">📊</span> Dashboard</a>
+      <a class="nav-item" onclick="showView('quotes')" href="#"><span class="icon">📋</span> Quotes <span id="pending-badge" class="new-badge" style="display:none"></span></a>
+      <a class="nav-item" onclick="showView('create-quote')" href="#"><span class="icon">✏️</span> Create Quote</a>
+      <a class="nav-item" onclick="showView('invoices')" href="#"><span class="icon">🧾</span> Invoices</a>
+      <a class="nav-item" onclick="showView('customers')" href="#"><span class="icon">👥</span> Customers</a>
+      <a class="nav-item" href="index.html"><span class="icon">🌐</span> Back to Site</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="admin-badge">Admin</span>
+      <p id="admin-name">Apex Lift Solutions</p>
+      <div style="margin-top:8px;"><span class="live-dot"></span><span class="live-label">Live Sync</span></div>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </div>
+  </aside>
+
+  <main class="admin-main">
+
+    <!-- ALERT BANNER for new customer responses -->
+    <div class="alert-banner" id="alert-banner">
+      <span>🔔</span>
+      <span id="alert-text"></span>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div class="view active" id="view-dashboard">
+      <div class="admin-header">
+        <h1>Dashboard <em>Overview</em></h1>
+        <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+      </div>
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="label">Loading…</div><div class="value">—</div></div>
+        <div class="stat-card"><div class="label">Loading…</div><div class="value">—</div></div>
+        <div class="stat-card"><div class="label">Loading…</div><div class="value">—</div></div>
+        <div class="stat-card"><div class="label">Loading…</div><div class="value">—</div></div>
+      </div>
+      <div class="table-header">
+        <h2>Recent Quotes</h2>
+        <button class="action-btn primary" onclick="showView('create-quote')">+ New Quote</button>
+      </div>
+      <table class="data-table"><thead><tr><th>Quote #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+      <tbody id="dash-quotes-table"><tr><td colspan="6" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody></table>
+    </div>
+
+    <!-- QUOTES -->
+    <div class="view" id="view-quotes">
+      <div class="admin-header">
+        <h1>All <em>Quotes</em></h1>
+        <div style="display:flex;gap:10px;">
+          <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+          <button class="action-btn primary" onclick="showView('create-quote')">+ New Quote</button>
+        </div>
+      </div>
+      <table class="data-table"><thead><tr><th>Quote #</th><th>Customer</th><th>Description</th><th>Amount</th><th>Status</th><th>Responded</th><th>Actions</th></tr></thead>
+      <tbody id="all-quotes-table"><tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody></table>
+    </div>
+
+    <!-- CREATE QUOTE -->
+    <div class="view" id="view-create-quote">
+      <div class="admin-header"><h1>Create <em>Quote</em></h1></div>
+      <div class="form-card">
+        <h3>Quote Details</h3>
+        <div class="form-grid">
+          <div class="form-group" style="grid-column:1/-1;">
+            <label>Select Customer *</label>
+            <select id="q-customer-select" onchange="selectCustomer()">
+              <option value="">— Loading customers… —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Customer Email</label>
+            <input type="text" id="q-email" placeholder="Auto-filled" readonly style="opacity:.5;cursor:not-allowed;"/>
+          </div>
+          <div class="form-group">
+            <label>Company</label>
+            <input type="text" id="q-company" placeholder="Auto-filled" readonly style="opacity:.5;cursor:not-allowed;"/>
+          </div>
+          <div class="form-group">
+            <label>Forklift Make / Model</label>
+            <input type="text" id="q-equipment" placeholder="e.g. Toyota 8FGU25"/>
+          </div>
+          <div class="form-group" style="grid-column:1/-1;">
+            <label>Job Description</label>
+            <textarea id="q-desc" rows="2" placeholder="Brief description of work…"></textarea>
+          </div>
+        </div>
+        <div style="margin-top:24px;">
+          <h3>Line Items</h3>
+          <div id="line-items-container">
+            <div class="line-item">
+              <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. LBR Bracket" class="item-desc"/></div>
+              <div class="form-group"><label>Type</label><select class="item-type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select></div>
+              <div class="form-group"><label>Amount ($)</label><input type="number" placeholder="0.00" class="item-amount" step="0.01" oninput="updateTotal()"/></div>
+              <button class="remove-line" onclick="removeLine(this)">×</button>
+            </div>
+          </div>
+          <button class="action-btn" onclick="addLine()" style="margin-top:8px;">+ Add Line Item</button>
+        </div>
+        <div class="quote-total">Total: <span id="quote-total-display">$0.00</span></div>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <button class="btn-primary" onclick="saveQuote()">Send Quote to Customer</button>
+        <button class="action-btn" onclick="showView('quotes')">Cancel</button>
+      </div>
+    </div>
+
+    <!-- INVOICES -->
+    <div class="view" id="view-invoices">
+      <div class="admin-header">
+        <h1>All <em>Invoices</em></h1>
+        <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+      </div>
+      <table class="data-table"><thead><tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Due Date</th><th>Paid On</th><th>Actions</th></tr></thead>
+      <tbody id="invoices-table"><tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody></table>
+    </div>
+
+    <!-- CUSTOMERS -->
+    <div class="view" id="view-customers">
+      <div class="admin-header"><h1>All <em>Customers</em></h1></div>
+      <table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th>Since</th><th>Actions</th></tr></thead>
+      <tbody id="customers-table"><tr><td colspan="6" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody></table>
+    </div>
+
+  </main>
+</div>
+<div class="success-toast" id="toast"></div>
+
+<script>
+  const user = JSON.parse(sessionStorage.getItem('portal_user') || '{}');
+  if (!user.email || user.role !== 'admin') window.location.href = 'portal-login.html';
+  if (user.name) document.getElementById('admin-name').textContent = user.name;
+
+  // Track last known status of quotes so we can detect changes
+  let lastQuoteStatuses = {};
+
+  function badge(s) {
+    const m = {pending:'badge-pending',approved:'badge-approved',declined:'badge-declined',paid:'badge-paid',unpaid:'badge-unpaid',active:'badge-active'};
+    return `<span class="badge ${m[s]||''}">${s}</span>`;
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-US');
+  }
+
+  async function renderStats() {
+    const [quotes, invoices, customers] = await Promise.all([
+      DB.getAllQuotes(),
+      DB.getAllInvoices(),
+      DB.getAllCustomers()
+    ]);
+    const pending = quotes.filter(q => q.status === 'pending').length;
+    const unpaid = invoices.filter(i => i.status === 'unpaid').length;
+    const revenue = invoices.filter(i => i.status === 'paid').reduce((s,i) => s + parseFloat(i.amount), 0);
+
+    // Show pending badge on nav
+    const pb = document.getElementById('pending-badge');
+    if (pending > 0) { pb.style.display = 'inline'; pb.textContent = pending + ' NEW'; }
+    else pb.style.display = 'none';
+
+    document.getElementById('stats-grid').innerHTML = `
+      <div class="stat-card"><div class="label">Total Customers</div><div class="value">${customers.length}</div></div>
+      <div class="stat-card"><div class="label">Open Quotes</div><div class="value ${pending>0?'red':''}">${pending}</div></div>
+      <div class="stat-card"><div class="label">Unpaid Invoices</div><div class="value ${unpaid>0?'red':''}">${unpaid}</div></div>
+      <div class="stat-card"><div class="label">Revenue Collected</div><div class="value">$${revenue.toFixed(2)}</div></div>
+    `;
+
+    // Detect and alert on status changes since last poll
+    const changed = quotes.filter(q => {
+      const prev = lastQuoteStatuses[q.id];
+      return prev && prev !== q.status && (q.status === 'approved' || q.status === 'declined');
+    });
+    if (changed.length > 0) {
+      const last = changed[0];
+      const banner = document.getElementById('alert-banner');
+      document.getElementById('alert-text').textContent =
+        `🔔 ${last.customer_name} ${last.status === 'approved' ? '✓ APPROVED' : '✗ DECLINED'} quote ${last.id} for $${parseFloat(last.amount).toFixed(2)}`;
+      banner.className = 'alert-banner show';
+      // Play a soft notification tone if supported
+      try { new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAA...').play(); } catch(e) {}
+    }
+    // Update last known statuses
+    quotes.forEach(q => { lastQuoteStatuses[q.id] = q.status; });
+
+    return { quotes, invoices };
+  }
+
+  async function renderDashQuotes() {
+    const quotes = await DB.getAllQuotes();
+    document.getElementById('dash-quotes-table').innerHTML = quotes.slice(0,5).map(q => `
+      <tr>
+        <td><strong style="color:var(--white)">${q.id}</strong></td>
+        <td>${q.customer_name} — ${q.company}</td>
+        <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
+        <td>${badge(q.status)}${q.status !== 'pending' && q.responded_at ? `<span style="color:var(--grey);font-size:.75rem;margin-left:8px;">${fmtDate(q.responded_at)}</span>` : ''}</td>
+        <td>${fmtDate(q.created_at || q.date)}</td>
+        <td>
+          ${q.status === 'approved' ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Create Invoice</button>` : ''}
+          <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function renderAllQuotes() {
+    const quotes = await DB.getAllQuotes();
+    document.getElementById('all-quotes-table').innerHTML = quotes.map(q => `
+      <tr>
+        <td><strong style="color:var(--white)">${q.id}</strong></td>
+        <td>${q.customer_name}<br/><span style="color:var(--grey);font-size:.8rem;">${q.customer_email}</span></td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem;">${q.description||q.desc||""}</td>
+        <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
+        <td>${badge(q.status)}</td>
+        <td>${fmtDate(q.responded_at)}</td>
+        <td>
+          ${q.status === 'approved' ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` : ''}
+          <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function renderInvoices() {
+    const invoices = await DB.getAllInvoices();
+    document.getElementById('invoices-table').innerHTML = invoices.map(i => `
+      <tr>
+        <td><strong style="color:var(--white)">${i.id}</strong></td>
+        <td>${i.customer_name}<br/><span style="color:var(--grey);font-size:.8rem;">${i.company}</span></td>
+        <td><strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong></td>
+        <td>${badge(i.status)}</td>
+        <td>${fmtDate(i.due)}</td>
+        <td>${fmtDate(i.paid_at)}</td>
+        <td>
+          ${i.status === 'unpaid' ? `<button class="action-btn green" onclick="markPaid('${i.id}')">✓ Mark Paid</button>` : ''}
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function renderCustomers() {
+    const customers = await DB.getAllCustomers();
+    if (!customers.length) {
+      document.getElementById('customers-table').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No customers yet.</td></tr>';
+      return;
+    }
+    document.getElementById('customers-table').innerHTML = customers.map(c => `
+      <tr>
+        <td><strong style="color:var(--white)">${c.name||'—'}</strong></td>
+        <td>${c.company||'—'}</td>
+        <td>${c.email}</td>
+        <td>${c.phone||'—'}</td>
+        <td>${badge(c.status||'pending')}</td>
+        <td>${c.since||'—'}</td>
+        <td style="white-space:nowrap;">
+          ${c.status==='pending' ? `<button class="action-btn green" onclick="activateCustomer(${c.id},'${c.email}')">Activate</button>` : ''}
+          ${c.status==='active' ? `<button class="action-btn" onclick="deactivateCustomer(${c.id})">Deactivate</button>` : ''}
+          ${c.status==='inactive' ? `<button class="action-btn green" onclick="activateCustomer(${c.id},'${c.email}')">Reactivate</button>` : ''}
+          <button class="action-btn danger" onclick="removeCustomer(${c.id},'${c.name||c.email}')">Remove</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function activateCustomer(id, email) {
+    await DB.updateCustomerStatus(id, 'active');
+    showToast('✓ Customer activated! They can now log in.');
+    await loadCustomerDropdown();
+    renderCustomers();
+  }
+
+  async function deactivateCustomer(id) {
+    await DB.updateCustomerStatus(id, 'inactive');
+    showToast('Customer deactivated.');
+    await loadCustomerDropdown();
+    renderCustomers();
+  }
+
+  async function removeCustomer(id, name) {
+    if (!confirm(`Remove "${name}"? They will lose portal access. Their quotes and invoices will remain.`)) return;
+    await DB.deleteCustomer(id);
+    showToast('✓ Customer removed.');
+    await loadCustomerDropdown();
+    renderCustomers();
+  }
+
+  async function viewQuoteDetail(id) {
+    const quotes = await DB.getAllQuotes();
+    const q = quotes.find(x => x.id === id);
+    if (!q) return;
+    const items = q.items ? q.items.map(i => `  • ${i.desc} (${i.type}): $${parseFloat(i.amount).toFixed(2)}`).join('\n') : '';
+    alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${q.customer_name} — ${q.company}\nEquipment: ${q.equipment || 'N/A'}\nStatus: ${q.status.toUpperCase()}${q.responded_at ? ' on ' + fmtDate(q.responded_at) : ''}\n\nDescription:\n${q.description||q.desc||''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
+  }
+
+  async function convertToInvoice(quoteId) {
+    if (!confirm(`Convert quote ${quoteId} to an invoice and send to customer?`)) return;
+    const inv = await DB.quoteToInvoice(quoteId);
+    if (inv) {
+      showToast(`✓ Invoice ${inv.id} created for $${parseFloat(inv.amount).toFixed(2)}!`);
+      await refreshAll();
+      showView('invoices');
+    }
+  }
+
+  async function markPaid(id) {
+    await DB.markInvoicePaid(id);
+    renderInvoices();
+    showToast('✓ ' + id + ' marked as paid!');
+  }
+
+  function addLine() {
+    const c = document.getElementById('line-items-container');
+    const d = document.createElement('div');
+    d.className = 'line-item';
+    d.innerHTML = `
+      <div class="form-group"><label>Description</label><input type="text" placeholder="Description" class="item-desc"/></div>
+      <div class="form-group"><label>Type</label><select class="item-type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select></div>
+      <div class="form-group"><label>Amount ($)</label><input type="number" placeholder="0.00" class="item-amount" step="0.01" oninput="updateTotal()"/></div>
+      <button class="remove-line" onclick="removeLine(this)">×</button>`;
+    c.appendChild(d);
+  }
+
+  function removeLine(btn) { btn.closest('.line-item').remove(); updateTotal(); }
+
+  function updateTotal() {
+    const total = [...document.querySelectorAll('.item-amount')].reduce((s,e) => s+(parseFloat(e.value)||0), 0);
+    document.getElementById('quote-total-display').textContent = '$' + total.toFixed(2);
+  }
+
+  // ── CUSTOMER DROPDOWN ────────────────────────
+  let _allCustomers = [];
+
+  async function loadCustomerDropdown() {
+    _allCustomers = await DB.getAllCustomers();
+    const sel = document.getElementById('q-customer-select');
+    if (!sel) return;
+    const active = _allCustomers.filter(c => c.status === 'active');
+    if (active.length === 0) {
+      sel.innerHTML = '<option value="">— No active customers yet —</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">— Select a customer —</option>' +
+      active.map(c =>
+        `<option value="${c.email}" data-name="${c.name||''}" data-company="${c.company||''}">${c.name||''}${c.company ? ' — ' + c.company : ''} &lt;${c.email}&gt;</option>`
+      ).join('');
+    // Reset fields
+    document.getElementById('q-email').value = '';
+    document.getElementById('q-company').value = '';
+  }
+
+  function selectCustomer() {
+    const sel  = document.getElementById('q-customer-select');
+    const opt  = sel.options[sel.selectedIndex];
+    document.getElementById('q-email').value   = opt.value || '';
+    document.getElementById('q-company').value = opt.dataset.company || '';
+  }
+
+    async function saveQuote() {
+    const sel = document.getElementById('q-customer-select');
+    if (!sel || !sel.value) { alert('Please select a customer from the dropdown.'); return; }
+    const email   = document.getElementById('q-email').value.trim();
+    const company = document.getElementById('q-company').value.trim();
+    const name    = sel.options[sel.selectedIndex].dataset.name || '';
+    if (!email) { alert('Customer email missing. Please re-select the customer.'); return; }
+    const items = [...document.querySelectorAll('.line-item')].map(row => ({
+      desc: row.querySelector('.item-desc').value || 'Service',
+      type: row.querySelector('.item-type').value,
+      amount: parseFloat(row.querySelector('.item-amount').value) || 0
+    })).filter(i => i.amount > 0);
+    const total = items.reduce((s,i) => s+i.amount, 0);
+    if (total === 0) { alert('Please add at least one line item with an amount.'); return; }
+    const newQuote = {
+      customer_email: email,
+      customer_name: name,
+      company,
+      equipment: document.getElementById('q-equipment').value.trim(),
+      description: document.getElementById('q-desc').value.trim() || 'Forklift Service',
+      items,
+      amount: total,
+      status: 'pending'
+    };
+    const saved = await DB.addQuote(newQuote);
+    if (!saved) { alert('Error saving quote. Please try again.'); return; }
+    showToast(`✓ Quote sent to ${name}!`);
+    // Reset form
+    document.getElementById('q-customer-select').value = '';
+    document.getElementById('q-email').value = '';
+    document.getElementById('q-company').value = '';
+    document.getElementById('q-equipment').value = '';
+    document.getElementById('q-desc').value = '';
+    document.getElementById('line-items-container').innerHTML = `
+      <div class="line-item">
+        <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. LBR Bracket" class="item-desc"/></div>
+        <div class="form-group"><label>Type</label><select class="item-type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select></div>
+        <div class="form-group"><label>Amount ($)</label><input type="number" placeholder="0.00" class="item-amount" step="0.01" oninput="updateTotal()"/></div>
+        <button class="remove-line" onclick="removeLine(this)">×</button>
+      </div>`;
+    document.getElementById('quote-total-display').textContent = '$0.00';
+    await refreshAll('quotes');
+    showView('quotes');
+  }
+
+  function showView(v) {
+    document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    document.getElementById('view-' + v).classList.add('active');
+    if (event && event.currentTarget) event.currentTarget.classList.add('active');
+    if (v === 'create-quote') loadCustomerDropdown();
+    refreshAll(v);
+  }
+
+  async function refreshAll(v) {
+    await renderStats();
+    await renderDashQuotes();
+    if (v === 'quotes' || document.getElementById('view-quotes').classList.contains('active')) await renderAllQuotes();
+    if (v === 'invoices' || document.getElementById('view-invoices').classList.contains('active')) await renderInvoices();
+    if (v === 'customers' || document.getElementById('view-customers').classList.contains('active')) await renderCustomers();
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    setTimeout(() => t.style.display = 'none', 3500);
+  }
+
+  function logout() { sessionStorage.removeItem('portal_user'); window.location.href = 'portal-login.html'; }
+
+  // Auto-refresh every 8 seconds to pick up customer responses in real-time
+  setInterval(() => refreshAll(), 8000);
+
+  // Init
+  refreshAll();
+  loadCustomerDropdown();
+</script>
+</body>
+</html>

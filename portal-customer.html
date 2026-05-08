@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>My Portal — Apex Lift Solutions</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    body{background:var(--black)}
+    .layout{display:flex;min-height:100vh}
+    .sidebar{width:240px;background:var(--dark);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;overflow-y:auto}
+    .sb-logo{padding:20px;border-bottom:1px solid var(--border)}
+    .sb-logo img{height:36px;width:auto;object-fit:contain}
+    .sb-label{font-family:var(--font-head);font-size:.6rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--grey);margin-top:5px;display:block}
+    .sb-nav{flex:1;padding:12px 0}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:12px 18px;color:var(--grey-light);font-family:var(--font-head);font-size:.85rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;transition:all .2s;border-left:3px solid transparent;text-decoration:none}
+    .nav-item:hover{color:var(--white);background:rgba(255,255,255,.04)}
+    .nav-item.active{color:var(--white);border-left-color:var(--red);background:rgba(204,0,0,.08)}
+    .nav-item .icon{font-size:1rem;width:18px;text-align:center;flex-shrink:0}
+    .sb-footer{padding:14px 18px;border-top:1px solid var(--border)}
+    .sb-footer strong{display:block;color:var(--white);font-size:.9rem;margin-bottom:3px}
+    .sb-footer span{color:var(--grey);font-size:.78rem}
+    .logout-btn{width:100%;background:transparent;border:1px solid var(--border);color:var(--grey);font-family:var(--font-head);font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:8px;cursor:pointer;margin-top:8px;transition:all .2s}
+    .logout-btn:hover{border-color:var(--red);color:var(--red)}
+    .main{margin-left:240px;flex:1;padding:36px}
+    .pg-header{margin-bottom:28px;padding-bottom:18px;border-bottom:1px solid var(--border)}
+    .pg-header h1{font-family:var(--font-head);font-size:1.8rem;font-weight:900;text-transform:uppercase}
+    .pg-header h1 em{color:var(--red);font-style:normal}
+    .view{display:none}
+    .view.active{display:block}
+    .q-cards{display:flex;flex-direction:column;gap:1px;background:var(--border);border:1px solid var(--border)}
+    .q-card{background:var(--dark);padding:24px 28px;transition:background .2s}
+    .q-card:hover{background:var(--dark-2)}
+    .q-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px}
+    .q-id{font-family:var(--font-head);font-size:1.1rem;font-weight:900;text-transform:uppercase;color:var(--white)}
+    .q-amt{font-family:var(--font-head);font-size:1.5rem;font-weight:900;color:var(--red)}
+    .q-desc{color:var(--grey-light);font-size:.95rem;margin-bottom:14px}
+    .q-meta{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px}
+    .q-meta-item{font-family:var(--font-head);font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey)}
+    .q-meta-item span{color:var(--white);display:block;margin-top:3px;font-size:.82rem}
+    .badge{display:inline-block;font-family:var(--font-head);font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px}
+    .badge-pending{background:rgba(255,165,0,.15);color:orange;border:1px solid rgba(255,165,0,.3)}
+    .badge-approved{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3)}
+    .badge-declined{background:rgba(255,68,68,.15);color:#ff4444;border:1px solid rgba(255,68,68,.3)}
+    .badge-paid{background:rgba(76,175,80,.15);color:#4caf50;border:1px solid rgba(76,175,80,.3)}
+    .badge-unpaid{background:rgba(255,165,0,.15);color:orange;border:1px solid rgba(255,165,0,.3)}
+    .li-table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.85rem}
+    .li-table th{font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);padding:7px 10px;text-align:left;border-bottom:1px solid var(--border)}
+    .li-table td{padding:7px 10px;color:var(--grey-light);border-bottom:1px solid rgba(255,255,255,.03)}
+    .li-table tr:last-child td{border-bottom:none}
+    .approve-btn{background:#1a3a1a;border:1px solid #4caf50;color:#4caf50;font-family:var(--font-head);font-size:.82rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:11px 24px;cursor:pointer;transition:all .2s}
+    .approve-btn:hover{background:#4caf50;color:#fff}
+    .decline-btn{background:transparent;border:1px solid rgba(255,68,68,.3);color:#ff4444;font-family:var(--font-head);font-size:.82rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:11px 24px;cursor:pointer;transition:all .2s}
+    .decline-btn:hover{background:rgba(255,68,68,.1)}
+    .pay-input{width:100%;background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:1rem;padding:11px 14px;outline:none;transition:border-color .2s;border-radius:0}
+    .pay-input:focus{border-color:var(--red)}
+    .pay-lbl{font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey-light);display:block;margin-bottom:5px}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;display:none;align-items:center;justify-content:center;padding:24px}
+    .modal-overlay.open{display:flex}
+    .modal{background:var(--dark);border:1px solid var(--border);border-top:3px solid var(--red);padding:36px;width:100%;max-width:480px;animation:fadeUp .3s ease}
+    .modal h3{font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;margin-bottom:14px}
+    .cg{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .cg.full{grid-template-columns:1fr}
+    .pay-success{background:#1a3a1a;border:1px solid #4caf50;padding:24px;text-align:center;display:none}
+    .pay-success h3{font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:#4caf50;margin-bottom:8px}
+    .confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:2000;display:none;align-items:center;justify-content:center;padding:24px}
+    .confirm-overlay.open{display:flex}
+    .confirm-box{background:var(--dark);border:1px solid var(--border);border-top:3px solid var(--red);padding:36px;width:100%;max-width:420px;text-align:center;animation:fadeUp .3s ease}
+    .confirm-box h3{font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;margin-bottom:12px}
+    .confirm-box p{color:var(--grey-light);margin-bottom:24px;font-size:.95rem;line-height:1.7}
+    .lookup-box{background:var(--dark);border:1px solid var(--border);border-top:3px solid var(--red);padding:36px;max-width:520px}
+    .lookup-box h2{font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;margin-bottom:8px}
+    .lookup-result{margin-top:20px;background:var(--dark-2);border:1px solid var(--border);padding:20px;display:none}
+    .empty-state{padding:48px;text-align:center;color:var(--grey);font-family:var(--font-head);font-size:.9rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+    .loading-msg{padding:32px;text-align:center;color:var(--grey);font-family:var(--font-head);font-size:.82rem;letter-spacing:.1em;text-transform:uppercase}
+    .success-banner{background:#1a3a1a;border:1px solid #4caf50;color:#4caf50;padding:14px 18px;margin-bottom:16px;font-family:var(--font-head);font-size:.88rem;font-weight:700;letter-spacing:.04em;animation:fadeUp .3s ease}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+  </style>
+</head>
+<body>
+<script src="portal-data.js"></script>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sb-logo"><img src="logo.jpg" alt="Apex Lift Solutions"/><span class="sb-label">Client Portal</span></div>
+    <nav class="sb-nav">
+      <a class="nav-item active" href="#" onclick="showView('quotes',this)"><span class="icon">📋</span>My Quotes</a>
+      <a class="nav-item" href="#" onclick="showView('invoices',this)"><span class="icon">🧾</span>My Invoices</a>
+      <a class="nav-item" href="#" onclick="showView('pay',this)"><span class="icon">💳</span>Pay Invoice</a>
+      <a class="nav-item" href="#" onclick="showView('history',this)"><span class="icon">🔧</span>Service History</a>
+      <a class="nav-item" href="contact.html"><span class="icon">📞</span>Contact Us</a>
+      <a class="nav-item" href="index.html"><span class="icon">🌐</span>Back to Site</a>
+    </nav>
+    <div class="sb-footer">
+      <strong id="cust-name">Customer</strong>
+      <span id="cust-company"></span>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- QUOTES -->
+    <div class="view active" id="view-quotes">
+      <div class="pg-header"><h1>My <em>Quotes</em></h1></div>
+      <div id="quotes-wrap"><div class="loading-msg">Loading quotes...</div></div>
+    </div>
+
+    <!-- INVOICES -->
+    <div class="view" id="view-invoices">
+      <div class="pg-header"><h1>My <em>Invoices</em></h1></div>
+      <div id="invoices-wrap"><div class="loading-msg">Loading invoices...</div></div>
+    </div>
+
+    <!-- PAY BY NUMBER -->
+    <div class="view" id="view-pay">
+      <div class="pg-header"><h1>Pay <em>Invoice</em></h1></div>
+      <div class="lookup-box">
+        <h2>Enter Invoice Number</h2>
+        <p style="color:var(--grey-light);margin-bottom:20px;font-size:.92rem;">Find your invoice number in the email we sent, or under My Invoices above.</p>
+        <div style="display:flex;gap:10px;">
+          <input type="text" id="inv-lookup" class="pay-input" placeholder="e.g. INV-1000" style="flex:1;"/>
+          <button class="btn-primary" onclick="lookupInv()">Look Up</button>
+        </div>
+        <div class="lookup-result" id="lookup-result"></div>
+      </div>
+    </div>
+
+    <!-- SERVICE HISTORY -->
+    <div class="view" id="view-history">
+      <div class="pg-header"><h1>Service <em>History</em></h1></div>
+      <div id="history-wrap"><div class="loading-msg">Loading history...</div></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <h3 id="confirm-title"></h3>
+    <p id="confirm-body"></p>
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button class="approve-btn" id="confirm-yes">Confirm</button>
+      <button class="decline-btn" onclick="closeConfirm()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- PAY MODAL -->
+<div class="modal-overlay" id="pay-modal">
+  <div class="modal">
+    <h3>Pay Invoice <span id="modal-inv-id" style="color:var(--red)"></span></h3>
+    <div style="font-family:var(--font-head);font-size:2rem;font-weight:900;color:var(--red);margin-bottom:20px;" id="modal-inv-amt"></div>
+    <div id="pay-form">
+      <div class="cg full"><div><label class="pay-lbl">Cardholder Name</label><input type="text" class="pay-input" placeholder="John Smith" autocomplete="cc-name"/></div></div>
+      <div class="cg full" style="margin-top:12px;"><div><label class="pay-lbl">Card Number</label><input type="text" class="pay-input" placeholder="4242 4242 4242 4242" maxlength="19" autocomplete="cc-number"/></div></div>
+      <div class="cg" style="margin-top:12px;">
+        <div><label class="pay-lbl">Expiry</label><input type="text" class="pay-input" placeholder="MM/YY" maxlength="5" autocomplete="cc-exp"/></div>
+        <div><label class="pay-lbl">CVV</label><input type="text" class="pay-input" placeholder="123" maxlength="3" autocomplete="cc-csc"/></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;color:var(--grey);font-size:.8rem;margin:14px 0;">🔒 Payments processed securely via Stripe</div>
+      <p style="color:var(--grey);font-size:.78rem;font-style:italic;">⚠️ Demo mode — no real charges will be made. Enter Stripe keys to enable live payments.</p>
+    </div>
+    <div class="pay-success" id="pay-success">
+      <h3>✓ Payment Received!</h3>
+      <p style="color:var(--grey-light);">Your payment has been processed. A receipt will be sent to your email shortly.</p>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn-primary" id="pay-submit-btn" onclick="processPayment()">Pay Now</button>
+      <button onclick="closePayModal()" style="background:transparent;border:1px solid var(--border);color:var(--grey);font-family:var(--font-head);font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:11px 20px;cursor:pointer;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Auth — customer can ONLY see their own data
+  const user = JSON.parse(sessionStorage.getItem('portal_user') || '{}');
+  if (!user.email || user.role !== 'customer') { window.location.href = 'portal-login.html'; }
+
+  document.getElementById('cust-name').textContent = user.name || 'Customer';
+  document.getElementById('cust-company').textContent = user.company || '';
+
+  let currentPayInvId = null;
+
+  function b(s) {
+    const m = {pending:'badge-pending',approved:'badge-approved',declined:'badge-declined',paid:'badge-paid',unpaid:'badge-unpaid'};
+    return `<span class="badge ${m[s]||''}">${s}</span>`;
+  }
+  function fmt(v) { return v ? new Date(v).toLocaleDateString('en-US') : '—'; }
+
+  async function renderQuotes() {
+    const wrap = document.getElementById('quotes-wrap');
+    // Only fetch THIS customer's quotes — enforced by email filter
+    const quotes = await DB.getCustomerQuotes(user.email);
+    if (!quotes.length) { wrap.innerHTML = '<div class="empty-state">No quotes yet — contact us to get started!</div>'; return; }
+    wrap.innerHTML = '<div class="q-cards">' + quotes.map(q=>`
+      <div class="q-card">
+        <div class="q-hdr">
+          <span class="q-id">${q.id}</span>
+          <div style="display:flex;align-items:center;gap:14px;">${b(q.status)}<span class="q-amt">$${parseFloat(q.amount).toFixed(2)}</span></div>
+        </div>
+        <div class="q-desc">${q.description||''}</div>
+        ${q.items&&q.items.length?`
+        <table class="li-table">
+          <thead><tr><th>Description</th><th>Type</th><th>Amount</th></tr></thead>
+          <tbody>${q.items.map(i=>`<tr><td>${i.desc}</td><td>${i.type}</td><td style="color:var(--white)">$${parseFloat(i.amount).toFixed(2)}</td></tr>`).join('')}</tbody>
+        </table>`:''}
+        <div class="q-meta">
+          <div class="q-meta-item">Date Sent<span>${fmt(q.created_at)}</span></div>
+          ${q.equipment?`<div class="q-meta-item">Equipment<span>${q.equipment}</span></div>`:''}
+          ${q.responded_at?`<div class="q-meta-item">Responded<span>${fmt(q.responded_at)}</span></div>`:''}
+        </div>
+        ${q.status==='pending'?`
+          <p style="color:var(--grey-light);font-size:.9rem;margin-bottom:14px;">Please review this quote. Approve to proceed with the repair, or decline to pass.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="approve-btn" onclick="respondQuote('${q.id}','approved')">✓ Approve — $${parseFloat(q.amount).toFixed(2)}</button>
+            <button class="decline-btn" onclick="respondQuote('${q.id}','declined')">✗ Decline</button>
+          </div>`:
+          q.status==='approved'?`<p style="color:#4caf50;font-size:.9rem;font-weight:600;">✓ You approved this quote on ${fmt(q.responded_at)}. We'll contact you to schedule.</p>`:
+          `<p style="color:#ff4444;font-size:.9rem;">You declined this quote on ${fmt(q.responded_at)}. Questions? Call (516) 644-7187.</p>`
+        }
+      </div>`).join('') + '</div>';
+  }
+
+  async function renderInvoices() {
+    const wrap = document.getElementById('invoices-wrap');
+    // Only fetch THIS customer's invoices
+    const invoices = await DB.getCustomerInvoices(user.email);
+    if (!invoices.length) { wrap.innerHTML = '<div class="empty-state">No invoices yet.</div>'; return; }
+    wrap.innerHTML = '<div class="q-cards">' + invoices.map(i=>`
+      <div class="q-card">
+        <div class="q-hdr">
+          <span class="q-id">${i.id}</span>
+          <div style="display:flex;align-items:center;gap:14px;">${b(i.status)}<span class="q-amt">$${parseFloat(i.amount).toFixed(2)}</span></div>
+        </div>
+        <div class="q-desc">${i.description||''}</div>
+        <div class="q-meta">
+          <div class="q-meta-item">Due Date<span>${fmt(i.due)}</span></div>
+          ${i.paid_at?`<div class="q-meta-item">Paid On<span>${fmt(i.paid_at)}</span></div>`:''}
+        </div>
+        ${i.status==='unpaid'?
+          `<button class="approve-btn" onclick="openPayModal('${i.id}',${parseFloat(i.amount)})">💳 Pay Now — $${parseFloat(i.amount).toFixed(2)}</button>`:
+          '<p style="color:#4caf50;font-size:.9rem;font-weight:600;">✓ Paid — Thank you!</p>'
+        }
+      </div>`).join('') + '</div>';
+  }
+
+  async function renderHistory() {
+    const wrap = document.getElementById('history-wrap');
+    const history = await DB.getServiceHistory(user.email);
+    if (!history.length) { wrap.innerHTML = '<div class="empty-state">No service history yet.</div>'; return; }
+    wrap.innerHTML = '<div class="q-cards">' + history.map(h=>`
+      <div class="q-card">
+        <div class="q-hdr"><span class="q-id">${h.id}</span><span class="badge badge-approved">Completed</span></div>
+        <div class="q-desc">${h.description||''}</div>
+        <div class="q-meta">
+          <div class="q-meta-item">Date<span>${h.date?new Date(h.date).toLocaleDateString('en-US'):'—'}</span></div>
+          <div class="q-meta-item">Technician<span>${h.tech||'Apex Tech'}</span></div>
+          ${h.equipment?`<div class="q-meta-item">Equipment<span>${h.equipment}</span></div>`:''}
+        </div>
+        <p style="color:var(--grey-light);font-size:.88rem;">${h.notes||''}</p>
+      </div>`).join('') + '</div>';
+  }
+
+  function respondQuote(id, response) {
+    const titles = { approved: 'Approve Quote ' + id + '?', declined: 'Decline Quote ' + id + '?' };
+    const bodies = {
+      approved: 'By approving, you authorize Apex Lift Solutions to proceed with the repair. We\'ll contact you within 1 business day to schedule.',
+      declined: 'Are you sure you want to decline? You can always reach us at (516) 644-7187 if you change your mind.'
+    };
+    showConfirm(titles[response], bodies[response], async () => {
+      await DB.updateQuoteStatus(id, response);
+      closeConfirm();
+      showBanner(response === 'approved' ? '✓ Quote approved! We\'ll call you soon to schedule your service.' : 'Quote declined.');
+      renderQuotes();
+    });
+  }
+
+  function showConfirm(title, body, onYes) {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-body').textContent = body;
+    document.getElementById('confirm-yes').onclick = onYes;
+    document.getElementById('confirm-overlay').className = 'confirm-overlay open';
+  }
+  function closeConfirm() { document.getElementById('confirm-overlay').className = 'confirm-overlay'; }
+
+  function showBanner(msg) {
+    const d = document.createElement('div'); d.className = 'success-banner'; d.textContent = msg;
+    document.querySelector('.main').prepend(d);
+    setTimeout(()=>d.remove(), 5000);
+  }
+
+  function openPayModal(id, amount) {
+    currentPayInvId = id;
+    document.getElementById('modal-inv-id').textContent = id;
+    document.getElementById('modal-inv-amt').textContent = '$' + amount.toFixed(2);
+    document.getElementById('pay-success').style.display = 'none';
+    document.getElementById('pay-form').style.display = 'block';
+    document.getElementById('pay-submit-btn').style.display = 'inline-block';
+    document.getElementById('pay-modal').className = 'modal-overlay open';
+  }
+  function closePayModal() { document.getElementById('pay-modal').className = 'modal-overlay'; currentPayInvId = null; }
+
+  async function processPayment() {
+    // STRIPE INTEGRATION POINT:
+    // When you're ready to go live, replace the lines below with:
+    //   const stripe = Stripe('YOUR_STRIPE_PUBLISHABLE_KEY');
+    //   const result = await stripe.redirectToCheckout({ ... });
+    // For now this is a demo that marks as paid in DB
+
+    document.getElementById('pay-form').style.display = 'none';
+    document.getElementById('pay-submit-btn').style.display = 'none';
+    document.getElementById('pay-success').style.display = 'block';
+    if (currentPayInvId) await DB.markInvoicePaid(currentPayInvId);
+    setTimeout(()=>{ closePayModal(); renderInvoices(); showBanner('✓ Payment received! A receipt has been sent to your email.'); }, 2500);
+  }
+
+  async function lookupInv() {
+    const id = document.getElementById('inv-lookup').value.trim().toUpperCase();
+    const result = document.getElementById('lookup-result');
+    result.style.display = 'block';
+    // Only show invoices belonging to this customer
+    const invoices = await DB.getCustomerInvoices(user.email);
+    const inv = invoices.find(x=>x.id===id);
+    if (inv) {
+      result.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div style="font-family:var(--font-head);font-weight:900;font-size:1.1rem;color:var(--white);">${inv.id}</div>
+            <div style="color:var(--grey-light);font-size:.88rem;margin-top:4px;">${inv.description||''}</div>
+            <div style="color:var(--grey);font-size:.78rem;margin-top:4px;">Due: ${fmt(inv.due)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-family:var(--font-head);font-size:1.8rem;font-weight:900;color:var(--red);">$${parseFloat(inv.amount).toFixed(2)}</div>
+            ${inv.status==='unpaid'?`<button class="approve-btn" style="margin-top:8px;" onclick="openPayModal('${inv.id}',${parseFloat(inv.amount)})">💳 Pay Now</button>`:`<span style="color:#4caf50;font-weight:700;font-family:var(--font-head);">✓ Already Paid</span>`}
+          </div>
+        </div>`;
+    } else {
+      result.innerHTML = '<p style="color:#ff4444;font-family:var(--font-head);font-weight:700;font-size:.88rem;">Invoice not found on your account. Call us at (516) 644-7187 if you need help.</p>';
+    }
+  }
+
+  function showView(v, el) {
+    document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+    document.getElementById('view-'+v).classList.add('active');
+    if (el) el.classList.add('active');
+    if (v==='quotes') renderQuotes();
+    if (v==='invoices') renderInvoices();
+    if (v==='history') renderHistory();
+  }
+
+  function logout() { sessionStorage.removeItem('portal_user'); window.location.href = 'portal-login.html'; }
+
+  renderQuotes();
+</script>
+</body>
+</html>

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Reset Password — Apex Lift Solutions</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png"/>
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png"/>
+  <meta name="theme-color" content="#000000"/>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <style>
+    .portal-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;position:relative}
+    .portal-card{background:var(--dark);border:1px solid var(--border);border-top:3px solid var(--red);width:100%;max-width:440px;padding:48px 40px;animation:fadeUp .5s ease forwards}
+    .portal-logo{display:block;height:48px;width:auto;margin:0 auto 28px;object-fit:contain}
+    .steps{display:flex;align-items:flex-start;margin-bottom:32px;position:relative}
+    .step-track{position:absolute;top:13px;left:14px;right:14px;height:2px;background:var(--border);z-index:0}
+    .step-track-fill{height:100%;background:var(--red);width:0%;transition:width .4s ease}
+    .step{display:flex;flex-direction:column;align-items:center;flex:1;position:relative;z-index:1}
+    .step-circle{width:28px;height:28px;border-radius:50%;border:2px solid var(--border);background:var(--dark);display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:.7rem;font-weight:700;color:var(--grey);transition:all .35s}
+    .step.active .step-circle,.step.done .step-circle{border-color:var(--red);background:var(--red);color:#fff}
+    .step-lbl{font-family:var(--font-head);font-size:.58rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);margin-top:6px;transition:color .3s}
+    .step.active .step-lbl,.step.done .step-lbl{color:var(--white)}
+    .step-view{display:none}
+    .step-view.active{display:block}
+    .portal-title{font-family:var(--font-head);font-size:1.5rem;font-weight:900;text-transform:uppercase;margin-bottom:8px}
+    .portal-sub{color:var(--grey-light);font-size:.92rem;margin-bottom:20px;line-height:1.65}
+    .fg{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+    .fg label{font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey-light)}
+    .fg input{background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:1rem;padding:12px 14px;outline:none;transition:border-color .2s;border-radius:0;width:100%}
+    .fg input:focus{border-color:var(--red)}
+    .err{color:#ff4444;font-size:.82rem;font-family:var(--font-head);font-weight:600;letter-spacing:.04em;display:none;padding:10px;border:1px solid #ff4444;text-align:center;margin-bottom:10px}
+    .suc{color:#4caf50;font-size:.82rem;font-family:var(--font-head);font-weight:600;letter-spacing:.04em;display:none;padding:10px;border:1px solid #4caf50;text-align:center;margin-bottom:10px}
+    .email-chip{background:var(--dark-2);border:1px solid var(--border);padding:10px 14px;font-size:.9rem;color:var(--white);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+    .sent-note{background:rgba(76,175,80,.07);border:1px solid rgba(76,175,80,.2);padding:14px 16px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px}
+    .sent-note p{color:var(--grey-light);font-size:.87rem;line-height:1.65;margin:0}
+    .otp-wrap{display:flex;gap:8px;justify-content:center;margin:14px 0}
+    .otp-box{width:48px;height:56px;background:var(--black);border:2px solid var(--border);color:var(--white);font-family:var(--font-head);font-size:1.5rem;font-weight:900;text-align:center;outline:none;transition:all .2s;border-radius:0;caret-color:var(--red)}
+    .otp-box:focus{border-color:var(--red);background:rgba(204,0,0,.05)}
+    .otp-box.filled{border-color:rgba(204,0,0,.4)}
+    .otp-box.shake{border-color:#ff4444;animation:shake .4s ease}
+    .resend-row{text-align:center;margin-top:12px;color:var(--grey);font-size:.8rem;font-family:var(--font-head);font-weight:600;letter-spacing:.05em}
+    .resend-btn{color:var(--red);cursor:pointer;text-decoration:underline;display:none}
+    .strength-wrap{margin-top:5px}
+    .strength-bar{height:3px;background:var(--border);overflow:hidden}
+    .strength-fill{height:100%;width:0;transition:all .3s}
+    .strength-hint{font-size:.72rem;color:var(--grey);margin-top:3px}
+    .loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:999;display:none;align-items:center;justify-content:center;gap:14px;font-family:var(--font-head);font-size:.88rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--white)}
+    .loading-overlay.show{display:flex}
+    .spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+    .back-link{display:block;text-align:center;margin-top:22px;color:var(--grey);font-family:var(--font-head);font-size:.78rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;text-decoration:none;transition:color .2s}
+    .back-link:hover{color:var(--white)}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+  </style>
+</head>
+<body>
+<div class="hero-bg" style="position:fixed;inset:0;"><div class="hero-grid"></div><div class="hero-glow"></div></div>
+<div class="loading-overlay" id="loading"><div class="spinner"></div><span id="load-msg">Please wait...</span></div>
+
+<div class="portal-wrap">
+  <div class="portal-card">
+    <img src="logo.jpg" alt="Apex Lift Solutions" class="portal-logo"/>
+
+    <div class="steps">
+      <div class="step-track"><div class="step-track-fill" id="track-fill"></div></div>
+      <div class="step active" id="st1"><div class="step-circle">1</div><div class="step-lbl">Email</div></div>
+      <div class="step" id="st2"><div class="step-circle">2</div><div class="step-lbl">Verify</div></div>
+      <div class="step" id="st3"><div class="step-circle">3</div><div class="step-lbl">Reset</div></div>
+    </div>
+
+    <!-- STEP 1 -->
+    <div class="step-view active" id="v1">
+      <div class="portal-title">Forgot <em>Password</em></div>
+      <p class="portal-sub">Enter the email address on your account and we'll send you a one-time verification code.</p>
+      <div class="fg"><label>Email Address</label><input type="email" id="s1-email" placeholder="you@company.com" autocomplete="email"/></div>
+      <div class="err" id="s1-err"></div>
+      <button class="btn-primary" onclick="step1()" style="width:100%;">Send Verification Code</button>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="step-view" id="v2">
+      <div class="portal-title">Enter <em>Code</em></div>
+      <p class="portal-sub">We emailed a 6-digit code to:</p>
+      <div class="email-chip">✉️ <strong id="v2-email"></strong></div>
+      <div class="sent-note"><p>Check your inbox — may take 1–2 minutes. If you don't see it, check your spam folder.</p></div>
+      <div class="otp-wrap">
+        <input class="otp-box" maxlength="1" id="o0" oninput="otpIn(this,0)" onkeydown="otpKey(event,0)" inputmode="numeric"/>
+        <input class="otp-box" maxlength="1" id="o1" oninput="otpIn(this,1)" onkeydown="otpKey(event,1)" inputmode="numeric"/>
+        <input class="otp-box" maxlength="1" id="o2" oninput="otpIn(this,2)" onkeydown="otpKey(event,2)" inputmode="numeric"/>
+        <input class="otp-box" maxlength="1" id="o3" oninput="otpIn(this,3)" onkeydown="otpKey(event,3)" inputmode="numeric"/>
+        <input class="otp-box" maxlength="1" id="o4" oninput="otpIn(this,4)" onkeydown="otpKey(event,4)" inputmode="numeric"/>
+        <input class="otp-box" maxlength="1" id="o5" oninput="otpIn(this,5)" onkeydown="otpKey(event,5)" inputmode="numeric"/>
+      </div>
+      <div class="err" id="s2-err"></div>
+      <button class="btn-primary" onclick="step2()" style="width:100%;">Verify Code</button>
+      <div class="resend-row">
+        Didn't get it? <span id="resend-cd"></span>
+        <span class="resend-btn" id="resend-btn" onclick="resendCode()">Resend code</span>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="step-view" id="v3">
+      <div class="portal-title">New <em>Password</em></div>
+      <p class="portal-sub">Almost done — choose a strong new password.</p>
+      <div class="fg">
+        <label>New Password</label>
+        <input type="password" id="s3-pass" placeholder="Min 8 characters" oninput="strengthCheck()" autocomplete="new-password"/>
+        <div class="strength-wrap">
+          <div class="strength-bar"><div class="strength-fill" id="sf"></div></div>
+          <div class="strength-hint" id="sh">Enter a password</div>
+        </div>
+      </div>
+      <div class="fg"><label>Confirm New Password</label><input type="password" id="s3-pass2" placeholder="Repeat password" autocomplete="new-password"/></div>
+      <div class="err" id="s3-err"></div>
+      <div class="suc" id="s3-suc"></div>
+      <button class="btn-primary" id="s3-btn" onclick="step3()" style="width:100%;">Set New Password</button>
+    </div>
+
+    <a href="portal-login.html" class="back-link">← Back to Sign In</a>
+  </div>
+</div>
+
+<script src="portal-data.js"></script>
+<script>
+  // Init EmailJS
+  emailjs.init('P0tnD3LQqQ6Pujijz');
+  const EJS_SVC = 'service_lfi9ixk';
+  const EJS_TPL = 'template_fauluhe';
+
+  let _email='', _otp='', _name='', _verified=false, _cdTimer=null;
+
+  function showLoad(show, msg) {
+    document.getElementById('loading').className = show ? 'loading-overlay show' : 'loading-overlay';
+    if (msg) document.getElementById('load-msg').textContent = msg;
+  }
+
+  function setStep(n) {
+    [1,2,3].forEach(i => {
+      document.getElementById('st'+i).className = 'step'+(i<n?' done':i===n?' active':'');
+      document.getElementById('v'+i).className  = 'step-view'+(i===n?' active':'');
+    });
+    document.getElementById('track-fill').style.width = ['0%','50%','100%'][n-1];
+  }
+
+  function genOTP() { return String(Math.floor(100000 + Math.random()*900000)); }
+
+  async function step1() {
+    const email = document.getElementById('s1-email').value.trim().toLowerCase();
+    const err   = document.getElementById('s1-err');
+    err.style.display = 'none';
+
+    if (!email || !email.includes('@')) {
+      err.textContent = 'Please enter a valid email address.';
+      err.style.display = 'block'; return;
+    }
+
+    showLoad(true, 'Looking up account...');
+    try {
+      const customers = await DB.getAllCustomers();
+      const found = customers.find(c => c.email.toLowerCase() === email);
+      if (!found) {
+        showLoad(false);
+        err.textContent = 'No account found with that email address.';
+        err.style.display = 'block'; return;
+      }
+
+      _email = email;
+      _name  = found.name || 'Customer';
+      _otp   = genOTP();
+
+      showLoad(true, 'Sending code to ' + email + '...');
+      try {
+        await emailjs.send(EJS_SVC, EJS_TPL, {
+          to_email: _email,
+          to_name:  _name,
+          otp_code: _otp
+        });
+      } catch(ejsErr) {
+        console.error('EmailJS error:', ejsErr);
+        showLoad(false);
+        err.textContent = 'Could not send email. Please try again or call us at (516) 644-7187.';
+        err.style.display = 'block'; return;
+      }
+
+      showLoad(false);
+      document.getElementById('v2-email').textContent = email;
+      startCountdown(60);
+      setStep(2);
+      setTimeout(() => document.getElementById('o0').focus(), 150);
+
+    } catch(e) {
+      showLoad(false);
+      err.textContent = 'Connection error. Please try again.';
+      err.style.display = 'block';
+    }
+  }
+
+  function startCountdown(sec) {
+    const cd  = document.getElementById('resend-cd');
+    const btn = document.getElementById('resend-btn');
+    btn.style.display = 'none';
+    let rem = sec;
+    cd.textContent = '(' + rem + 's)';
+    if (_cdTimer) clearInterval(_cdTimer);
+    _cdTimer = setInterval(() => {
+      rem--;
+      if (rem <= 0) {
+        clearInterval(_cdTimer);
+        cd.textContent = '';
+        btn.style.display = 'inline';
+      } else {
+        cd.textContent = '(' + rem + 's)';
+      }
+    }, 1000);
+  }
+
+  async function resendCode() {
+    _otp = genOTP();
+    for (let i=0;i<6;i++) { const el=document.getElementById('o'+i); el.value=''; el.className='otp-box'; }
+    document.getElementById('s2-err').style.display = 'none';
+    document.getElementById('resend-btn').style.display = 'none';
+    startCountdown(60);
+    try {
+      await emailjs.send(EJS_SVC, EJS_TPL, { to_email: _email, to_name: _name, otp_code: _otp });
+    } catch(e) { console.error('Resend failed:', e); }
+    document.getElementById('o0').focus();
+  }
+
+  // OTP box logic — auto advance, backspace, paste
+  function otpIn(el, idx) {
+    const raw = el.value.replace(/\D/g,'');
+    // Handle paste of full code
+    if (raw.length > 1) {
+      raw.slice(0,6).split('').forEach((d,i) => {
+        const box = document.getElementById('o'+i);
+        if (box) { box.value=d; box.className='otp-box filled'; }
+      });
+      const last = document.getElementById('o'+Math.min(raw.length-1,5));
+      if (last) last.focus();
+      el.value = raw[0];
+      return;
+    }
+    el.value = raw;
+    el.className = raw ? 'otp-box filled' : 'otp-box';
+    if (raw && idx < 5) document.getElementById('o'+(idx+1)).focus();
+  }
+
+  function otpKey(e, idx) {
+    if (e.key==='Backspace' && !document.getElementById('o'+idx).value && idx>0)
+      document.getElementById('o'+(idx-1)).focus();
+    if (e.key==='Enter') step2();
+  }
+
+  function step2() {
+    let code = '';
+    for (let i=0;i<6;i++) code += document.getElementById('o'+i).value;
+    const err = document.getElementById('s2-err');
+    err.style.display = 'none';
+
+    if (code.length < 6) {
+      err.textContent = 'Please enter all 6 digits of the code.';
+      err.style.display = 'block'; return;
+    }
+    if (code === _otp) {
+      _verified = true;
+      if (_cdTimer) clearInterval(_cdTimer);
+      setStep(3);
+      setTimeout(() => document.getElementById('s3-pass').focus(), 150);
+    } else {
+      err.textContent = 'Incorrect code. Please check and try again.';
+      err.style.display = 'block';
+      for (let i=0;i<6;i++) {
+        const b = document.getElementById('o'+i);
+        b.className = 'otp-box shake';
+        setTimeout(() => b.className = b.value ? 'otp-box filled' : 'otp-box', 500);
+      }
+    }
+  }
+
+  function strengthCheck() {
+    const p  = document.getElementById('s3-pass').value;
+    const sf = document.getElementById('sf');
+    const sh = document.getElementById('sh');
+    let score = 0;
+    if (p.length>=8)  score++;
+    if (p.length>=12) score++;
+    if (/[A-Z]/.test(p)) score++;
+    if (/[0-9]/.test(p)) score++;
+    if (/[^A-Za-z0-9]/.test(p)) score++;
+    const lvl = [{w:'20%',c:'#ff4444',t:'Too weak'},{w:'40%',c:'#ff7700',t:'Weak'},{w:'60%',c:'#ffaa00',t:'Fair'},{w:'80%',c:'#88cc00',t:'Good'},{w:'100%',c:'#4caf50',t:'Strong ✓'}][Math.min(score,4)];
+    sf.style.cssText = `width:${p?lvl.w:'0'};background:${lvl.c}`;
+    sh.textContent   = p ? lvl.t : 'Enter a password';
+    sh.style.color   = p ? lvl.c : 'var(--grey)';
+  }
+
+  async function step3() {
+    if (!_verified) return;
+    const pass  = document.getElementById('s3-pass').value;
+    const pass2 = document.getElementById('s3-pass2').value;
+    const err   = document.getElementById('s3-err');
+    const suc   = document.getElementById('s3-suc');
+    err.style.display='none'; suc.style.display='none';
+
+    if (pass.length<8) { err.textContent='Password must be at least 8 characters.'; err.style.display='block'; return; }
+    if (pass!==pass2)  { err.textContent='Passwords do not match.'; err.style.display='block'; return; }
+
+    showLoad(true, 'Saving new password...');
+    try {
+      const ok = await DB.resetPassword(_email, pass);
+      showLoad(false);
+      if (ok) {
+        suc.textContent = '✓ Password updated! Redirecting to sign in...';
+        suc.style.display = 'block';
+        document.getElementById('s3-btn').style.display = 'none';
+        setTimeout(() => window.location.href = 'portal-login.html', 2200);
+      } else {
+        err.textContent = 'Failed to save password. Please try again.';
+        err.style.display = 'block';
+      }
+    } catch(e) {
+      showLoad(false);
+      err.textContent = 'Connection error. Please try again.';
+      err.style.display = 'block';
+    }
+  }
+
+  document.getElementById('s1-email').addEventListener('keydown', e => { if(e.key==='Enter') step1(); });
+</script>
+</body>
+</html>
