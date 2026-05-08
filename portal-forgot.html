@@ -10,6 +10,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png"/>
   <meta name="theme-color" content="#000000"/>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <style>
     .portal-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;position:relative}
@@ -127,12 +128,32 @@
 
 <script src="portal-data.js"></script>
 <script>
-  // Init EmailJS
   emailjs.init('P0tnD3LQqQ6Pujijz');
   const EJS_SVC = 'service_lfi9ixk';
   const EJS_TPL = 'template_fauluhe';
 
-  let _email='', _otp='', _name='', _verified=false, _cdTimer=null;
+  // Supabase client (reuse from portal-data.js _sb)
+  let _email='', _otp='', _name='', _verified=false, _cdTimer=null, _hasSupaSession=false;
+
+  // On load: check if Supabase redirected here with a recovery token in the URL hash.
+  // If so, skip straight to step 3 — the user already has a valid session.
+  (async () => {
+    const hash = window.location.hash;
+    if (hash && (hash.includes('access_token') || hash.includes('type=recovery'))) {
+      try {
+        // Let Supabase SDK parse the hash and establish the session
+        const { data, error } = await _sb.auth.getSession();
+        if (data?.session) {
+          _verified = true;
+          _hasSupaSession = true;
+          setStep(3);
+          // Clear the hash from the URL so it doesn't linger
+          history.replaceState(null, '', window.location.pathname);
+          return;
+        }
+      } catch(e) { console.warn('Token parse error:', e); }
+    }
+  })();
 
   function showLoad(show, msg) {
     document.getElementById('loading').className = show ? 'loading-overlay show' : 'loading-overlay';
@@ -159,33 +180,26 @@
       err.style.display = 'block'; return;
     }
 
-    showLoad(true, 'Looking up account...');
+    _email = email;
+    _name  = 'Customer';
+    _otp   = genOTP();
+
+    showLoad(true, 'Sending code to ' + email + '...');
     try {
-      const customers = await DB.getAllCustomers();
-      const found = customers.find(c => c.email.toLowerCase() === email);
-      if (!found) {
-        showLoad(false);
-        err.textContent = 'No account found with that email address.';
-        err.style.display = 'block'; return;
-      }
+      // Send OTP via EmailJS for the in-page verification step
+      await emailjs.send(EJS_SVC, EJS_TPL, {
+        to_email: _email,
+        to_name:  _name,
+        otp_code: _otp
+      });
 
-      _email = email;
-      _name  = found.name || 'Customer';
-      _otp   = genOTP();
-
-      showLoad(true, 'Sending code to ' + email + '...');
-      try {
-        await emailjs.send(EJS_SVC, EJS_TPL, {
-          to_email: _email,
-          to_name:  _name,
-          otp_code: _otp
-        });
-      } catch(ejsErr) {
-        console.error('EmailJS error:', ejsErr);
-        showLoad(false);
-        err.textContent = 'Could not send email. Please try again or call us at (516) 644-7187.';
-        err.style.display = 'block'; return;
-      }
+      // Also trigger Supabase's password reset email — this gives the user
+      // a valid session token when they click the link, which is needed
+      // to call updatePassword. The user will need to click that email link
+      // before setting their password on step 3.
+      await _sb.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + '/portal-forgot.html'
+      });
 
       showLoad(false);
       document.getElementById('v2-email').textContent = email;
@@ -193,9 +207,10 @@
       setStep(2);
       setTimeout(() => document.getElementById('o0').focus(), 150);
 
-    } catch(e) {
+    } catch(ejsErr) {
       showLoad(false);
-      err.textContent = 'Connection error. Please try again.';
+      console.error('EmailJS error:', ejsErr);
+      err.textContent = 'Could not send code. Please check your email address and try again, or call (516) 644-7187.';
       err.style.display = 'block';
     }
   }
@@ -311,15 +326,20 @@
 
     showLoad(true, 'Saving new password...');
     try {
-      const ok = await DB.resetPassword(_email, pass);
+      // Use Supabase Auth to update password server-side
+      const result = await Auth.updatePassword(pass);
       showLoad(false);
-      if (ok) {
+      if (!result.error) {
         suc.textContent = '✓ Password updated! Redirecting to sign in...';
         suc.style.display = 'block';
         document.getElementById('s3-btn').style.display = 'none';
+        // Sign out so they log back in fresh with their new password
+        await _sb.auth.signOut();
         setTimeout(() => window.location.href = 'portal-login.html', 2200);
       } else {
-        err.textContent = 'Failed to save password. Please try again.';
+        // updatePassword requires a Supabase session from the reset email link.
+        // If no session is active, instruct the user to click the link in their email.
+        err.textContent = 'Please click the "Reset Password" link in the second email we sent you first, then return here to set your new password.';
         err.style.display = 'block';
       }
     } catch(e) {

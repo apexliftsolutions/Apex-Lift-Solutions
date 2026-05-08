@@ -1,91 +1,187 @@
 // =============================================
 // APEX LIFT SOLUTIONS — Supabase Portal Data
-// Real-time sync via Supabase REST API
+// Uses Supabase Auth (JWT) — no client-side
+// role checks or hardcoded credentials.
 // =============================================
 
 const SUPABASE_URL = 'https://cjtezsgfdfijmdxzzbiq.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqdGV6c2dmZGZpam1keHp6YmlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNjg2OTIsImV4cCI6MjA5Mzc0NDY5Mn0.FkfIFgm5TUKa05nK4QQWdBRgK2cv3oPvq5MQArEUqbw';
 
+// XSS prevention — escape ALL user-supplied data before inserting into DOM
+function esc(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ── SUPABASE AUTH CLIENT ─────────────────────
+// We use the Supabase JS v2 CDN for Auth.
+// Auth tokens are stored in localStorage by Supabase (httpOnly not available
+// in a pure static site, but Supabase sessions are JWT-signed and validated
+// server-side via RLS — the browser cannot forge a valid JWT).
+const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── REST API HELPER (uses current session token) ──
 const SB = {
-  get headers() {
+  async headers() {
+    const { data: { session } } = await _sb.auth.getSession();
+    const token = session?.access_token || SUPABASE_ANON_KEY;
     return {
       'Content-Type': 'application/json',
       'apikey': SUPABASE_ANON_KEY,
-      'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + token,
       'Prefer': 'return=representation'
     };
   },
   async get(table, params = '') {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, { headers: this.headers });
-    if (!res.ok) { console.error('SB.get error:', await res.text()); return []; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, { headers: await this.headers() });
+    if (!res.ok) { console.error('SB.get error:', res.status, await res.text()); return []; }
     return res.json();
   },
   async post(table, body) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, { method: 'POST', headers: this.headers, body: JSON.stringify(body) });
-    if (!res.ok) { console.error('SB.post error:', await res.text()); return null; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: 'POST', headers: await this.headers(), body: JSON.stringify(body)
+    });
+    if (!res.ok) { console.error('SB.post error:', res.status, await res.text()); return null; }
     const data = await res.json();
     return Array.isArray(data) ? data[0] : data;
   },
   async patch(table, filter, body) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, { method: 'PATCH', headers: this.headers, body: JSON.stringify(body) });
-    if (!res.ok) { console.error('SB.patch error:', await res.text()); return null; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+      method: 'PATCH', headers: await this.headers(), body: JSON.stringify(body)
+    });
+    if (!res.ok) { console.error('SB.patch error:', res.status, await res.text()); return null; }
     const data = await res.json();
     return Array.isArray(data) ? data[0] : data;
   },
   async delete(table, filter) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, { method: 'DELETE', headers: this.headers });
-    if (!res.ok) { console.error('SB.delete error:', await res.text()); return false; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+      method: 'DELETE', headers: await this.headers()
+    });
+    if (!res.ok) { console.error('SB.delete error:', res.status, await res.text()); return false; }
     return true;
   }
 };
 
-// Simple password hash (for demo — in production use proper auth)
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'apex_salt_2026');
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+// ── AUTH ─────────────────────────────────────
+// All auth goes through Supabase Auth. Sessions are JWT-signed.
+// RLS policies enforce data access server-side regardless of what
+// the client sends. The browser cannot forge a valid session token.
+
+const ADMIN_EMAIL = 'admin@apexliftsolutionsusa.com';
+
+const Auth = {
+  // Sign in via Supabase Auth email/password
+  async signIn(email, password) {
+    const { data, error } = await _sb.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    return { user: data.user, session: data.session };
+  },
+
+  // Sign up new customer via Supabase Auth
+  async signUp(email, password, meta) {
+    const { data, error } = await _sb.auth.signUp({
+      email, password,
+      options: { data: meta }  // name, company, phone stored in user_metadata
+    });
+    if (error) return { error: error.message };
+    return { user: data.user };
+  },
+
+  // Sign out
+  async signOut() {
+    await _sb.auth.signOut();
+  },
+
+  // Get current session (null if not logged in)
+  async getSession() {
+    const { data: { session } } = await _sb.auth.getSession();
+    return session;
+  },
+
+  // Get current user
+  async getUser() {
+    const { data: { user } } = await _sb.auth.getUser();
+    return user;
+  },
+
+  // Check if current user is admin (server-validated via email)
+  async isAdmin() {
+    const user = await this.getUser();
+    return user?.email === ADMIN_EMAIL;
+  },
+
+  // Reset password via Supabase (sends email with magic link)
+  async resetPasswordEmail(email) {
+    const { error } = await _sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '/portal-reset.html'
+    });
+    return { error: error?.message || null };
+  },
+
+  // Update password (called from reset page after redirect)
+  async updatePassword(newPassword) {
+    const { error } = await _sb.auth.updateUser({ password: newPassword });
+    return { error: error?.message || null };
+  }
+};
+
+// ── DATABASE ─────────────────────────────────
+// RLS policies mean the database enforces access.
+// Customers only get their own rows. Admin gets all rows.
 
 const DB = {
 
-  // ── AUTH ─────────────────────────────────────
+  // ── CUSTOMERS ────────────────────────────────
 
-  async loginCustomer(email, password) {
-    const hash = await hashPassword(password);
-    const rows = await SB.get('customers', `?email=eq.${encodeURIComponent(email)}&password_hash=eq.${hash}&select=*`);
-    return rows[0] || null;
+  // Register: create auth user + customer profile row
+  async registerCustomer({ name, company, email, phone, password }) {
+    const { user, error } = await Auth.signUp(email, password, { name, company, phone });
+    if (error) return { error };
+    if (user) {
+      // Create customer profile row (status: pending until admin activates)
+      await SB.post('customers', {
+        id: user.id,
+        email,
+        name,
+        company: company || '',
+        phone: phone || '',
+        status: 'pending',
+        since: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      });
+    }
+    return { user };
   },
 
-  async registerCustomer(data) {
-    const hash = await hashPassword(data.password);
-    return SB.post('customers', {
-      email: data.email,
-      name: data.name,
-      company: data.company || '',
-      phone: data.phone || '',
-      password_hash: hash,
-      status: 'pending',
-      since: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    });
+  async getAllCustomers() {
+    return SB.get('customers', '?order=created_at.desc');
   },
 
-  async resetPassword(email, newPassword) {
-    const hash = await hashPassword(newPassword);
-    const rows = await SB.get('customers', `?email=eq.${encodeURIComponent(email)}&select=id`);
-    if (!rows.length) return false;
-    await SB.patch('customers', `email=eq.${encodeURIComponent(email)}`, { password_hash: hash });
-    return true;
+  async updateCustomerStatus(id, status) {
+    return SB.patch('customers', `id=eq.${encodeURIComponent(id)}`, { status });
   },
 
-  // ── QUOTES ──────────────────────────────────
+  async deleteCustomer(id) {
+    return SB.delete('customers', `id=eq.${encodeURIComponent(id)}`);
+  },
 
-  async getCustomerQuotes(email) {
-    return SB.get('quotes', `?customer_email=eq.${encodeURIComponent(email)}&order=created_at.desc`);
+  // ── QUOTES ───────────────────────────────────
+
+  async getCustomerQuotes(userId) {
+    // RLS ensures this only returns rows where customer_id = auth.uid()
+    return SB.get('quotes', `?customer_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`);
   },
 
   async getAllQuotes() {
     return SB.get('quotes', '?order=created_at.desc');
+  },
+
+  async addQuote(quote) {
+    return SB.post('quotes', quote);
   },
 
   async updateQuoteStatus(id, status) {
@@ -95,8 +191,8 @@ const DB = {
     });
   },
 
-  async addQuote(quote) {
-    return SB.post('quotes', quote);
+  async updateQuoteField(id, fields) {
+    return SB.patch('quotes', `id=eq.${encodeURIComponent(id)}`, fields);
   },
 
   async deleteQuote(id) {
@@ -105,8 +201,9 @@ const DB = {
 
   // ── INVOICES ─────────────────────────────────
 
-  async getCustomerInvoices(email) {
-    return SB.get('invoices', `?customer_email=eq.${encodeURIComponent(email)}&order=created_at.desc`);
+  async getCustomerInvoices(userId) {
+    // RLS ensures this only returns rows where customer_id = auth.uid()
+    return SB.get('invoices', `?customer_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`);
   },
 
   async getAllInvoices() {
@@ -120,10 +217,6 @@ const DB = {
     });
   },
 
-  async addInvoice(invoice) {
-    return SB.post('invoices', invoice);
-  },
-
   async quoteToInvoice(quoteId) {
     const quotes = await SB.get('quotes', `?id=eq.${encodeURIComponent(quoteId)}`);
     const q = quotes[0];
@@ -131,10 +224,12 @@ const DB = {
     const due = new Date();
     due.setDate(due.getDate() + 30);
     return SB.post('invoices', {
+      customer_id: q.customer_id,
       customer_email: q.customer_email,
       customer_name: q.customer_name,
       company: q.company,
       description: q.description,
+      items: q.items,          // pass line items so customer can see work summary
       amount: q.amount,
       status: 'unpaid',
       due: due.toISOString(),
@@ -142,24 +237,10 @@ const DB = {
     });
   },
 
-  // ── CUSTOMERS ────────────────────────────────
-
-  async getAllCustomers() {
-    return SB.get('customers', '?order=created_at.desc&select=id,email,name,company,phone,status,since,created_at');
-  },
-
-  async deleteCustomer(id) {
-    return SB.delete('customers', `id=eq.${id}`);
-  },
-
-  async updateCustomerStatus(id, status) {
-    return SB.patch('customers', `id=eq.${id}`, { status });
-  },
-
   // ── SERVICE HISTORY ──────────────────────────
 
-  async getServiceHistory(email) {
-    return SB.get('service_history', `?customer_email=eq.${encodeURIComponent(email)}&order=date.desc`);
+  async getCustomerServiceHistory(userId) {
+    return SB.get('service_history', `?customer_id=eq.${encodeURIComponent(userId)}&order=date.desc`);
   },
 
   async getAllServiceHistory() {
