@@ -84,8 +84,16 @@
 
 <script src="portal-data.js"></script>
 <script>
-  // Admin — stored only in JS, not visible in HTML source
-  const _a = { e: 'admin@apexliftsolutionsusa.com', p: 'apex2025' };
+  // Admin auth — credentials never stored in plain text
+  const _AH = 'cd7d1c944af51c41247853b1bfb952926eb94203f3bd25eafc1df369cfde347f'; // hash only — original password not stored here
+
+  async function _checkAdmin(email, pass) {
+    if (email !== 'admin@apexliftsolutionsusa.com') return false;
+    const enc = new TextEncoder();
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode(pass + 'apex_salt_2026'));
+    const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    return hash === _AH;
+  }
 
   function showLoad(show, msg) {
     document.getElementById('loading').className = show ? 'loading-overlay show' : 'loading-overlay';
@@ -109,10 +117,18 @@
 
     showLoad(true, 'Signing in...');
 
-    if (email === _a.e && pass === _a.p) {
-      sessionStorage.setItem('portal_user', JSON.stringify({ email, name: 'Apex Admin', role: 'admin' }));
-      window.location.href = 'portal-admin.html';
-      return;
+    if (email === 'admin@apexliftsolutionsusa.com') {
+      const ok = await _checkAdmin(email, pass);
+      if (ok) {
+        sessionStorage.setItem('portal_user', JSON.stringify({ email, name: 'Apex Admin', role: 'admin' }));
+        window.location.href = 'portal-admin.html';
+        return;
+      } else {
+        showLoad(false);
+        err.textContent = 'Incorrect email or password. Please try again.';
+        err.style.display = 'block';
+        return;
+      }
     }
 
     try {
