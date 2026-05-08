@@ -91,12 +91,52 @@
     .pay-success-block h3{font-family:var(--font-head);font-size:1.1rem;font-weight:900;text-transform:uppercase;color:#4caf50;margin-bottom:6px}
     .paid-confirm{background:rgba(76,175,80,.07);border:1px solid rgba(76,175,80,.22);padding:16px 20px;margin-top:10px}
     @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+    /* ── MOBILE TOPBAR & SIDEBAR TOGGLE ── */
+    .mobile-topbar{display:none;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--dark);border-bottom:1px solid var(--border);position:fixed;top:0;left:0;right:0;z-index:200;height:56px}
+    .mobile-topbar-logo{height:30px;width:auto;object-fit:contain}
+    .mobile-topbar-title{font-family:var(--font-head);font-size:.75rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--grey)}
+    .mobile-menu-btn{background:transparent;border:none;cursor:pointer;padding:6px;display:flex;flex-direction:column;gap:5px;flex-shrink:0}
+    .mobile-menu-btn span{display:block;width:22px;height:2px;background:var(--white);transition:all .3s;border-radius:1px}
+    .mobile-menu-btn.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+    .mobile-menu-btn.open span:nth-child(2){opacity:0}
+    .mobile-menu-btn.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+    .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:149}
+    .sidebar-overlay.open{display:block}
+
+    @media(max-width:768px){
+      .mobile-topbar{display:flex}
+      .sidebar{transform:translateX(-100%);transition:transform .28s cubic-bezier(.4,0,.2,1);top:0;z-index:150}
+      .sidebar.mobile-open{transform:translateX(0)}
+      .main{margin-left:0;padding:80px 16px 24px;/* 80px = topbar height + breathing room */}
+      .layout{display:block}
+      /* Stack q-card header on small screens */
+      .q-hdr{flex-direction:column;align-items:flex-start}
+      .q-meta{gap:12px}
+      .li-table{font-size:.78rem}
+      .li-table th,.li-table td{padding:6px 8px}
+      /* Contact bar stacks */
+      .contact-bar{flex-direction:column;gap:14px}
+      /* Modal full-width */
+      .modal{max-width:100%}
+      .confirm-box{max-width:100%}
+    }
   </style>
 </head>
 <body>
 
+<!-- MOBILE TOPBAR -->
+<div class="mobile-topbar" id="mobile-topbar">
+  <img src="logo.jpg" alt="Apex Lift Solutions" class="mobile-topbar-logo"/>
+  <span class="mobile-topbar-title" id="mobile-page-title">Client Portal</span>
+  <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+</div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
 <div class="layout">
-  <aside class="sidebar">
+  <aside class="sidebar" id="portal-sidebar">
     <div class="sb-logo">
       <img src="logo.jpg" alt="Apex Lift Solutions"/>
       <span class="sb-label">Client Portal</span>
@@ -778,6 +818,33 @@ function showView(v, el) {
   if (v === 'quotes')   loadQuotes();
   if (v === 'invoices') loadInvoices();
   if (v === 'history')  loadHistory();
+  // Update mobile topbar title
+  const titles = {quotes:'My Quotes',invoices:'My Invoices',pay:'Pay Invoice',history:'Service History',request:'Request Service'};
+  const titleEl = document.getElementById('mobile-page-title');
+  if (titleEl && titles[v]) titleEl.textContent = titles[v];
+  closeMobileSidebar();
+}
+
+function toggleMobileSidebar() {
+  const sidebar = document.getElementById('portal-sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  const btn = document.getElementById('mobile-menu-btn');
+  const isOpen = sidebar.classList.contains('mobile-open');
+  if (isOpen) {
+    sidebar.classList.remove('mobile-open');
+    overlay.classList.remove('open');
+    btn.classList.remove('open');
+  } else {
+    sidebar.classList.add('mobile-open');
+    overlay.classList.add('open');
+    btn.classList.add('open');
+  }
+}
+
+function closeMobileSidebar() {
+  document.getElementById('portal-sidebar')?.classList.remove('mobile-open');
+  document.getElementById('sidebar-overlay')?.classList.remove('open');
+  document.getElementById('mobile-menu-btn')?.classList.remove('open');
 }
 
 // Toggle password visibility

@@ -107,11 +107,59 @@
   .uploaded-files{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px}
   .file-chip{background:var(--dark-2);border:1px solid var(--border);padding:4px 10px;font-family:var(--font-head);font-size:.7rem;color:var(--grey-light);display:flex;align-items:center;gap:6px}
   .file-chip button{background:none;border:none;color:#ff4444;cursor:pointer;font-size:.9rem;padding:0}
+
+  /* ── MOBILE TOPBAR & SIDEBAR TOGGLE ── */
+  .mobile-topbar{display:none;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--dark);border-bottom:1px solid var(--border);position:fixed;top:0;left:0;right:0;z-index:200;height:56px}
+  .mobile-topbar-logo{height:28px;width:auto;object-fit:contain}
+  .mobile-topbar-right{display:flex;align-items:center;gap:10px}
+  .mobile-topbar-badge{background:var(--red);color:#fff;font-family:var(--font-head);font-size:.6rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px}
+  .mobile-menu-btn{background:transparent;border:none;cursor:pointer;padding:6px;display:flex;flex-direction:column;gap:5px;flex-shrink:0}
+  .mobile-menu-btn span{display:block;width:22px;height:2px;background:var(--white);transition:all .3s;border-radius:1px}
+  .mobile-menu-btn.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+  .mobile-menu-btn.open span:nth-child(2){opacity:0}
+  .mobile-menu-btn.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+  .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:149}
+  .sidebar-overlay.open{display:block}
+
+  @media(max-width:900px){
+    .mobile-topbar{display:flex}
+    .admin-sidebar{transform:translateX(-100%);transition:transform .28s cubic-bezier(.4,0,.2,1);top:0;z-index:150}
+    .admin-sidebar.mobile-open{transform:translateX(0)}
+    .admin-main{margin-left:0;padding:72px 16px 32px}
+    .admin-layout{display:block}
+    /* Dashboard stats: 2 columns on tablet, 1 on phone */
+    .stats-grid{grid-template-columns:repeat(2,1fr)}
+    .form-grid{grid-template-columns:1fr}
+    .line-item{grid-template-columns:1fr 1fr auto;gap:8px}
+    .line-item > *:nth-child(3),.line-item > *:nth-child(4){grid-column:auto}
+    .data-table{font-size:.8rem}
+    .data-table th,.data-table td{padding:10px 10px}
+    .search-input{width:100%}
+    .filter-row{gap:8px}
+    .modal{max-width:100%}
+  }
+  @media(max-width:480px){
+    .stats-grid{grid-template-columns:1fr 1fr}
+    .admin-header{flex-direction:column;align-items:flex-start}
+    .table-header{flex-direction:column;align-items:flex-start}
+  }
 </style>
 </head>
 <body>
+<!-- MOBILE TOPBAR -->
+<div class="mobile-topbar" id="mobile-topbar">
+  <img src="logo.jpg" alt="Apex Lift Solutions" class="mobile-topbar-logo"/>
+  <div class="mobile-topbar-right">
+    <span class="mobile-topbar-badge">Admin</span>
+    <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
 <div class="admin-layout">
-<aside class="admin-sidebar">
+<aside class="admin-sidebar" id="admin-sidebar-el">
   <div class="sidebar-logo">
     <img src="logo.jpg" alt="Apex Lift Solutions"/>
     <span class="sidebar-label">Admin Portal</span>
@@ -884,6 +932,29 @@ function showView(v, el) {
   else if (v==='requests')  renderRequests();
   else if (v==='history')   renderHistory();
   else if (v==='dashboard') { renderStats(); renderDashQuotes(); }
+  closeMobileSidebar();
+}
+
+function toggleMobileSidebar() {
+  const sidebar = document.getElementById('admin-sidebar-el');
+  const overlay = document.getElementById('sidebar-overlay');
+  const btn = document.getElementById('mobile-menu-btn');
+  const isOpen = sidebar.classList.contains('mobile-open');
+  if (isOpen) {
+    sidebar.classList.remove('mobile-open');
+    overlay.classList.remove('open');
+    btn.classList.remove('open');
+  } else {
+    sidebar.classList.add('mobile-open');
+    overlay.classList.add('open');
+    btn.classList.add('open');
+  }
+}
+
+function closeMobileSidebar() {
+  document.getElementById('admin-sidebar-el')?.classList.remove('mobile-open');
+  document.getElementById('sidebar-overlay')?.classList.remove('open');
+  document.getElementById('mobile-menu-btn')?.classList.remove('open');
 }
 
 async function refreshAll() {
