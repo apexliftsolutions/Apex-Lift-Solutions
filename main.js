@@ -97,3 +97,34 @@ if (sections.length > 0) {
 
   sections.forEach(s => sectionObserver.observe(s));
 }
+
+// ── PHONE FORMATTER ───────────────────────────
+// Formats (555) 000-0000 in real time on all tel inputs.
+// Handles: typing digit by digit, pasting a raw number,
+// pasting with dashes/dots, copying from contacts, etc.
+function formatPhone(input) {
+  const digits = input.value.replace(/\D/g, '').slice(0, 10);
+  let formatted = '';
+
+  if (digits.length === 0) {
+    formatted = '';
+  } else if (digits.length <= 3) {
+    // 5 → (5   |   51 → (51   |   516 → (516
+    formatted = '(' + digits;
+  } else if (digits.length <= 6) {
+    // 5166 → (516) 6   |   516644 → (516) 644
+    formatted = '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+  } else {
+    // 5166447 → (516) 644-7   |   5166447187 → (516) 644-7187
+    formatted = '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+  }
+
+  // Only reassign if changed — prevents cursor jumping mid-edit
+  if (input.value !== formatted) input.value = formatted;
+}
+
+document.querySelectorAll('input[type="tel"]').forEach(function(input) {
+  input.addEventListener('input', function() { formatPhone(input); });
+  // Paste needs a tick to let the browser write the pasted value first
+  input.addEventListener('paste', function() { setTimeout(function() { formatPhone(input); }, 0); });
+});

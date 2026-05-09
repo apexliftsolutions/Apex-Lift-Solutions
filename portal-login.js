@@ -171,6 +171,48 @@ async function handleRegister() {
   }
 }
 
+// ── PHONE FORMATTER ───────────────────────────
+// Formats input as (555) 000-0000 in real time.
+// Works on any <input type="tel"> passed to it.
+// The value stored is always the formatted string —
+// what gets saved to the database is "(516) 644-7187"
+// not "5166447187", which is what you want for display.
+function formatPhone(input) {
+  // Strip everything except digits
+  const digits = input.value.replace(/\D/g, '').slice(0, 10);
+  let formatted = '';
+
+  if (digits.length === 0) {
+    formatted = '';
+  } else if (digits.length <= 3) {
+    // 5  →  (5
+    // 51  →  (51
+    // 516  →  (516
+    formatted = '(' + digits;
+  } else if (digits.length <= 6) {
+    // 5166  →  (516) 6
+    // 51664  →  (516) 66
+    // 516644  →  (516) 644
+    formatted = '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+  } else {
+    // 5166447  →  (516) 644-7
+    // 5166447187  →  (516) 644-7187
+    formatted = '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+  }
+
+  // Only update if value actually changed — prevents cursor jumping
+  if (input.value !== formatted) {
+    input.value = formatted;
+  }
+}
+
+// Attach to the registration phone field
+const _regPhone = document.getElementById('reg-phone');
+if (_regPhone) {
+  _regPhone.addEventListener('input', () => formatPhone(_regPhone));
+  _regPhone.addEventListener('paste', () => setTimeout(() => formatPhone(_regPhone), 0));
+}
+
 // ── ENTER KEY ─────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
