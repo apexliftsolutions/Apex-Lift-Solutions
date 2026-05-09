@@ -1,0 +1,849 @@
+// =============================================
+//  APEX LIFT SOLUTIONS — portal-admin.js
+//  Admin portal logic. Depends on:
+//    - supabase.min.js (CDN)
+//    - emailjs (CDN)
+//    - portal-data.js  (Auth, DB, SB helpers)
+// =============================================
+
+// ── CONSTANTS ─────────────────────────────────
+const EJS_SVC   = 'service_lfi9ixk';
+const EJS_NOTIF = 'template_jpqlmic';
+
+let _currentUser    = null;
+let _allCustomers   = [];
+let _pendingFiles   = [];
+let lastQuoteStatuses = {};
+
+// ── INIT ──────────────────────────────────────
+async function initAdmin() {
+  emailjs.init('P0tnD3LQqQ6Pujijz');
+  try {
+    const session = await Auth.getSession();
+    if (!session || session.user.email !== 'admin@apexliftsolutionsusa.com') {
+      await Auth.signOut();
+      window.location.href = 'portal-login.html';
+      return;
+    }
+    _currentUser = session.user;
+    document.getElementById('admin-name').textContent = 'Apex Admin';
+    await refreshAll();
+    await loadCustomerDropdown();
+  } catch (e) {
+    console.error('Admin init error:', e);
+    window.location.href = 'portal-login.html';
+  }
+}
+
+document.readyState === 'loading'
+  ? document.addEventListener('DOMContentLoaded', initAdmin)
+  : initAdmin();
+
+// ── HELPERS ───────────────────────────────────
+function badge(s) {
+  const map = {
+    pending: 'badge-pending', approved: 'badge-approved',
+    declined: 'badge-declined', paid: 'badge-paid',
+    unpaid: 'badge-unpaid', active: 'badge-active', hidden: 'badge-hidden'
+  };
+  return `<span class="badge ${map[s] || ''}">${s}</span>`;
+}
+
+function fmtDate(d) {
+  return d ? new Date(d).toLocaleDateString('en-US') : '—';
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3500);
+}
+
+// ── EMAIL ─────────────────────────────────────
+async function sendEmail(to_email, to_name, subject, message) {
+  try {
+    await emailjs.send(EJS_SVC, EJS_NOTIF, { to_email, to_name, subject, message });
+  } catch (e) {
+    console.error('Email failed:', e);
+  }
+}
+
+// ── STATS ─────────────────────────────────────
+async function renderStats() {
+  const [quotes, invoices, customers] = await Promise.all([
+    DB.getAllQuotes(), DB.getAllInvoices(), DB.getAllCustomers()
+  ]);
+  const pending = quotes.filter(q => q.status === 'pending').length;
+  const unpaid  = invoices.filter(i => i.status === 'unpaid').length;
+  const revenue = invoices.filter(i => i.status === 'paid')
+    .reduce((s, i) => s + parseFloat(i.amount), 0);
+
+  const pb = document.getElementById('pending-badge');
+  if (pending > 0) { pb.style.display = 'inline'; pb.textContent = pending + ' NEW'; }
+  else pb.style.display = 'none';
+
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card"><div class="label">Total Customers</div><div class="value">${customers.length}</div></div>
+    <div class="stat-card"><div class="label">Open Quotes</div><div class="value ${pending > 0 ? 'red' : ''}">${pending}</div></div>
+    <div class="stat-card"><div class="label">Unpaid Invoices</div><div class="value ${unpaid > 0 ? 'red' : ''}">${unpaid}</div></div>
+    <div class="stat-card"><div class="label">Revenue Collected</div><div class="value">$${revenue.toFixed(2)}</div></div>`;
+
+  const changed = quotes.filter(q => {
+    const prev = lastQuoteStatuses[q.id];
+    return prev && prev !== q.status && (q.status === 'approved' || q.status === 'declined');
+  });
+  if (changed.length > 0) {
+    const last = changed[0];
+    document.getElementById('alert-text').textContent =
+      `${last.customer_name} ${last.status === 'approved' ? '✓ APPROVED' : '✗ DECLINED'} quote ${last.id} for $${parseFloat(last.amount).toFixed(2)}`;
+    document.getElementById('alert-banner').className = 'alert-banner show';
+  }
+  quotes.forEach(q => { lastQuoteStatuses[q.id] = q.status; });
+}
+
+// ── DASHBOARD QUOTES ──────────────────────────
+async function renderDashQuotes() {
+  const quotes = await DB.getAllQuotes();
+  document.getElementById('dash-quotes-table').innerHTML = quotes.slice(0, 6).map(q => `
+    <tr>
+      <td><strong style="color:var(--white)">${esc(q.id)}</strong></td>
+      <td>${esc(q.customer_name)} — <span style="color:var(--grey);font-size:.8rem;">${esc(q.company || '')}</span></td>
+      <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
+      <td>${badge(q.status)}</td>
+      <td>${fmtDate(q.created_at)}</td>
+      <td>
+        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` :
+          q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
+        <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── ALL QUOTES ────────────────────────────────
+async function renderAllQuotes() {
+  let quotes = await DB.getAllQuotes();
+  const company = document.getElementById('quotes-company-filter')?.value;
+  const status  = document.getElementById('quotes-status-filter')?.value;
+  const search  = (document.getElementById('quotes-search')?.value || '').toLowerCase();
+  if (company) quotes = quotes.filter(q => q.company === company);
+  if (status)  quotes = quotes.filter(q => q.status === status);
+  if (search)  quotes = quotes.filter(q =>
+    (q.customer_name || '').toLowerCase().includes(search) ||
+    (q.id || '').toLowerCase().includes(search) ||
+    (q.customer_email || '').toLowerCase().includes(search));
+
+  document.getElementById('all-quotes-table').innerHTML = !quotes.length
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No quotes match your filters.</td></tr>'
+    : quotes.map(q => `
+    <tr>
+      <td><strong style="color:var(--white)">${esc(q.id)}</strong></td>
+      <td>${esc(q.customer_name)}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(q.customer_email)}</span></td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem;">${esc(q.description || '')}</td>
+      <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
+      <td>${badge(q.status)}</td>
+      <td>${fmtDate(q.responded_at)}</td>
+      <td>
+        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` :
+          q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
+        <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
+        <button class="action-btn danger" onclick="deleteQuote('${q.id}')">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── INVOICES ──────────────────────────────────
+async function renderInvoices() {
+  let invoices = await DB.getAllInvoices();
+  const company = document.getElementById('invoices-company-filter')?.value;
+  const status  = document.getElementById('invoices-status-filter')?.value;
+  const search  = (document.getElementById('invoices-search')?.value || '').toLowerCase();
+
+  if (status === 'hidden') {
+    invoices = invoices.filter(i => i.status === 'hidden');
+  } else {
+    if (company) invoices = invoices.filter(i => i.company === company);
+    if (status)  invoices = invoices.filter(i => i.status === status);
+    else         invoices = invoices.filter(i => i.status !== 'hidden');
+    if (search)  invoices = invoices.filter(i =>
+      (i.customer_name || '').toLowerCase().includes(search) ||
+      (i.id || '').toLowerCase().includes(search) ||
+      (i.company || '').toLowerCase().includes(search));
+  }
+
+  document.getElementById('invoices-table').innerHTML = !invoices.length
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No invoices match your filters.</td></tr>'
+    : invoices.map(i => `
+    <tr>
+      <td><strong style="color:var(--white)">${esc(i.id)}</strong></td>
+      <td>${esc(i.customer_name || '')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company || '')}</span></td>
+      <td><strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong></td>
+      <td>${badge(i.status)}</td>
+      <td>${fmtDate(i.due)}</td>
+      <td>${fmtDate(i.paid_at)}</td>
+      <td>
+        ${i.status === 'unpaid' ? `<button class="action-btn green" onclick="markPaid('${i.id}')">✓ Mark Paid</button>` : ''}
+        ${i.status !== 'hidden' ? `<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`
+          : `<button class="action-btn green" onclick="unhideInvoice('${i.id}')">Unhide</button>`}
+        <button class="action-btn danger" onclick="deleteInvoice('${i.id}')">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── CUSTOMERS ─────────────────────────────────
+async function renderCustomers() {
+  const customers = await DB.getAllCustomers();
+  const search = (document.getElementById('customers-search')?.value || '').toLowerCase();
+  const status = document.getElementById('customers-status-filter')?.value;
+  let list = customers;
+  if (search) list = list.filter(c =>
+    (c.name || '').toLowerCase().includes(search) ||
+    (c.email || '').toLowerCase().includes(search) ||
+    (c.company || '').toLowerCase().includes(search));
+  if (status) list = list.filter(c => c.status === status);
+
+  document.getElementById('customers-table').innerHTML = !list.length
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No customers match your filters.</td></tr>'
+    : list.map(c => `
+    <tr>
+      <td><strong style="color:var(--white)">${esc(c.name || '—')}</strong></td>
+      <td>${esc(c.company || '—')}</td>
+      <td>${esc(c.email)}</td>
+      <td>${esc(c.phone || '—')}</td>
+      <td>${badge(c.status)}</td>
+      <td>${esc(c.since || '—')}</td>
+      <td>
+        ${c.status !== 'active' ? `<button class="action-btn green" onclick="activateCustomer('${esc(String(c.id))}','${esc(c.email)}','${esc(c.name || '')}')">✓ Activate</button>` : ''}
+        ${c.status === 'active' ? `<button class="action-btn" onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Deactivate</button>` : ''}
+        ${c.status === 'pending' ? `<button class="action-btn danger" onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Reject</button>` : ''}
+        <button class="action-btn danger" onclick="deleteCustomer('${esc(String(c.id))}','${esc(c.name || c.email)}')">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── CUSTOMER ACTIONS ──────────────────────────
+async function activateCustomer(id, email, name) {
+  await DB.updateCustomerStatus(id, 'active');
+  await sendEmail(email, name || 'Customer',
+    'Your Apex Lift Solutions Account is Approved!',
+    `Hi ${name || 'there'},\n\nYour portal account has been approved! You can now sign in at:\napexliftsolutionsusa.com/portal-login.html\n\nFrom your portal you can view quotes, approve or decline them, see invoices, and track your service history.\n\nQuestions? Call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
+  showToast('✓ Customer activated and notified by email!');
+  await renderCustomers();
+  await loadCustomerDropdown();
+}
+
+async function setCustomerStatus(id, status) {
+  await DB.updateCustomerStatus(id, status);
+  showToast(`✓ Customer ${status}!`);
+  await renderCustomers();
+  await loadCustomerDropdown();
+}
+
+async function deleteCustomer(id, name) {
+  if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
+  const ok = await DB.deleteCustomer(id);
+  if (ok) { showToast('✓ Customer deleted.'); await renderCustomers(); await loadCustomerDropdown(); }
+  else alert('Delete failed — customer may have associated records.');
+}
+
+// ── INVOICE ACTIONS ───────────────────────────
+async function markPaid(id) {
+  await DB.markInvoicePaid(id);
+  const invs = await DB.getAllInvoices();
+  const inv  = invs.find(i => i.id === id);
+  if (inv) {
+    await sendEmail(inv.customer_email, inv.customer_name || 'Customer',
+      `Payment Confirmed — Invoice ${inv.id}`,
+      `Hi ${inv.customer_name || 'there'},\n\nYour payment for invoice ${inv.id} ($${parseFloat(inv.amount).toFixed(2)}) has been confirmed.\n\nThank you for your business! Log in to view your full receipt:\napexliftsolutionsusa.com/portal-login.html\n\nQuestions? Call (516) 644-7187.\n\n— Apex Lift Solutions`);
+    await sendEmail('admin@apexliftsolutionsusa.com', 'Apex Admin',
+      `Invoice ${inv.id} Marked Paid — $${parseFloat(inv.amount).toFixed(2)}`,
+      `Invoice ${inv.id} for ${inv.customer_name || 'customer'} ($${parseFloat(inv.amount).toFixed(2)}) has been marked as paid.\nCustomer: ${inv.customer_email}`);
+    await sendEmail('apexliftsolutions1@gmail.com', 'Apex Admin',
+      `Invoice ${inv.id} Marked Paid — $${parseFloat(inv.amount).toFixed(2)}`,
+      `Invoice ${inv.id} for ${inv.customer_name || 'customer'} ($${parseFloat(inv.amount).toFixed(2)}) has been marked as paid.\nCustomer: ${inv.customer_email}`);
+  }
+  showToast('✓ ' + id + ' marked as paid — customer notified!');
+  renderInvoices();
+}
+
+async function hideInvoice(id) {
+  await SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, { status: 'hidden' });
+  showToast('Invoice hidden (use "Hidden" filter to view it).');
+  renderInvoices();
+}
+
+async function unhideInvoice(id) {
+  await SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, { status: 'unpaid' });
+  showToast('Invoice restored to unpaid.');
+  renderInvoices();
+}
+
+async function deleteInvoice(id) {
+  if (!confirm(`Permanently delete invoice ${id}? This cannot be undone.`)) return;
+  await SB.delete('invoices', `id=eq.${encodeURIComponent(id)}`);
+  showToast('✓ Invoice deleted.');
+  renderInvoices();
+}
+
+// ── QUOTE ACTIONS ─────────────────────────────
+async function convertToInvoice(quoteId) {
+  if (!confirm(`Convert quote ${quoteId} to an invoice?`)) return;
+  const inv = await DB.quoteToInvoice(quoteId);
+  if (inv) {
+    await DB.updateQuoteField(quoteId, { invoiced: true });
+    const invLines = inv.items && inv.items.length
+      ? '\n\nWork Summary:\n' + inv.items.map(i => {
+          const qty  = parseFloat(i.qty) || 1;
+          const unit = parseFloat(i.unit_price || i.amount || 0);
+          return `  • ${i.desc || 'Service'} x${qty} @ $${unit.toFixed(2)} = $${(qty * unit).toFixed(2)}`;
+        }).join('\n')
+      : '';
+    await sendEmail(inv.customer_email, inv.customer_name || 'Customer',
+      `Invoice ${inv.id} Ready — $${parseFloat(inv.amount).toFixed(2)} Due`,
+      `Hi ${inv.customer_name || 'there'},\n\nYour invoice ${inv.id} for $${parseFloat(inv.amount).toFixed(2)} is ready for payment.\nDue Date: ${new Date(inv.due).toLocaleDateString('en-US')}${invLines}\n\nTotal Due: $${parseFloat(inv.amount).toFixed(2)}\n\nLog in to review and pay online:\napexliftsolutionsusa.com/portal-login.html\n\nOr call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
+    showToast(`✓ Invoice ${inv.id} created — customer notified!`);
+    await refreshAll();
+    showView('invoices');
+  }
+}
+
+async function deleteQuote(id) {
+  if (!confirm(`Delete quote ${id}?`)) return;
+  await DB.deleteQuote(id);
+  showToast('✓ Quote deleted.');
+  renderAllQuotes();
+}
+
+async function viewQuoteDetail(id) {
+  const quotes = await DB.getAllQuotes();
+  const q = quotes.find(x => x.id === id);
+  if (!q) return;
+  const items = q.items ? q.items.map(i =>
+    `  • ${i.desc} x${i.qty || 1} (${i.type}): $${parseFloat(i.unit_price || i.amount || 0).toFixed(2)} ea = $${(parseFloat(i.unit_price || i.amount || 0) * (i.qty || 1)).toFixed(2)}`
+  ).join('\n') : '';
+  alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${q.customer_name} — ${q.company || ''}\nEquipment: ${q.equipment || 'N/A'}\nStatus: ${q.status.toUpperCase()}${q.responded_at ? ' on ' + fmtDate(q.responded_at) : ''}\n\nDescription:\n${q.description || ''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
+}
+
+// ── FILE HANDLING ─────────────────────────────
+function handleFileSelect(input) {
+  _pendingFiles = Array.from(input.files);
+  const list = document.getElementById('uploaded-files-list');
+  list.innerHTML = _pendingFiles.map((f, i) => `
+    <div class="file-chip">
+      📎 ${esc(f.name)}
+      <button onclick="removeFile(${i})" title="Remove">×</button>
+    </div>`).join('');
+}
+
+function removeFile(idx) {
+  _pendingFiles.splice(idx, 1);
+  handleFileSelect({ files: _pendingFiles });
+}
+
+async function uploadFiles(quoteId) {
+  if (!_pendingFiles.length) return [];
+  const urls = [];
+  for (const file of _pendingFiles) {
+    const safeName = file.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
+    const path = `quotes/${quoteId}/${Date.now()}_${safeName}`;
+    const { data, error } = await _sb.storage.from('apex-uploads').upload(path, file, { upsert: true, contentType: file.type });
+    if (error) {
+      console.error('Upload failed:', error.message);
+    } else {
+      const { data: urlData } = _sb.storage.from('apex-uploads').getPublicUrl(path);
+      urls.push(urlData.publicUrl);
+    }
+  }
+  return urls;
+}
+
+// ── CUSTOMER DROPDOWN ─────────────────────────
+async function loadCustomerDropdown() {
+  _allCustomers = await DB.getAllCustomers();
+  const sel = document.getElementById('q-customer-select');
+  if (sel) {
+    const active = _allCustomers.filter(x => x.status === 'active');
+    sel.innerHTML = active.length === 0
+      ? '<option value="">— No active customers yet —</option>'
+      : '<option value="">— Select a customer —</option>' +
+        active.map(x => `<option value="${esc(x.email)}" data-name="${esc(x.name || '')}" data-company="${esc(x.company || '')}" data-id="${esc(String(x.id || ''))}">${esc(x.name || '')}${x.company ? ' — ' + esc(x.company) : ''} &lt;${esc(x.email)}&gt;</option>`).join('');
+    document.getElementById('q-email').value   = '';
+    document.getElementById('q-company').value = '';
+  }
+  const companies = [...new Set(_allCustomers.map(x => x.company).filter(Boolean))].sort();
+  const opts = '<option value="">All Companies</option>' +
+    companies.map(co => `<option value="${esc(co)}">${esc(co)}</option>`).join('');
+  ['quotes-company-filter', 'invoices-company-filter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { const v = el.value; el.innerHTML = opts; el.value = v; }
+  });
+}
+
+function selectCustomer() {
+  const sel = document.getElementById('q-customer-select');
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('q-email').value   = opt.value || '';
+  document.getElementById('q-company').value = opt.dataset.company || '';
+}
+
+// ── LINE ITEMS ────────────────────────────────
+function lineItemHTML() {
+  const style = 'background:var(--black);border:1px solid var(--border);color:var(--white);font-family:var(--font-body);font-size:.95rem;padding:10px 12px;outline:none;border-radius:0;width:100%;';
+  return `
+    <div class="line-item">
+      <input type="text" placeholder="Description" class="item-desc" style="${style}"/>
+      <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" style="${style}" oninput="updateTotal()"/>
+      <select class="item-type" style="${style}"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
+      <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()" style="${style}"/>
+      <button class="remove-line" onclick="removeLine(this)">×</button>
+    </div>`;
+}
+
+function addLine() {
+  document.getElementById('line-items-container').insertAdjacentHTML('beforeend', lineItemHTML());
+}
+
+function removeLine(btn) {
+  btn.closest('.line-item').remove();
+  updateTotal();
+}
+
+function updateTotal() {
+  const total = [...document.querySelectorAll('.line-item')].reduce((s, row) => {
+    const qty  = parseFloat(row.querySelector('.item-qty')?.value) || 1;
+    const unit = parseFloat(row.querySelector('.item-unit')?.value) || 0;
+    return s + (qty * unit);
+  }, 0);
+  document.getElementById('quote-total-display').textContent = '$' + total.toFixed(2);
+}
+
+function resetLineItems() {
+  document.getElementById('line-items-container').innerHTML = lineItemHTML();
+  document.getElementById('quote-total-display').textContent = '$0.00';
+}
+
+// ── SAVE QUOTE ────────────────────────────────
+async function saveQuote() {
+  const sel = document.getElementById('q-customer-select');
+  if (!sel || !sel.value) { alert('Please select a customer.'); return; }
+  const email   = document.getElementById('q-email').value.trim();
+  const company = document.getElementById('q-company').value.trim();
+  const opt     = sel.options[sel.selectedIndex];
+  const name    = opt.dataset.name || '';
+  const custId  = opt.dataset.id || null;
+  if (!email) { alert('Customer email missing. Re-select the customer.'); return; }
+
+  const items = [...document.querySelectorAll('.line-item')].map(row => ({
+    desc:       row.querySelector('.item-desc').value || 'Service',
+    qty:        parseFloat(row.querySelector('.item-qty')?.value) || 1,
+    type:       row.querySelector('.item-type').value,
+    unit_price: parseFloat(row.querySelector('.item-unit')?.value) || 0,
+    amount:     (parseFloat(row.querySelector('.item-qty')?.value) || 1) * (parseFloat(row.querySelector('.item-unit')?.value) || 0)
+  })).filter(i => i.amount > 0);
+
+  const total = items.reduce((s, i) => s + i.amount, 0);
+  if (total === 0) { alert('Add at least one line item with an amount.'); return; }
+
+  const newQuote = {
+    customer_id:    custId,
+    customer_email: email,
+    customer_name:  name,
+    company,
+    equipment:   document.getElementById('q-equipment').value.trim(),
+    description: document.getElementById('q-desc').value.trim() || 'Forklift Service',
+    items, amount: total, status: 'pending'
+  };
+
+  const saved = await DB.addQuote(newQuote);
+  if (!saved) { alert('Error saving quote. Please try again.'); return; }
+
+  if (_pendingFiles.length) {
+    const urls = await uploadFiles(saved.id);
+    if (urls.length) await DB.updateQuoteField(saved.id, { attachments: urls });
+  }
+
+  const attLinks = (_pendingFiles.length && saved.attachments?.length)
+    ? '\n\nAttachments (click to view):\n' + saved.attachments.map((url, i) => `${i + 1}. ${url}`).join('\n')
+    : '';
+
+  await sendEmail(email, name,
+    `New Quote from Apex Lift Solutions — $${total.toFixed(2)}`,
+    `Hi ${name},\n\nYou have a new quote (${saved.id}) for $${total.toFixed(2)} ready for your review.\n\nLog in to approve or decline:\napexliftsolutionsusa.com/portal-login.html${attLinks}\n\nOnce approved, we will contact you within 1 business day to schedule.\nQuestions? Call (516) 644-7187.\n\n— Apex Lift Solutions`);
+
+  showToast(`✓ Quote sent to ${name} — email notification sent!`);
+
+  // Reset form
+  sel.value = '';
+  document.getElementById('q-email').value     = '';
+  document.getElementById('q-company').value   = '';
+  document.getElementById('q-equipment').value = '';
+  document.getElementById('q-desc').value      = '';
+  _pendingFiles = [];
+  document.getElementById('uploaded-files-list').innerHTML = '';
+  resetLineItems();
+  await refreshAll();
+  showView('quotes');
+}
+
+// ── NAVIGATION ────────────────────────────────
+function showView(v, el) {
+  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  document.getElementById('view-' + v).classList.add('active');
+  if (el) {
+    el.classList.add('active');
+  } else {
+    document.querySelectorAll('.nav-item').forEach(n => {
+      if (n.getAttribute('onclick')?.includes(`'${v}'`)) n.classList.add('active');
+    });
+  }
+  const actions = {
+    quotes:    renderAllQuotes,
+    invoices:  renderInvoices,
+    customers: renderCustomers,
+    requests:  renderRequests,
+    history:   renderHistory,
+    dashboard: () => { renderStats(); renderDashQuotes(); }
+  };
+  actions[v]?.();
+  closeMobileSidebar();
+}
+
+function toggleMobileSidebar() {
+  const sidebar  = document.getElementById('admin-sidebar-el');
+  const overlay  = document.getElementById('sidebar-overlay');
+  const btn      = document.getElementById('mobile-menu-btn');
+  const isOpen   = sidebar.classList.contains('mobile-open');
+  sidebar.classList.toggle('mobile-open', !isOpen);
+  overlay.classList.toggle('open', !isOpen);
+  btn.classList.toggle('open', !isOpen);
+}
+
+function closeMobileSidebar() {
+  document.getElementById('admin-sidebar-el')?.classList.remove('mobile-open');
+  document.getElementById('sidebar-overlay')?.classList.remove('open');
+  document.getElementById('mobile-menu-btn')?.classList.remove('open');
+}
+
+async function refreshAll() {
+  await renderStats();
+  await renderDashQuotes();
+  const views = ['quotes', 'invoices', 'customers', 'requests', 'history'];
+  for (const v of views) {
+    if (document.getElementById('view-' + v)?.classList.contains('active')) {
+      await { quotes: renderAllQuotes, invoices: renderInvoices, customers: renderCustomers, requests: renderRequests, history: renderHistory }[v]();
+    }
+  }
+}
+
+// ── SETTINGS: PASSWORD CHANGE ─────────────────
+async function changeAdminPassword() {
+  const pass  = document.getElementById('admin-new-pass').value;
+  const pass2 = document.getElementById('admin-new-pass2').value;
+  const err   = document.getElementById('pw-err');
+  const suc   = document.getElementById('pw-suc');
+  err.style.display = 'none';
+  suc.style.display = 'none';
+  if (pass.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.style.display = 'block'; return; }
+  if (pass !== pass2)  { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
+  const result = await Auth.updatePassword(pass);
+  if (result.error) { err.textContent = 'Error: ' + result.error; err.style.display = 'block'; }
+  else {
+    suc.textContent = '✓ Password updated!'; suc.style.display = 'block';
+    document.getElementById('admin-new-pass').value  = '';
+    document.getElementById('admin-new-pass2').value = '';
+  }
+}
+
+// ── SERVICE REQUESTS ──────────────────────────
+let _currentRequest = null;
+
+async function renderRequests() {
+  const tbody = document.getElementById('requests-table');
+  let requests = await SB.get('service_requests', '?order=created_at.desc');
+  const statusF = document.getElementById('req-status-filter')?.value;
+  const search  = (document.getElementById('req-search')?.value || '').toLowerCase();
+  if (statusF) requests = requests.filter(r => r.status === statusF);
+  if (search)  requests = requests.filter(r =>
+    (r.customer_name || '').toLowerCase().includes(search) ||
+    (r.company || '').toLowerCase().includes(search) ||
+    (r.id || '').toLowerCase().includes(search));
+
+  const openCount = requests.filter(r => r.status === 'open').length;
+  const rb = document.getElementById('req-badge');
+  if (rb) { rb.style.display = openCount > 0 ? 'inline' : 'none'; if (openCount > 0) rb.textContent = openCount + ' NEW'; }
+
+  if (!requests.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--grey);padding:32px;">No service requests yet.</td></tr>';
+    return;
+  }
+  const urgencyColor = { normal: 'var(--grey)', urgent: 'orange', emergency: '#ff4444' };
+  tbody.innerHTML = requests.map(r => `
+    <tr>
+      <td><strong style="color:var(--white)">${esc(r.id)}</strong></td>
+      <td>${esc(r.customer_name || '')}<br/><span style="color:var(--grey);font-size:.78rem;">${esc(r.company || '')}</span></td>
+      <td style="font-size:.85rem;">${esc(r.equipment || '—')}</td>
+      <td style="font-size:.85rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.issue_type || '—')}</td>
+      <td><span style="font-family:var(--font-head);font-size:.72rem;font-weight:700;color:${urgencyColor[r.urgency] || 'var(--grey)'};">${(r.urgency || 'normal').toUpperCase()}</span></td>
+      <td style="font-size:.82rem;">${fmtDate(r.created_at)}</td>
+      <td>${badge(r.status)}</td>
+      <td>
+        <button class="action-btn primary" onclick="openReqDetail('${esc(r.id)}')">View</button>
+        <button class="action-btn green" onclick="openReqDetailAndQuote('${esc(r.id)}')">→ Quote</button>
+        <button class="action-btn" onclick="setReqStatus('${esc(r.id)}','closed')">Close</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function openReqDetail(id, autoQuote) {
+  const requests = await SB.get('service_requests', `?id=eq.${encodeURIComponent(id)}`);
+  const r = requests[0]; if (!r) return;
+  _currentRequest = r;
+  document.getElementById('req-detail-id').textContent = r.id;
+  const urgencyColor = { normal: 'var(--grey)', urgent: 'orange', emergency: '#ff4444' };
+  const attHtml = r.attachments?.length
+    ? `<div style="margin-top:16px;">
+        <div style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;">📎 Attachments — click to open</div>
+        <div class="req-att-grid">
+          ${r.attachments.map(url => {
+            const raw   = decodeURIComponent(url.split('/').pop().split('?')[0]);
+            const name  = raw.replace(/^\d+_/, '');
+            const short = name.length > 18 ? name.slice(0, 16) + '…' : name;
+            if (/\.(pdf|txt|doc)/.test(url.toLowerCase())) {
+              return `<a href="${url}" target="_blank" class="req-att-pdf"><span style="font-size:1.8rem;">📄</span><small style="font-family:var(--font-head);font-size:.58rem;color:var(--grey);margin-top:3px;text-align:center;padding:0 4px;">${esc(short)}</small></a>`;
+            }
+            return `<a href="${url}" target="_blank" class="req-att-img" title="${esc(name)}"><img src="${url}" alt="${esc(name)}" onerror="this.parentElement.style.display='none'"/></a>`;
+          }).join('')}
+        </div>
+       </div>`
+    : '<p style="color:var(--grey);font-size:.85rem;margin-top:10px;">No attachments.</p>';
+
+  document.getElementById('req-detail-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Customer</label><div style="color:var(--white);">${esc(r.customer_name || '—')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Company</label><div style="color:var(--white);">${esc(r.company || '—')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Email</label><div style="color:var(--white);">${esc(r.customer_email)}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Equipment</label><div style="color:var(--white);">${esc(r.equipment || 'Not specified')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Issue Type</label><div style="color:var(--white);">${esc(r.issue_type || '—')}</div></div>
+      <div class="form-group"><label style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);display:block;margin-bottom:4px;">Urgency</label><div style="color:${urgencyColor[r.urgency] || 'var(--grey)'};font-weight:700;">${(r.urgency || 'normal').toUpperCase()}</div></div>
+    </div>
+    <div style="background:var(--dark-2);border:1px solid var(--border);padding:16px;margin-bottom:16px;">
+      <div style="font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;">Description</div>
+      <p style="color:var(--white);line-height:1.7;white-space:pre-wrap;">${esc(r.description)}</p>
+    </div>
+    ${attHtml}
+    <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="action-btn green" onclick="quoteFromRequest()">✏️ Create Quote from This Request</button>
+      <button class="action-btn" onclick="setReqStatus('${esc(r.id)}','closed');closeReqModal();">✓ Mark Closed</button>
+    </div>`;
+
+  document.getElementById('req-detail-modal').className = 'modal-overlay open';
+  if (autoQuote) quoteFromRequest();
+}
+
+function openReqDetailAndQuote(id) { openReqDetail(id, true); }
+
+function closeReqModal() {
+  document.getElementById('req-detail-modal').className = 'modal-overlay';
+  _currentRequest = null;
+}
+
+async function setReqStatus(id, status) {
+  await SB.patch('service_requests', `id=eq.${encodeURIComponent(id)}`, { status });
+  renderRequests();
+  showToast(`✓ Request marked ${status}.`);
+}
+
+function quoteFromRequest() {
+  if (!_currentRequest) return;
+  closeReqModal();
+  showView('create-quote');
+  setTimeout(async () => {
+    const eqEl = document.getElementById('q-equipment');
+    if (eqEl) eqEl.value = _currentRequest.equipment || '';
+    const descEl = document.getElementById('q-desc');
+    if (descEl) descEl.value = _currentRequest.description || '';
+    const sel = document.getElementById('q-customer-select');
+    if (sel && _currentRequest.customer_email) {
+      for (const opt of sel.options) {
+        if (opt.value === _currentRequest.customer_email) {
+          sel.value = opt.value;
+          selectCustomer();
+          break;
+        }
+      }
+    }
+    showToast('Quote form pre-filled from service request!');
+    await setReqStatus(_currentRequest.id, 'quoted');
+  }, 200);
+}
+
+// ── SERVICE HISTORY ───────────────────────────
+let _editingHistId = null;
+
+async function renderHistory() {
+  const tbody = document.getElementById('history-table');
+  let rows = await SB.get('service_history', '?order=date.desc');
+
+  const custFilter = document.getElementById('history-customer-filter');
+  if (custFilter && custFilter.options.length <= 1) {
+    const custs = _allCustomers.length ? _allCustomers : await DB.getAllCustomers();
+    [...new Set(custs.map(c => c.company || c.name).filter(Boolean))].sort().forEach(n => {
+      const o = document.createElement('option'); o.value = n; o.textContent = n;
+      custFilter.appendChild(o);
+    });
+  }
+
+  const custF  = document.getElementById('history-customer-filter')?.value;
+  const paidF  = document.getElementById('history-paid-filter')?.value;
+  const search = (document.getElementById('history-search')?.value || '').toLowerCase();
+
+  if (custF)          rows = rows.filter(r => r.company === custF || r.customer_name?.includes(custF));
+  if (paidF === 'paid')   rows = rows.filter(r => r.paid);
+  if (paidF === 'unpaid') rows = rows.filter(r => !r.paid);
+  if (search) rows = rows.filter(r =>
+    (r.customer_name || '').toLowerCase().includes(search) ||
+    (r.equipment || '').toLowerCase().includes(search) ||
+    (r.description || '').toLowerCase().includes(search));
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--grey);padding:32px;">No service history records yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td><strong style="color:var(--white);font-size:.82rem;">${esc(r.id)}</strong></td>
+      <td>${esc(r.customer_name || '—')}<br/><span style="color:var(--grey);font-size:.76rem;">${esc(r.company || '')}</span></td>
+      <td style="font-size:.85rem;">${esc(r.equipment || '—')}</td>
+      <td style="font-size:.85rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.description || '')}">${esc(r.description || '—')}</td>
+      <td style="font-size:.85rem;">${esc(r.tech || '—')}</td>
+      <td style="font-size:.82rem;">${r.date ? new Date(r.date).toLocaleDateString('en-US') : '—'}</td>
+      <td style="color:var(--red);font-family:var(--font-head);font-weight:700;">${r.amount ? '$' + parseFloat(r.amount).toFixed(2) : '—'}</td>
+      <td>
+        ${r.paid
+          ? '<span style="color:#4caf50;font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;">✓ PAID</span>'
+          : r.amount
+            ? '<span style="color:orange;font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;">UNPAID</span>'
+            : '<span style="color:var(--grey);font-family:var(--font-head);font-size:.72rem;">—</span>'}
+        ${!r.paid && r.amount ? `<button class="action-btn green" style="margin-top:4px;display:block;" onclick="markHistPaid('${esc(r.id)}')">✓ Mark Paid</button>` : ''}
+      </td>
+      <td>
+        <button class="action-btn" onclick="openEditHistory('${esc(r.id)}')">Edit</button>
+        <button class="action-btn danger" onclick="deleteHistory('${esc(r.id)}')">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function populateHistCustomerDropdown() {
+  if (!_allCustomers.length) _allCustomers = await DB.getAllCustomers();
+  const sel = document.getElementById('hist-customer');
+  sel.innerHTML = '<option value="">— Select customer —</option>' +
+    _allCustomers.map(x =>
+      `<option value="${esc(String(x.id))}">${esc(x.name || x.email)}${x.company ? ' — ' + esc(x.company) : ''}</option>`
+    ).join('');
+}
+
+async function openAddHistoryModal() {
+  _editingHistId = null;
+  document.getElementById('history-modal-title').textContent = 'Add Service Record';
+  document.getElementById('hist-err').style.display = 'none';
+  ['hist-equipment', 'hist-tech', 'hist-desc', 'hist-notes', 'hist-amount'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('hist-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('hist-paid').value = 'false';
+  await populateHistCustomerDropdown();
+  document.getElementById('history-modal').className = 'modal-overlay open';
+}
+
+async function openEditHistory(id) {
+  const rows = await SB.get('service_history', `?id=eq.${encodeURIComponent(id)}`);
+  const r = rows[0]; if (!r) return;
+  _editingHistId = id;
+  document.getElementById('history-modal-title').textContent = 'Edit Service Record ' + id;
+  document.getElementById('hist-err').style.display = 'none';
+  await populateHistCustomerDropdown();
+  const sel = document.getElementById('hist-customer');
+  sel.value = r.customer_id || '';
+  document.getElementById('hist-equipment').value = r.equipment    || '';
+  document.getElementById('hist-tech').value      = r.tech         || '';
+  document.getElementById('hist-desc').value      = r.description  || '';
+  document.getElementById('hist-notes').value     = r.notes        || '';
+  document.getElementById('hist-amount').value    = r.amount       || '';
+  document.getElementById('hist-paid').value      = r.paid ? 'true' : 'false';
+  document.getElementById('hist-date').value      = r.date ? r.date.slice(0, 10) : '';
+  document.getElementById('history-modal').className = 'modal-overlay open';
+}
+
+function closeHistoryModal() {
+  document.getElementById('history-modal').className = 'modal-overlay';
+  _editingHistId = null;
+}
+
+async function saveHistoryRecord() {
+  const sel    = document.getElementById('hist-customer');
+  const custId = sel.value;
+  const desc   = document.getElementById('hist-desc').value.trim();
+  const err    = document.getElementById('hist-err');
+  err.style.display = 'none';
+
+  if (!custId) { err.textContent = 'Please select a customer.'; err.style.display = 'block'; return; }
+  if (!desc)   { err.textContent = 'Description of work is required.'; err.style.display = 'block'; return; }
+
+  const cust = _allCustomers.find(x => String(x.id) === String(custId)) || {};
+  if (!cust.email) { err.textContent = 'Could not find customer details. Please refresh and try again.'; err.style.display = 'block'; return; }
+
+  const isPaid  = document.getElementById('hist-paid').value === 'true';
+  const amount  = parseFloat(document.getElementById('hist-amount').value) || null;
+  const dateVal = document.getElementById('hist-date').value;
+
+  const record = {
+    customer_id:    custId,
+    customer_email: cust.email,
+    customer_name:  cust.name    || '',
+    company:        cust.company || '',
+    equipment:  document.getElementById('hist-equipment').value.trim(),
+    tech:       document.getElementById('hist-tech').value.trim(),
+    description: desc,
+    notes:      document.getElementById('hist-notes').value.trim(),
+    amount, paid: isPaid,
+    paid_at: isPaid ? new Date().toISOString() : null,
+    date:    dateVal ? new Date(dateVal).toISOString() : new Date().toISOString()
+  };
+
+  try {
+    const url    = `${SUPABASE_URL}/rest/v1/service_history${_editingHistId ? `?id=eq.${encodeURIComponent(_editingHistId)}` : ''}`;
+    const method = _editingHistId ? 'PATCH' : 'POST';
+    const res    = await fetch(url, { method, headers: await SB.headers(), body: JSON.stringify(record) });
+    if (!res.ok) { const txt = await res.text(); err.textContent = 'Save failed: ' + txt; err.style.display = 'block'; return; }
+    closeHistoryModal();
+    showToast(_editingHistId ? '✓ Service record updated!' : '✓ Service record added!');
+    renderHistory();
+  } catch (e) {
+    console.error('History save error:', e);
+    err.textContent = 'Connection error. Please try again.';
+    err.style.display = 'block';
+  }
+}
+
+async function markHistPaid(id) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/service_history?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: await SB.headers(),
+    body: JSON.stringify({ paid: true, paid_at: new Date().toISOString() })
+  });
+  if (!res.ok) { showToast('Error marking paid.'); } else { showToast('✓ Marked as paid!'); renderHistory(); }
+}
+
+async function deleteHistory(id) {
+  if (!confirm('Delete this service record? This cannot be undone.')) return;
+  await SB.delete('service_history', `id=eq.${encodeURIComponent(id)}`);
+  showToast('✓ Record deleted.');
+  renderHistory();
+}
+
+async function logout() { await Auth.signOut(); window.location.href = 'portal-login.html'; }
+
+// Auto-refresh every 12 seconds
+setTimeout(() => {
+  setInterval(() => { if (_currentUser) refreshAll(); }, 12000);
+}, 4000);
