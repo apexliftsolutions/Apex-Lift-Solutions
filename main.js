@@ -134,3 +134,82 @@ document.querySelectorAll('input[type="tel"]').forEach(function(input) {
 document.querySelectorAll('.footer-copy').forEach(el => {
   el.innerHTML = el.innerHTML.replace(/© \d{4}/, '© ' + new Date().getFullYear());
 });
+
+// ── GA4 BUSINESS EVENT TRACKING ──────────────
+// Tracks key business interactions in Google Analytics.
+// Events appear in GA4 → Reports → Events.
+// Requires the GA4 gtag snippet in the <head> of each page.
+
+(function setupTracking() {
+  // Helper — fires gtag only if it's loaded
+  function track(eventName, params) {
+    if (typeof gtag === 'function') {
+      gtag('event', eventName, params || {});
+    }
+  }
+
+  // ── Phone click ──────────────────────────────
+  document.querySelectorAll('a[href^="tel:"]').forEach(el => {
+    el.addEventListener('click', () => {
+      track('phone_click', { event_category: 'contact', event_label: 'tel:+15166447187' });
+    });
+  });
+
+  // ── Email click ──────────────────────────────
+  document.querySelectorAll('a[href^="mailto:"]').forEach(el => {
+    el.addEventListener('click', () => {
+      track('email_click', { event_category: 'contact', event_label: el.href });
+    });
+  });
+
+  // ── Get a Quote CTA ──────────────────────────
+  document.querySelectorAll('a[href="contact.html"], a[href="./contact.html"]').forEach(el => {
+    if (el.textContent.trim().toLowerCase().includes('quote')) {
+      el.addEventListener('click', () => {
+        track('get_quote_click', { event_category: 'cta', event_label: document.title });
+      });
+    }
+  });
+
+  // ── View Plans click ─────────────────────────
+  document.querySelectorAll('a[href="plans.html"], a[href="./plans.html"]').forEach(el => {
+    el.addEventListener('click', () => {
+      track('view_plans_click', { event_category: 'cta', event_label: document.title });
+    });
+  });
+
+  // ── Client Portal click ──────────────────────
+  document.querySelectorAll('a[href="portal-login.html"]').forEach(el => {
+    el.addEventListener('click', () => {
+      track('client_portal_click', { event_category: 'navigation' });
+    });
+  });
+
+  // ── Contact form submit ───────────────────────
+  const contactForm = document.getElementById('contactForm');
+  if (contactForm) {
+    contactForm.addEventListener('submit', () => {
+      track('quote_request_submit', {
+        event_category: 'lead',
+        event_label: (document.getElementById('service')?.value || 'unknown service')
+      });
+    });
+  }
+
+  // ── Apply form submit ─────────────────────────
+  const applyForm = document.getElementById('applyForm');
+  if (applyForm) {
+    applyForm.addEventListener('submit', () => {
+      track('job_application_submit', {
+        event_category: 'careers',
+        event_label: (document.getElementById('a-position')?.value || 'unknown role')
+      });
+    });
+  }
+
+  // ── Page-level tracking (which pages get traffic) ──
+  track('page_view_custom', {
+    event_category: 'page',
+    event_label: window.location.pathname
+  });
+})();

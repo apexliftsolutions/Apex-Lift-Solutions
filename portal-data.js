@@ -1,31 +1,30 @@
 // =============================================
-// APEX LIFT SOLUTIONS — Supabase Portal Data
-// Uses Supabase Auth (JWT) — no client-side
-// role checks or hardcoded credentials.
+// APEX LIFT SOLUTIONS — portal-data.js
+// Supabase Auth + REST API helpers.
+//
+// Sensitive admin writes go through Edge Functions:
+//   EDGE_FN_BASE_URL/admin-action  (create-invoice,
+//   mark-paid, activate/delete customer, etc.)
+//
+// Read operations use the REST API directly —
+// RLS enforces access server-side on every request.
 // =============================================
 
-const SUPABASE_URL = 'https://cjtezsgfdfijmdxzzbiq.supabase.co';
+const SUPABASE_URL      = 'https://cjtezsgfdfijmdxzzbiq.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqdGV6c2dmZGZpam1keHp6YmlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNjg2OTIsImV4cCI6MjA5Mzc0NDY5Mn0.FkfIFgm5TUKa05nK4QQWdBRgK2cv3oPvq5MQArEUqbw';
+const EDGE_FN_BASE_URL  = `${SUPABASE_URL}/functions/v1`;
 
-// XSS prevention — escape ALL user-supplied data before inserting into DOM
+// XSS prevention — escape all user-supplied data before inserting into DOM
 function esc(str) {
   if (str == null) return '';
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// ── SUPABASE AUTH CLIENT ─────────────────────
-// We use the Supabase JS v2 CDN for Auth.
-// Auth tokens are stored in localStorage by Supabase (httpOnly not available
-// in a pure static site, but Supabase sessions are JWT-signed and validated
-// server-side via RLS — the browser cannot forge a valid JWT).
 const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ── REST API HELPER (uses current session token) ──
+// ── REST API HELPER ───────────────────────────
 const SB = {
   async headers() {
     const { data: { session } } = await _sb.auth.getSession();
@@ -67,89 +66,73 @@ const SB = {
   }
 };
 
-// ── AUTH ─────────────────────────────────────
-// All auth goes through Supabase Auth. Sessions are JWT-signed.
-// RLS policies enforce data access server-side regardless of what
-// the client sends. The browser cannot forge a valid session token.
+// ── EDGE FUNCTION CALLER ──────────────────────
+// Routes sensitive admin writes through server-side Edge Functions.
+// The function re-validates the JWT and email before acting —
+// the browser cannot fake an admin action even with the anon key.
+const EF = {
+  async call(fnName, body) {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const res = await fetch(`${EDGE_FN_BASE_URL}/${fnName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + session.access_token
+      },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Edge function error ${res.status}`);
+    return data;
+  },
+  async adminAction(action, params = {}) {
+    return this.call('admin-action', { action, ...params });
+  }
+};
 
+// ── AUTH ──────────────────────────────────────
 const ADMIN_EMAIL = 'admin@apexliftsolutionsusa.com';
 
 const Auth = {
-  // Sign in via Supabase Auth email/password
   async signIn(email, password) {
     const { data, error } = await _sb.auth.signInWithPassword({ email, password });
     if (error) return { error: error.message };
     return { user: data.user, session: data.session };
   },
-
-  // Sign up new customer via Supabase Auth
   async signUp(email, password, meta) {
-    const { data, error } = await _sb.auth.signUp({
-      email, password,
-      options: { data: meta }  // name, company, phone stored in user_metadata
-    });
+    const { data, error } = await _sb.auth.signUp({ email, password, options: { data: meta } });
     if (error) return { error: error.message };
     return { user: data.user };
   },
-
-  // Sign out
-  async signOut() {
-    await _sb.auth.signOut();
-  },
-
-  // Get current session (null if not logged in)
-  async getSession() {
-    const { data: { session } } = await _sb.auth.getSession();
-    return session;
-  },
-
-  // Get current user
-  async getUser() {
-    const { data: { user } } = await _sb.auth.getUser();
-    return user;
-  },
-
-  // Check if current user is admin (server-validated via email)
-  async isAdmin() {
-    const user = await this.getUser();
-    return user?.email === ADMIN_EMAIL;
-  },
-
-  // Reset password via Supabase (sends email with magic link)
+  async signOut()    { await _sb.auth.signOut(); },
+  async getSession() { const { data: { session } } = await _sb.auth.getSession(); return session; },
+  async getUser()    { const { data: { user } }    = await _sb.auth.getUser();    return user; },
+  async isAdmin()    { const u = await this.getUser(); return u?.email === ADMIN_EMAIL; },
   async resetPasswordEmail(email) {
     const { error } = await _sb.auth.resetPasswordForEmail(email, {
       redirectTo: window.location.origin + '/portal-reset.html'
     });
     return { error: error?.message || null };
   },
-
-  // Update password (called from reset page after redirect)
   async updatePassword(newPassword) {
     const { error } = await _sb.auth.updateUser({ password: newPassword });
     return { error: error?.message || null };
   }
 };
 
-// ── DATABASE ─────────────────────────────────
-// RLS policies mean the database enforces access.
-// Customers only get their own rows. Admin gets all rows.
-
+// ── DATABASE ──────────────────────────────────
 const DB = {
 
   // ── CUSTOMERS ────────────────────────────────
 
-  // Register: create auth user + customer profile row
   async registerCustomer({ name, company, email, phone, password }) {
     const { user, error } = await Auth.signUp(email, password, { name, company, phone });
     if (error) return { error };
     if (user) {
-      // Create customer profile row (status: pending until admin activates)
       await SB.post('customers', {
-        id: user.id,
-        email,
-        name,
-        company: company || '',
-        phone: phone || '',
+        id: user.id, email, name,
+        company: company || '', phone: phone || '',
         status: 'pending',
         since: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
       });
@@ -157,37 +140,37 @@ const DB = {
     return { user };
   },
 
-  async getAllCustomers() {
-    return SB.get('customers', '?order=created_at.desc');
-  },
+  async getAllCustomers() { return SB.get('customers', '?order=created_at.desc'); },
 
+  // Try Edge Function first (server-side audit log); fall back to direct REST if not deployed yet
   async updateCustomerStatus(id, status) {
-    return SB.patch('customers', `id=eq.${encodeURIComponent(id)}`, { status });
+    try {
+      const action = status === 'active' ? 'activate-customer' : 'deactivate-customer';
+      return await EF.adminAction(action, { customerId: id });
+    } catch (e) {
+      console.warn('Edge function unavailable, using direct update:', e.message);
+      return SB.patch('customers', `id=eq.${encodeURIComponent(id)}`, { status });
+    }
   },
 
   async deleteCustomer(id) {
-    return SB.delete('customers', `id=eq.${encodeURIComponent(id)}`);
+    try {
+      return await EF.adminAction('delete-customer', { customerId: id });
+    } catch (e) {
+      console.warn('Edge function unavailable, using direct delete:', e.message);
+      return SB.delete('customers', `id=eq.${encodeURIComponent(id)}`);
+    }
   },
 
   // ── QUOTES ───────────────────────────────────
 
-  async getCustomerQuotes(userId) {
-    // RLS ensures this only returns rows where customer_id = auth.uid()
-    return SB.get('quotes', `?customer_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`);
-  },
-
-  async getAllQuotes() {
-    return SB.get('quotes', '?order=created_at.desc');
-  },
-
-  async addQuote(quote) {
-    return SB.post('quotes', quote);
-  },
+  async getAllQuotes()             { return SB.get('quotes', '?order=created_at.desc'); },
+  async getCustomerQuotes(userId) { return SB.get('quotes', `?customer_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`); },
+  async addQuote(quote)           { return SB.post('quotes', quote); },
 
   async updateQuoteStatus(id, status) {
     return SB.patch('quotes', `id=eq.${encodeURIComponent(id)}`, {
-      status,
-      responded_at: new Date().toISOString()
+      status, responded_at: new Date().toISOString()
     });
   },
 
@@ -195,55 +178,70 @@ const DB = {
     return SB.patch('quotes', `id=eq.${encodeURIComponent(id)}`, fields);
   },
 
+  // Try Edge Function (audit log); fall back to direct REST if not deployed yet
   async deleteQuote(id) {
-    return SB.delete('quotes', `id=eq.${encodeURIComponent(id)}`);
+    try {
+      return await EF.adminAction('delete-quote', { quoteId: id });
+    } catch (e) {
+      console.warn('Edge function unavailable, using direct delete:', e.message);
+      return SB.delete('quotes', `id=eq.${encodeURIComponent(id)}`);
+    }
   },
 
   // ── INVOICES ─────────────────────────────────
 
-  async getCustomerInvoices(userId) {
-    // RLS ensures this only returns rows where customer_id = auth.uid()
-    return SB.get('invoices', `?customer_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`);
-  },
+  async getAllInvoices()             { return SB.get('invoices', '?order=created_at.desc'); },
+  async getCustomerInvoices(userId) { return SB.get('invoices', `?customer_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`); },
 
-  async getAllInvoices() {
-    return SB.get('invoices', '?order=created_at.desc');
-  },
-
+  // Try Edge Function (audit log); fall back to direct REST if not deployed yet
   async markInvoicePaid(id) {
-    return SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, {
-      status: 'paid',
-      paid_at: new Date().toISOString()
-    });
+    try {
+      return await EF.adminAction('mark-paid', { invoiceId: id });
+    } catch (e) {
+      console.warn('Edge function unavailable, using direct update:', e.message);
+      return SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, {
+        status: 'paid', paid_at: new Date().toISOString()
+      });
+    }
   },
-
   async quoteToInvoice(quoteId) {
-    const quotes = await SB.get('quotes', `?id=eq.${encodeURIComponent(quoteId)}`);
-    const q = quotes[0];
-    if (!q) return null;
-    const due = new Date();
-    due.setDate(due.getDate() + 30);
-    return SB.post('invoices', {
-      customer_id: q.customer_id,
-      customer_email: q.customer_email,
-      customer_name: q.customer_name,
-      company: q.company,
-      description: q.description,
-      items: q.items,          // pass line items so customer can see work summary
-      amount: q.amount,
-      status: 'unpaid',
-      due: due.toISOString(),
-      quote_id: q.id
-    });
+    try {
+      return await EF.adminAction('create-invoice', { quoteId });
+    } catch (e) {
+      console.warn('Edge function unavailable, using direct create:', e.message);
+      const quotes = await SB.get('quotes', `?id=eq.${encodeURIComponent(quoteId)}`);
+      const q = quotes[0];
+      if (!q) return null;
+      const due = new Date();
+      due.setDate(due.getDate() + 30);
+      const inv = await SB.post('invoices', {
+        customer_id: q.customer_id, customer_email: q.customer_email,
+        customer_name: q.customer_name, company: q.company,
+        description: q.description, items: q.items,
+        amount: q.amount, status: 'unpaid',
+        due: due.toISOString(), quote_id: q.id
+      });
+      if (inv) await SB.patch('quotes', `id=eq.${encodeURIComponent(quoteId)}`, { invoiced: true });
+      return inv;
+    }
+  },
+  async deleteInvoice(id) {
+    try {
+      return await EF.adminAction('delete-invoice', { invoiceId: id });
+    } catch (e) {
+      console.warn('Edge function unavailable, using direct delete:', e.message);
+      return SB.delete('invoices', `id=eq.${encodeURIComponent(id)}`);
+    }
   },
 
   // ── SERVICE HISTORY ──────────────────────────
 
-  async getCustomerServiceHistory(userId) {
-    return SB.get('service_history', `?customer_id=eq.${encodeURIComponent(userId)}&order=date.desc`);
-  },
+  async getAllServiceHistory()             { return SB.get('service_history', '?order=date.desc'); },
+  async getCustomerServiceHistory(userId) { return SB.get('service_history', `?customer_id=eq.${encodeURIComponent(userId)}&order=date.desc`); },
 
-  async getAllServiceHistory() {
-    return SB.get('service_history', '?order=date.desc');
+  // ── ACTIVITY LOG ─────────────────────────────
+
+  async getActivityLog(limit = 100) {
+    return SB.get('activity_log', `?order=created_at.desc&limit=${limit}`);
   }
 };

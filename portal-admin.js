@@ -60,6 +60,23 @@ function showToast(msg) {
   setTimeout(() => t.style.display = 'none', 3500);
 }
 
+// ── AUDIT LOG WRITER ──────────────────────────
+// Writes directly to activity_log via REST API.
+// Does not depend on Edge Functions being deployed.
+// Non-fatal — a log failure never blocks the action.
+async function logActivity(action, description) {
+  try {
+    await SB.post('activity_log', {
+      actor_email: 'admin@apexliftsolutionsusa.com',
+      action,
+      description,
+      created_at: new Date().toISOString()
+    });
+  } catch (e) {
+    console.warn('Activity log write failed (non-fatal):', e);
+  }
+}
+
 // ── EMAIL ─────────────────────────────────────
 async function sendEmail(to_email, to_name, subject, message) {
   try {
@@ -120,12 +137,14 @@ async function renderDashQuotes() {
         ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` :
           q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
         <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
+        <button class="action-btn" onclick="printQuotePDF('${q.id}')">🖨 PDF</button>
       </td>
     </tr>`).join('');
 }
 
 // ── ALL QUOTES ────────────────────────────────
 async function renderAllQuotes() {
+  document.getElementById('all-quotes-table').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr>';
   let quotes = await DB.getAllQuotes();
   const company = document.getElementById('quotes-company-filter')?.value;
   const status  = document.getElementById('quotes-status-filter')?.value;
@@ -155,6 +174,7 @@ async function renderAllQuotes() {
         ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` :
           q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
         <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
+        <button class="action-btn" onclick="printQuotePDF('${q.id}')">🖨 PDF</button>
         <button class="action-btn danger" onclick="deleteQuote('${q.id}')">Delete</button>
       </td>
     </tr>`).join('');
@@ -162,6 +182,7 @@ async function renderAllQuotes() {
 
 // ── INVOICES ──────────────────────────────────
 async function renderInvoices() {
+  document.getElementById('invoices-table').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr>';
   let invoices = await DB.getAllInvoices();
   const company = document.getElementById('invoices-company-filter')?.value;
   const status  = document.getElementById('invoices-status-filter')?.value;
@@ -195,6 +216,7 @@ async function renderInvoices() {
       <td>${fmtDate(i.paid_at)}</td>
       <td>
         ${i.status === 'unpaid' ? `<button class="action-btn green" onclick="markPaid('${i.id}')">✓ Mark Paid</button>` : ''}
+        <button class="action-btn" onclick="printInvoicePDF('${i.id}')">🖨 PDF</button>
         ${i.status !== 'hidden' ? `<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`
           : `<button class="action-btn green" onclick="unhideInvoice('${i.id}')">Unhide</button>`}
         <button class="action-btn danger" onclick="deleteInvoice('${i.id}')">Delete</button>
@@ -204,6 +226,7 @@ async function renderInvoices() {
 
 // ── CUSTOMERS ─────────────────────────────────
 async function renderCustomers() {
+  document.getElementById('customers-table').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr>';
   const customers = await DB.getAllCustomers();
   const search = (document.getElementById('customers-search')?.value || '').toLowerCase();
   const status = document.getElementById('customers-status-filter')?.value;
@@ -226,8 +249,8 @@ async function renderCustomers() {
       <td>${esc(c.since || '—')}</td>
       <td>
         ${c.status !== 'active' ? `<button class="action-btn green" onclick="activateCustomer('${esc(String(c.id))}','${esc(c.email)}','${esc(c.name || '')}')">✓ Activate</button>` : ''}
-        ${c.status === 'active' ? `<button class="action-btn" onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Deactivate</button>` : ''}
-        ${c.status === 'pending' ? `<button class="action-btn danger" onclick="setCustomerStatus('${esc(String(c.id))}','inactive')">Reject</button>` : ''}
+        ${c.status === 'active' ? `<button class="action-btn" onclick="setCustomerStatus('${esc(String(c.id))}','inactive','${esc(c.name||'')}','${esc(c.company||'')}')" >Deactivate</button>` : ''}
+        ${c.status === 'pending' ? `<button class="action-btn danger" onclick="setCustomerStatus('${esc(String(c.id))}','inactive','${esc(c.name||'')}','${esc(c.company||'')}')" >Reject</button>` : ''}
         <button class="action-btn danger" onclick="deleteCustomer('${esc(String(c.id))}','${esc(c.name || c.email)}')">Delete</button>
       </td>
     </tr>`).join('');
@@ -236,6 +259,7 @@ async function renderCustomers() {
 // ── CUSTOMER ACTIONS ──────────────────────────
 async function activateCustomer(id, email, name) {
   await DB.updateCustomerStatus(id, 'active');
+  await logActivity('activate_customer', `Customer ${name || email} activated`);
   await sendEmail(email, name || 'Customer',
     'Your Apex Lift Solutions Account is Approved!',
     `Hi ${name || 'there'},\n\nYour portal account has been approved! You can now sign in at:\napexliftsolutionsusa.com/portal-login.html\n\nFrom your portal you can view quotes, approve or decline them, see invoices, and track your service history.\n\nQuestions? Call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
@@ -244,8 +268,12 @@ async function activateCustomer(id, email, name) {
   await loadCustomerDropdown();
 }
 
-async function setCustomerStatus(id, status) {
+async function setCustomerStatus(id, status, name, company) {
   await DB.updateCustomerStatus(id, status);
+  const label = (name || id) + (company ? ` — ${company}` : '');
+  const action = status === 'active' ? 'activate_customer' : 'deactivate_customer';
+  const verb   = status === 'active' ? 'activated' : (status === 'inactive' ? 'deactivated' : status);
+  await logActivity(action, `Customer ${label} ${verb}`);
   showToast(`✓ Customer ${status}!`);
   await renderCustomers();
   await loadCustomerDropdown();
@@ -254,8 +282,10 @@ async function setCustomerStatus(id, status) {
 async function deleteCustomer(id, name) {
   if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
   const ok = await DB.deleteCustomer(id);
-  if (ok) { showToast('✓ Customer deleted.'); await renderCustomers(); await loadCustomerDropdown(); }
-  else alert('Delete failed — customer may have associated records.');
+  if (ok) {
+    await logActivity('delete_customer', `Customer "${name}" permanently deleted`);
+    showToast('✓ Customer deleted.'); await renderCustomers(); await loadCustomerDropdown();
+  } else alert('Delete failed — customer may have associated records.');
 }
 
 // ── INVOICE ACTIONS ───────────────────────────
@@ -274,12 +304,14 @@ async function markPaid(id) {
       `Invoice ${inv.id} Marked Paid — $${parseFloat(inv.amount).toFixed(2)}`,
       `Invoice ${inv.id} for ${inv.customer_name || 'customer'} ($${parseFloat(inv.amount).toFixed(2)}) has been marked as paid.\nCustomer: ${inv.customer_email}`);
   }
+  await logActivity('mark_invoice_paid', `Invoice ${id} marked paid${inv ? ' — $' + parseFloat(inv.amount).toFixed(2) + ' — ' + (inv.customer_name || inv.customer_email) : ''}`);
   showToast('✓ ' + id + ' marked as paid — customer notified!');
   renderInvoices();
 }
 
 async function hideInvoice(id) {
   await SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, { status: 'hidden' });
+  await logActivity('hide_invoice', `Invoice ${id} hidden from customer view`);
   showToast('Invoice hidden (use "Hidden" filter to view it).');
   renderInvoices();
 }
@@ -293,6 +325,7 @@ async function unhideInvoice(id) {
 async function deleteInvoice(id) {
   if (!confirm(`Permanently delete invoice ${id}? This cannot be undone.`)) return;
   await SB.delete('invoices', `id=eq.${encodeURIComponent(id)}`);
+  await logActivity('delete_invoice', `Invoice ${id} permanently deleted`);
   showToast('✓ Invoice deleted.');
   renderInvoices();
 }
@@ -313,6 +346,7 @@ async function convertToInvoice(quoteId) {
     await sendEmail(inv.customer_email, inv.customer_name || 'Customer',
       `Invoice ${inv.id} Ready — $${parseFloat(inv.amount).toFixed(2)} Due`,
       `Hi ${inv.customer_name || 'there'},\n\nYour invoice ${inv.id} for $${parseFloat(inv.amount).toFixed(2)} is ready for payment.\nDue Date: ${new Date(inv.due).toLocaleDateString('en-US')}${invLines}\n\nTotal Due: $${parseFloat(inv.amount).toFixed(2)}\n\nLog in to review and pay online:\napexliftsolutionsusa.com/portal-login.html\n\nOr call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
+    await logActivity('create_invoice', `Invoice ${inv.id} created from quote ${quoteId} — $${parseFloat(inv.amount).toFixed(2)} — ${inv.customer_name || inv.customer_email}`);
     showToast(`✓ Invoice ${inv.id} created — customer notified!`);
     await refreshAll();
     showView('invoices');
@@ -322,6 +356,7 @@ async function convertToInvoice(quoteId) {
 async function deleteQuote(id) {
   if (!confirm(`Delete quote ${id}?`)) return;
   await DB.deleteQuote(id);
+  await logActivity('delete_quote', `Quote ${id} permanently deleted`);
   showToast('✓ Quote deleted.');
   renderAllQuotes();
 }
@@ -482,6 +517,7 @@ async function saveQuote() {
     `New Quote from Apex Lift Solutions — $${total.toFixed(2)}`,
     `Hi ${name},\n\nYou have a new quote (${saved.id}) for $${total.toFixed(2)} ready for your review.\n\nLog in to approve or decline:\napexliftsolutionsusa.com/portal-login.html${attLinks}\n\nOnce approved, we will contact you within 1 business day to schedule.\nQuestions? Call (516) 644-7187.\n\n— Apex Lift Solutions`);
 
+  await logActivity('create_quote', `Quote ${saved.id} created for ${name} (${company || '—'}) — $${total.toFixed(2)}`);
   showToast(`✓ Quote sent to ${name} — email notification sent!`);
 
   // Reset form
@@ -498,16 +534,35 @@ async function saveQuote() {
 }
 
 // ── NAVIGATION ────────────────────────────────
+// Event delegation on sidebar nav — no inline onclick needed.
+// Nav items use data-view="quotes" instead of onclick="showView(..."
+document.addEventListener('DOMContentLoaded', () => {
+  const sidebarNav = document.querySelector('.sidebar-nav');
+  if (sidebarNav) {
+    sidebarNav.addEventListener('click', e => {
+      const item = e.target.closest('[data-view]');
+      if (!item) return;
+      e.preventDefault();
+      showView(item.dataset.view, item);
+    });
+  }
+  // Sidebar overlay close
+  document.getElementById('sidebar-overlay')?.addEventListener('click', closeMobileSidebar);
+  // Mobile menu button
+  document.getElementById('mobile-menu-btn')?.addEventListener('click', toggleMobileSidebar);
+  // Logout
+  document.querySelector('.logout-btn')?.addEventListener('click', logout);
+});
+
 function showView(v, el) {
   document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
-  document.getElementById('view-' + v).classList.add('active');
+  const viewEl = document.getElementById('view-' + v);
+  if (viewEl) viewEl.classList.add('active');
   if (el) {
     el.classList.add('active');
   } else {
-    document.querySelectorAll('.nav-item').forEach(n => {
-      if (n.getAttribute('onclick')?.includes(`'${v}'`)) n.classList.add('active');
-    });
+    document.querySelectorAll(`[data-view="${v}"]`).forEach(n => n.classList.add('active'));
   }
   const actions = {
     quotes:    renderAllQuotes,
@@ -515,6 +570,7 @@ function showView(v, el) {
     customers: renderCustomers,
     requests:  renderRequests,
     history:   renderHistory,
+    activity:  renderActivityLog,
     dashboard: () => { renderStats(); renderDashQuotes(); }
   };
   actions[v]?.();
@@ -843,7 +899,12 @@ async function markHistPaid(id) {
     method: 'PATCH', headers: await SB.headers(),
     body: JSON.stringify({ paid: true, paid_at: new Date().toISOString() })
   });
-  if (!res.ok) { showToast('Error marking paid.'); } else { showToast('✓ Marked as paid!'); renderHistory(); }
+  if (!res.ok) { showToast('Error marking paid.'); }
+  else {
+    await logActivity('mark_history_paid', `Service record ${id} marked as paid`);
+    showToast('✓ Marked as paid!');
+    renderHistory();
+  }
 }
 
 async function deleteHistory(id) {
@@ -955,3 +1016,169 @@ async function exportCustomersCSV() {
 setTimeout(() => {
   setInterval(() => { if (_currentUser) refreshAll(); }, 12000);
 }, 4000);
+
+// ── ACTIVITY LOG ──────────────────────────────
+async function renderActivityLog() {
+  const tbody = document.getElementById('activity-table');
+  tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr>';
+  try {
+    const rows = await DB.getActivityLog(150);
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--grey);padding:32px;">No activity recorded yet. Actions like creating invoices, marking payments, and activating customers will appear here.</td></tr>';
+      return;
+    }
+    const actionIcon = {
+      create_invoice:      '🧾',
+      mark_invoice_paid:   '✅',
+      activate_customer:   '👤',
+      deactivate_customer: '🔒',
+      delete_quote:        '🗑',
+      delete_invoice:      '🗑',
+      delete_customer:     '🗑',
+    };
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td style="white-space:nowrap;font-size:.8rem;color:var(--grey);">${new Date(r.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</td>
+        <td><span style="font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--grey-light);">${actionIcon[r.action] || '•'} ${esc(r.action.replace(/_/g,' '))}</span></td>
+        <td style="font-size:.88rem;color:var(--grey-light);">${esc(r.description)}</td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#ff4444;padding:24px;">Error loading activity log: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ── PDF PRINT — QUOTE ─────────────────────────
+async function printQuotePDF(quoteId) {
+  const quotes = await DB.getAllQuotes();
+  const q = quotes.find(x => x.id === quoteId);
+  if (!q) { showToast('Quote not found.'); return; }
+
+  const itemRows = q.items?.map(i => {
+    const qty  = parseFloat(i.qty) || 1;
+    const unit = parseFloat(i.unit_price || i.amount || 0);
+    return `<tr>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.desc || 'Service'}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:center;">${qty}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.type || ''}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:600;">$${(qty * unit).toFixed(2)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" style="padding:9px 12px;color:#666;">See description for details.</td></tr>';
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><title>Quote ${q.id} — Apex Lift Solutions</title>
+  <style>
+    *{box-sizing:border-box;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;}
+    h1{font-size:28px;margin:0 0 2px;} .red{color:#cc0000;} .grey{color:#666;font-size:13px;}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #cc0000;}
+    .badge{display:inline-block;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border:2px solid;margin-bottom:12px;}
+    .badge.pending{color:orange;border-color:orange;} .badge.approved{color:#4caf50;border-color:#4caf50;} .badge.declined{color:#cc0000;border-color:#cc0000;}
+    .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;background:#f9f9f9;padding:16px;}
+    .meta-item label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#666;margin-bottom:3px;}
+    table{width:100%;border-collapse:collapse;margin:20px 0;}
+    th{background:#f0f0f0;padding:10px 12px;text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;}
+    .total-row{text-align:right;font-size:18px;font-weight:700;padding:12px 0;border-top:2px solid #cc0000;}
+    .footer{margin-top:32px;padding-top:16px;border-top:1px solid #eee;color:#666;font-size:12px;text-align:center;}
+    @media print{button{display:none;} body{margin:20px;}}
+  </style></head><body>
+  <div class="header">
+    <div>
+      <h1>Apex Lift <span class="red">Solutions</span></h1>
+      <div class="grey">(516) 644-7187 · info@apexliftsolutionsusa.com</div>
+      <div class="grey">Nassau &amp; Suffolk County, Long Island, NY</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:22px;font-weight:700;color:#111;">${q.id}</div>
+      <div class="grey">Quote Date: ${new Date(q.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</div>
+      <div class="badge ${q.status}">${q.status.toUpperCase()}</div>
+    </div>
+  </div>
+  <div class="meta-grid">
+    <div class="meta-item"><label>Customer</label>${q.customer_name || '—'}</div>
+    <div class="meta-item"><label>Company</label>${q.company || '—'}</div>
+    <div class="meta-item"><label>Email</label>${q.customer_email}</div>
+    <div class="meta-item"><label>Equipment</label>${q.equipment || 'Not specified'}</div>
+  </div>
+  ${q.description ? `<p style="margin:0 0 16px;line-height:1.6;">${q.description}</p>` : ''}
+  <table>
+    <thead><tr><th>Description</th><th style="text-align:center;">Qty</th><th>Type</th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+  <div class="total-row">Total: $${parseFloat(q.amount).toFixed(2)}</div>
+  ${q.notes ? `<div style="background:#fff8e1;border-left:3px solid #ffc107;padding:12px 16px;margin-top:16px;"><strong>Notes:</strong> ${q.notes}</div>` : ''}
+  <div class="footer">
+    <p>This quote is valid for 30 days. Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com</p>
+    <p>apexliftsolutionsusa.com</p>
+  </div>
+  <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>
+  </body></html>`);
+  win.document.close();
+}
+
+// ── PDF PRINT — INVOICE ───────────────────────
+async function printInvoicePDF(invoiceId) {
+  const invoices = await DB.getAllInvoices();
+  const inv = invoices.find(x => x.id === invoiceId);
+  if (!inv) { showToast('Invoice not found.'); return; }
+
+  const itemRows = inv.items?.map(i => {
+    const qty  = parseFloat(i.qty) || 1;
+    const unit = parseFloat(i.unit_price || i.amount || 0);
+    return `<tr>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.desc || 'Service'}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:center;">${qty}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.type || ''}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:600;">$${(qty * unit).toFixed(2)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" style="padding:9px 12px;color:#666;">See description for details.</td></tr>';
+
+  const isPaid = inv.status === 'paid';
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><title>Invoice ${inv.id} — Apex Lift Solutions</title>
+  <style>
+    *{box-sizing:border-box;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;}
+    h1{font-size:28px;margin:0 0 2px;} .red{color:#cc0000;} .grey{color:#666;font-size:13px;}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-top:5px solid #cc0000;padding-top:20px;}
+    .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;background:#f9f9f9;padding:16px;}
+    .meta-item label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#666;margin-bottom:3px;}
+    table{width:100%;border-collapse:collapse;margin:20px 0;}
+    th{background:#f0f0f0;padding:10px 12px;text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;}
+    .total-row{text-align:right;font-size:20px;font-weight:700;padding:14px 0;border-top:3px solid #cc0000;color:#cc0000;}
+    .paid-stamp{display:inline-block;border:4px solid #4caf50;color:#4caf50;padding:8px 22px;font-size:18px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;transform:rotate(-4deg);margin:16px 0;display:block;width:fit-content;}
+    .due-box{background:#fff8e1;border:1px solid #ffc107;padding:12px 16px;margin:16px 0;font-weight:600;}
+    .footer{margin-top:32px;padding-top:16px;border-top:1px solid #eee;color:#666;font-size:12px;text-align:center;}
+    @media print{button{display:none;} body{margin:20px;}}
+  </style></head><body>
+  <div class="header">
+    <div>
+      <h1>Apex Lift <span class="red">Solutions</span></h1>
+      <div class="grey">(516) 644-7187 · info@apexliftsolutionsusa.com</div>
+      <div class="grey">Nassau &amp; Suffolk County, Long Island, NY</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:4px;">INVOICE</div>
+      <div style="font-size:24px;font-weight:700;color:#111;">${inv.id}</div>
+      <div class="grey">Issued: ${new Date(inv.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</div>
+      ${inv.quote_id ? `<div class="grey">Ref: ${inv.quote_id}</div>` : ''}
+    </div>
+  </div>
+  ${isPaid ? `<div class="paid-stamp">✓ PAID — ${new Date(inv.paid_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>` : `<div class="due-box">⚠ Payment Due: ${inv.due ? new Date(inv.due).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : 'Upon receipt'}</div>`}
+  <div class="meta-grid">
+    <div class="meta-item"><label>Bill To</label>${inv.customer_name || '—'}</div>
+    <div class="meta-item"><label>Company</label>${inv.company || '—'}</div>
+    <div class="meta-item"><label>Email</label>${inv.customer_email}</div>
+    <div class="meta-item"><label>Status</label>${isPaid ? '✓ Paid in Full' : 'Unpaid'}</div>
+  </div>
+  ${inv.description ? `<p style="margin:0 0 16px;line-height:1.6;"><strong>Description:</strong> ${inv.description}</p>` : ''}
+  <table>
+    <thead><tr><th>Description</th><th style="text-align:center;">Qty</th><th>Type</th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+  <div class="total-row">Total: $${parseFloat(inv.amount).toFixed(2)}</div>
+  <div class="footer">
+    <p>${isPaid ? 'Thank you for your payment!' : 'Please remit payment to info@apexliftsolutionsusa.com or call (516) 644-7187.'}</p>
+    <p>apexliftsolutionsusa.com · Nassau &amp; Suffolk County, Long Island, NY</p>
+  </div>
+  <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>
+  </body></html>`);
+  win.document.close();
+}

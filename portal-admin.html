@@ -30,30 +30,33 @@
       <span class="sidebar-label">Admin Portal</span>
     </div>
     <nav class="sidebar-nav">
-      <a class="nav-item active" onclick="showView('dashboard',this)" href="#">
+      <a class="nav-item active" data-view="dashboard" href="#">
         <span class="icon">📊</span> Dashboard
       </a>
-      <a class="nav-item" onclick="showView('quotes',this)" href="#">
+      <a class="nav-item" data-view="quotes" href="#">
         <span class="icon">📋</span> Quotes
         <span id="pending-badge" class="new-badge" style="display:none"></span>
       </a>
-      <a class="nav-item" onclick="showView('create-quote',this)" href="#">
+      <a class="nav-item" data-view="create-quote" href="#">
         <span class="icon">✏️</span> Create Quote
       </a>
-      <a class="nav-item" onclick="showView('invoices',this)" href="#">
+      <a class="nav-item" data-view="invoices" href="#">
         <span class="icon">🧾</span> Invoices
       </a>
-      <a class="nav-item" onclick="showView('customers',this)" href="#">
+      <a class="nav-item" data-view="customers" href="#">
         <span class="icon">👥</span> Customers
       </a>
-      <a class="nav-item" onclick="showView('requests',this)" href="#">
+      <a class="nav-item" data-view="requests" href="#">
         <span class="icon">📩</span> Requests
         <span id="req-badge" class="new-badge" style="display:none"></span>
       </a>
-      <a class="nav-item" onclick="showView('history',this)" href="#">
+      <a class="nav-item" data-view="history" href="#">
         <span class="icon">🔧</span> Service History
       </a>
-      <a class="nav-item" onclick="showView('settings',this)" href="#">
+      <a class="nav-item" data-view="activity" href="#">
+        <span class="icon">📜</span> Activity Log
+      </a>
+      <a class="nav-item" data-view="settings" href="#">
         <span class="icon">⚙️</span> Settings
       </a>
       <a class="nav-item" href="index.html">
@@ -303,6 +306,20 @@
       <table class="data-table">
         <thead><tr><th>ID</th><th>Customer</th><th>Equipment</th><th>Description</th><th>Technician</th><th>Date</th><th>Amount</th><th>Paid</th><th>Actions</th></tr></thead>
         <tbody id="history-table"><tr><td colspan="9" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+
+    <!-- ACTIVITY LOG -->
+    <div class="view" id="view-activity">
+      <div class="admin-header">
+        <h1>Activity <em>Log</em></h1>
+        <button class="refresh-btn" onclick="renderActivityLog()">↻ Refresh</button>
+      </div>
+      <p style="color:var(--grey-light);font-size:.9rem;margin-bottom:20px;line-height:1.65;">Every sensitive admin action is recorded here automatically — invoice creation, payments marked, customer activations, and deletions.</p>
+      <table class="data-table">
+        <thead><tr><th>Time</th><th>Action</th><th>Description</th></tr></thead>
+        <tbody id="activity-table"><tr><td colspan="3" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr></tbody>
       </table>
     </div>
 
