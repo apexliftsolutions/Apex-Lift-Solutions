@@ -74,9 +74,12 @@ async function renderStats() {
   const [quotes, invoices, customers] = await Promise.all([
     DB.getAllQuotes(), DB.getAllInvoices(), DB.getAllCustomers()
   ]);
-  const pending = quotes.filter(q => q.status === 'pending').length;
-  const unpaid  = invoices.filter(i => i.status === 'unpaid').length;
-  const revenue = invoices.filter(i => i.status === 'paid')
+  const pending     = quotes.filter(q => q.status === 'pending').length;
+  const unpaid      = invoices.filter(i => i.status === 'unpaid').length;
+  const activeCustomers = customers.filter(c => c.status === 'active').length;
+  const revenue     = invoices.filter(i => i.status === 'paid')
+    .reduce((s, i) => s + parseFloat(i.amount), 0);
+  const outstanding = invoices.filter(i => i.status === 'unpaid')
     .reduce((s, i) => s + parseFloat(i.amount), 0);
 
   const pb = document.getElementById('pending-badge');
@@ -84,8 +87,9 @@ async function renderStats() {
   else pb.style.display = 'none';
 
   document.getElementById('stats-grid').innerHTML = `
-    <div class="stat-card"><div class="label">Total Customers</div><div class="value">${customers.length}</div></div>
+    <div class="stat-card"><div class="label">Active Customers</div><div class="value">${activeCustomers}<span style="font-size:.85rem;color:var(--grey);font-weight:400;"> / ${customers.length}</span></div></div>
     <div class="stat-card"><div class="label">Open Quotes</div><div class="value ${pending > 0 ? 'red' : ''}">${pending}</div></div>
+    <div class="stat-card"><div class="label">Outstanding</div><div class="value ${outstanding > 0 ? 'red' : ''}">$${outstanding.toFixed(2)}</div></div>
     <div class="stat-card"><div class="label">Unpaid Invoices</div><div class="value ${unpaid > 0 ? 'red' : ''}">${unpaid}</div></div>
     <div class="stat-card"><div class="label">Revenue Collected</div><div class="value">$${revenue.toFixed(2)}</div></div>`;
 
@@ -125,10 +129,14 @@ async function renderAllQuotes() {
   let quotes = await DB.getAllQuotes();
   const company = document.getElementById('quotes-company-filter')?.value;
   const status  = document.getElementById('quotes-status-filter')?.value;
-  const search  = (document.getElementById('quotes-search')?.value || '').toLowerCase();
-  if (company) quotes = quotes.filter(q => q.company === company);
-  if (status)  quotes = quotes.filter(q => q.status === status);
-  if (search)  quotes = quotes.filter(q =>
+  const search   = (document.getElementById('quotes-search')?.value || '').toLowerCase();
+  const dateFrom  = document.getElementById('quotes-date-from')?.value;
+  const dateTo    = document.getElementById('quotes-date-to')?.value;
+  if (company)  quotes = quotes.filter(q => q.company === company);
+  if (status)   quotes = quotes.filter(q => q.status === status);
+  if (dateFrom) quotes = quotes.filter(q => new Date(q.created_at) >= new Date(dateFrom));
+  if (dateTo)   quotes = quotes.filter(q => new Date(q.created_at) <= new Date(dateTo + 'T23:59:59'));
+  if (search)   quotes = quotes.filter(q =>
     (q.customer_name || '').toLowerCase().includes(search) ||
     (q.id || '').toLowerCase().includes(search) ||
     (q.customer_email || '').toLowerCase().includes(search));
@@ -157,7 +165,9 @@ async function renderInvoices() {
   let invoices = await DB.getAllInvoices();
   const company = document.getElementById('invoices-company-filter')?.value;
   const status  = document.getElementById('invoices-status-filter')?.value;
-  const search  = (document.getElementById('invoices-search')?.value || '').toLowerCase();
+  const search   = (document.getElementById('invoices-search')?.value || '').toLowerCase();
+  const dateFrom  = document.getElementById('invoices-date-from')?.value;
+  const dateTo    = document.getElementById('invoices-date-to')?.value;
 
   if (status === 'hidden') {
     invoices = invoices.filter(i => i.status === 'hidden');
@@ -165,6 +175,8 @@ async function renderInvoices() {
     if (company) invoices = invoices.filter(i => i.company === company);
     if (status)  invoices = invoices.filter(i => i.status === status);
     else         invoices = invoices.filter(i => i.status !== 'hidden');
+    if (dateFrom) invoices = invoices.filter(i => new Date(i.created_at) >= new Date(dateFrom));
+    if (dateTo)   invoices = invoices.filter(i => new Date(i.created_at) <= new Date(dateTo + 'T23:59:59'));
     if (search)  invoices = invoices.filter(i =>
       (i.customer_name || '').toLowerCase().includes(search) ||
       (i.id || '').toLowerCase().includes(search) ||
@@ -842,6 +854,102 @@ async function deleteHistory(id) {
 }
 
 async function logout() { await Auth.signOut(); window.location.href = 'portal-login.html'; }
+
+
+// ── CSV EXPORT ────────────────────────────────
+// Converts an array of objects to a CSV string and triggers download.
+function downloadCSV(rows, filename) {
+  if (!rows || !rows.length) { showToast('No data to export.'); return; }
+  const cols = Object.keys(rows[0]);
+  const escape = v => {
+    if (v == null) return '';
+    const s = String(v).replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
+  };
+  const csv = [cols.join(','), ...rows.map(r => cols.map(c => escape(r[c])).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✓ ' + filename + ' downloaded!');
+}
+
+async function exportInvoicesCSV() {
+  const invoices = await DB.getAllInvoices();
+  const rows = invoices.map(i => ({
+    'Invoice #':     i.id,
+    'Customer':      i.customer_name || '',
+    'Company':       i.company || '',
+    'Email':         i.customer_email,
+    'Description':   i.description || '',
+    'Amount':        parseFloat(i.amount).toFixed(2),
+    'Status':        i.status,
+    'Due Date':      i.due ? new Date(i.due).toLocaleDateString('en-US') : '',
+    'Paid On':       i.paid_at ? new Date(i.paid_at).toLocaleDateString('en-US') : '',
+    'Quote Ref':     i.quote_id || '',
+    'Created':       new Date(i.created_at).toLocaleDateString('en-US'),
+  }));
+  const date = new Date().toISOString().slice(0,10);
+  downloadCSV(rows, `apex-invoices-${date}.csv`);
+}
+
+async function exportQuotesCSV() {
+  const quotes = await DB.getAllQuotes();
+  const rows = quotes.map(q => ({
+    'Quote #':       q.id,
+    'Customer':      q.customer_name || '',
+    'Company':       q.company || '',
+    'Email':         q.customer_email,
+    'Equipment':     q.equipment || '',
+    'Description':   q.description || '',
+    'Amount':        parseFloat(q.amount).toFixed(2),
+    'Status':        q.status,
+    'Invoiced':      q.invoiced ? 'Yes' : 'No',
+    'Responded':     q.responded_at ? new Date(q.responded_at).toLocaleDateString('en-US') : '',
+    'Created':       new Date(q.created_at).toLocaleDateString('en-US'),
+  }));
+  const date = new Date().toISOString().slice(0,10);
+  downloadCSV(rows, `apex-quotes-${date}.csv`);
+}
+
+async function exportServiceHistoryCSV() {
+  const rows_raw = await DB.getAllServiceHistory();
+  const rows = rows_raw.map(h => ({
+    'Record ID':     h.id,
+    'Customer':      h.customer_name || '',
+    'Company':       h.company || '',
+    'Email':         h.customer_email,
+    'Equipment':     h.equipment || '',
+    'Description':   h.description || '',
+    'Technician':    h.tech || '',
+    'Date':          h.date ? new Date(h.date).toLocaleDateString('en-US') : '',
+    'Amount':        h.amount != null ? parseFloat(h.amount).toFixed(2) : '',
+    'Paid':          h.paid ? 'Yes' : 'No',
+    'Paid On':       h.paid_at ? new Date(h.paid_at).toLocaleDateString('en-US') : '',
+    'Notes':         h.notes || '',
+    'Created':       new Date(h.created_at).toLocaleDateString('en-US'),
+  }));
+  const date = new Date().toISOString().slice(0,10);
+  downloadCSV(rows, `apex-service-history-${date}.csv`);
+}
+
+async function exportCustomersCSV() {
+  const customers = await DB.getAllCustomers();
+  const rows = customers.map(c => ({
+    'Name':      c.name || '',
+    'Company':   c.company || '',
+    'Email':     c.email,
+    'Phone':     c.phone || '',
+    'Status':    c.status,
+    'Since':     c.since || '',
+    'Created':   new Date(c.created_at).toLocaleDateString('en-US'),
+  }));
+  const date = new Date().toISOString().slice(0,10);
+  downloadCSV(rows, `apex-customers-${date}.csv`);
+}
 
 // Auto-refresh every 12 seconds
 setTimeout(() => {

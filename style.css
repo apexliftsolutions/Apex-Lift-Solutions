@@ -767,3 +767,31 @@ footer {
   .hero-actions { flex-direction: column; }
   .btn-primary, .btn-secondary { text-align: center; }
 }
+
+/* ——— TEAM CARDS ——— */
+.team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); margin-bottom: 80px; }
+.team-card { background: var(--dark); padding: 36px 32px; }
+.team-avatar { width: 64px; height: 64px; background: var(--dark-3); border: 2px solid var(--red); display: flex; align-items: center; justify-content: center; font-family: var(--font-head); font-size: 1.4rem; font-weight: 900; color: var(--red); margin-bottom: 20px; }
+.team-card h3 { font-family: var(--font-head); font-size: 1.2rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.team-card .team-title { font-family: var(--font-head); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--red); margin-bottom: 14px; }
+.team-card p { color: var(--grey-light); font-size: 1rem; line-height: 1.7; }
+
+
+/* ——— PRINT RECEIPT ——— */
+.print-btn { background: transparent; border: 1px solid var(--border); color: var(--grey-light); font-family: var(--font-head); font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 7px 14px; cursor: pointer; transition: all .2s; margin-top: 10px; }
+.print-btn:hover { border-color: var(--white); color: var(--white); }
+
+/* ——— ADMIN DATE FILTERS ——— */
+.date-input { background: var(--dark-2); border: 1px solid var(--border); color: var(--white); font-family: var(--font-body); font-size: .82rem; padding: 8px 10px; outline: none; transition: border-color .2s; }
+.date-input:focus { border-color: var(--red); }
+.date-input::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+
+/* ——— CUSTOMER ACCOUNT TAB ——— */
+.account-section { background: var(--dark); border: 1px solid var(--border); padding: 28px; margin-bottom: 20px; max-width: 560px; }
+.account-section h3 { font-family: var(--font-head); font-size: 1rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+
+/* ——— 404 PAGE ——— */
+.error-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; }
+.error-code { font-family: var(--font-head); font-size: clamp(6rem, 20vw, 12rem); font-weight: 900; color: var(--red); line-height: 1; opacity: 0.15; }
+.error-content { position: absolute; }
+.error-page-wrap { position: relative; display: flex; flex-direction: column; align-items: center; }

@@ -101,6 +101,7 @@
         <h1>All <em>Quotes</em></h1>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button class="refresh-btn" onclick="renderAllQuotes()">↻ Refresh</button>
+          <button class="action-btn" onclick="exportQuotesCSV()" title="Download all quotes as CSV">⬇ Export CSV</button>
           <button class="action-btn primary" onclick="showView('create-quote')">+ New Quote</button>
         </div>
       </div>
@@ -114,6 +115,8 @@
           <option value="approved">Approved</option>
           <option value="declined">Declined</option>
         </select>
+        <input type="date" id="quotes-date-from" class="date-input" title="From date" onchange="renderAllQuotes()"/>
+        <input type="date" id="quotes-date-to" class="date-input" title="To date" onchange="renderAllQuotes()"/>
         <input type="text" id="quotes-search" class="search-input" placeholder="Search customer / quote #…" oninput="renderAllQuotes()"/>
       </div>
       <table class="data-table">
@@ -190,7 +193,10 @@
     <div class="view" id="view-invoices">
       <div class="admin-header">
         <h1>All <em>Invoices</em></h1>
-        <button class="refresh-btn" onclick="renderInvoices()">↻ Refresh</button>
+        <div style="display:flex;gap:10px;">
+          <button class="refresh-btn" onclick="renderInvoices()">↻ Refresh</button>
+          <button class="action-btn" onclick="exportInvoicesCSV()" title="Download all invoices as CSV">⬇ Export CSV</button>
+        </div>
       </div>
       <div class="filter-row">
         <select id="invoices-company-filter" class="filter-select" onchange="renderInvoices()">
@@ -202,6 +208,8 @@
           <option value="paid">Paid</option>
           <option value="hidden">Hidden</option>
         </select>
+        <input type="date" id="invoices-date-from" class="date-input" title="From date" onchange="renderInvoices()"/>
+        <input type="date" id="invoices-date-to" class="date-input" title="To date" onchange="renderInvoices()"/>
         <input type="text" id="invoices-search" class="search-input" placeholder="Search customer / invoice #…" oninput="renderInvoices()"/>
       </div>
       <table class="data-table">
@@ -212,7 +220,10 @@
 
     <!-- CUSTOMERS -->
     <div class="view" id="view-customers">
-      <div class="admin-header"><h1>All <em>Customers</em></h1></div>
+      <div class="admin-header">
+        <h1>All <em>Customers</em></h1>
+        <button class="action-btn" onclick="exportCustomersCSV()" title="Download customer list as CSV">⬇ Export CSV</button>
+      </div>
       <div class="filter-row">
         <input type="text" id="customers-search" class="search-input" placeholder="Search name / email / company…" oninput="renderCustomers()"/>
         <select id="customers-status-filter" class="filter-select" onchange="renderCustomers()">
@@ -273,7 +284,10 @@
     <div class="view" id="view-history">
       <div class="admin-header">
         <h1>Service <em>History</em></h1>
-        <button class="action-btn primary" onclick="openAddHistoryModal()">+ Add Record</button>
+        <div style="display:flex;gap:10px;">
+          <button class="action-btn" onclick="exportServiceHistoryCSV()" title="Download service history as CSV">⬇ Export CSV</button>
+          <button class="action-btn primary" onclick="openAddHistoryModal()">+ Add Record</button>
+        </div>
       </div>
       <div class="filter-row">
         <select id="history-customer-filter" class="filter-select" onchange="renderHistory()">

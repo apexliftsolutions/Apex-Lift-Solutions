@@ -128,3 +128,9 @@ document.querySelectorAll('input[type="tel"]').forEach(function(input) {
   // Paste needs a tick to let the browser write the pasted value first
   input.addEventListener('paste', function() { setTimeout(function() { formatPhone(input); }, 0); });
 });
+
+// ── AUTO COPYRIGHT YEAR ───────────────────────
+// Updates every footer copyright year automatically so it never goes stale.
+document.querySelectorAll('.footer-copy').forEach(el => {
+  el.innerHTML = el.innerHTML.replace(/© \d{4}/, '© ' + new Date().getFullYear());
+});

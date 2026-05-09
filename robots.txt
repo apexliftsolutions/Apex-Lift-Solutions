@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /portal-admin.html
+Disallow: /portal-customer.html
+Disallow: /portal-login.html
+Disallow: /portal-forgot.html
+Disallow: /portal-reset.html
+
+Sitemap: https://apexliftsolutionsusa.com/sitemap.xml

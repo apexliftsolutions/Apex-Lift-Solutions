@@ -33,6 +33,7 @@
       <button class="nav-item" onclick="showView('pay',this)"><span class="icon">💳</span>Pay Invoice</button>
       <button class="nav-item" onclick="showView('history',this)"><span class="icon">🔧</span>Service History</button>
       <button class="nav-item" onclick="showView('request',this)"><span class="icon">📩</span>Request Service</button>
+      <button class="nav-item" onclick="showView('account',this)"><span class="icon">👤</span>My Account</button>
       <a class="nav-item" href="index.html"><span class="icon">🌐</span>Back to Site</a>
     </nav>
     <div class="sb-footer">
@@ -128,9 +129,64 @@
         </div>
       </div>
       <div class="contact-bar">
-        <div class="contact-bar-item"><div class="lbl">Phone</div><div class="val">(516) 644-7187</div></div>
+        <div class="contact-bar-item"><div class="lbl">Phone</div><div class="val"><a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></div></div>
         <div class="contact-bar-item"><div class="lbl">Email</div><div class="val">service@apexliftsolutionsusa.com</div></div>
         <div class="contact-bar-item"><div class="lbl">Hours</div><div class="val">Mon–Fri 7am–6pm · Emergency 24/7</div></div>
+      </div>
+    </div>
+
+
+    <!-- ACCOUNT -->
+    <div class="view" id="view-account">
+      <div class="pg-header"><h1>My <em>Account</em></h1></div>
+
+      <div class="account-section">
+        <h3>Contact Information</h3>
+        <div class="form-stack">
+          <div>
+            <label class="field-lbl">Full Name</label>
+            <input type="text" id="acct-name" class="field-input" placeholder="Your name"/>
+          </div>
+          <div>
+            <label class="field-lbl">Company</label>
+            <input type="text" id="acct-company" class="field-input" placeholder="Your company"/>
+          </div>
+          <div>
+            <label class="field-lbl">Phone Number</label>
+            <input type="tel" id="acct-phone" class="field-input" placeholder="(516) 000-0000"/>
+          </div>
+          <div>
+            <label class="field-lbl">Email Address <span style="color:var(--grey);font-weight:400;">(cannot be changed here)</span></label>
+            <input type="email" id="acct-email" class="field-input" readonly style="opacity:.5;cursor:not-allowed;"/>
+          </div>
+          <div id="acct-profile-msg" class="banner" style="display:none;"></div>
+          <button class="btn-primary" onclick="saveProfile()" style="width:100%;padding:13px;">Save Changes</button>
+        </div>
+      </div>
+
+      <div class="account-section">
+        <h3>Change Password</h3>
+        <div class="form-stack">
+          <div>
+            <label class="field-lbl">New Password <span style="color:var(--grey);font-weight:400;">(min 8 characters)</span></label>
+            <input type="password" id="acct-pass" class="field-input" placeholder="New password" autocomplete="new-password"/>
+          </div>
+          <div>
+            <label class="field-lbl">Confirm New Password</label>
+            <input type="password" id="acct-pass2" class="field-input" placeholder="Repeat password" autocomplete="new-password"/>
+          </div>
+          <div id="acct-pass-msg" class="banner" style="display:none;"></div>
+          <button class="btn-primary" onclick="changePassword()" style="width:100%;padding:13px;">Update Password</button>
+        </div>
+      </div>
+
+      <div class="account-section" style="max-width:560px;">
+        <h3>Need Help?</h3>
+        <div class="contact-bar" style="margin-top:0;border:none;padding:0;background:transparent;">
+          <div class="contact-bar-item"><div class="lbl">Phone</div><div class="val"><a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></div></div>
+          <div class="contact-bar-item"><div class="lbl">Email</div><div class="val">service@apexliftsolutionsusa.com</div></div>
+          <div class="contact-bar-item"><div class="lbl">Hours</div><div class="val">Mon–Fri 7am–6pm</div></div>
+        </div>
       </div>
     </div>
 
@@ -166,7 +222,7 @@
     <div id="pay-setup-notice" class="stripe-note">
       <p>
         <strong>Online payment is coming soon.</strong><br/>
-        To pay now, please call us at <strong>(516) 644-7187</strong> or email
+        To pay now, please call us at <strong><a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></strong> or email
         <strong>service@apexliftsolutionsusa.com</strong> and we'll process your
         payment directly.
       </p>

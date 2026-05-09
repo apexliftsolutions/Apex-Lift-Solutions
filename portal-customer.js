@@ -58,6 +58,8 @@ let REQ_FILES = [];
       showView('invoices', document.querySelector('[onclick*="invoices"]'));
     } else {
       loadQuotes();
+      // Check for pending quotes and show a notification banner
+      checkPendingQuotes();
     }
   } catch (e) {
     console.error('Boot error:', e);
@@ -71,6 +73,35 @@ function xss(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── PENDING QUOTE NOTIFICATION ───────────────
+async function checkPendingQuotes() {
+  if (!USER) return;
+  try {
+    const { data } = await sb
+      .from('quotes')
+      .select('id, amount')
+      .eq('customer_id', USER.id)
+      .eq('status', 'pending')
+      .eq('invoiced', false);
+    if (!data || data.length === 0) return;
+    const count = data.length;
+    const total = data.reduce((s, q) => s + parseFloat(q.amount), 0);
+    const banner = document.createElement('div');
+    banner.className = 'banner banner-ok';
+    banner.style.cssText = 'margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;cursor:pointer;';
+    banner.innerHTML = `
+      <span>🔔 You have <strong>${count} quote${count > 1 ? 's' : ''}</strong> waiting for your approval — total <strong>$${total.toFixed(2)}</strong>. Tap to review.</span>
+      <span style="font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.7;">View Quotes →</span>`;
+    banner.addEventListener('click', () => {
+      showView('quotes', document.querySelector('[onclick*="quotes"]'));
+      banner.remove();
+    });
+    // Prepend to the main content area
+    const main = document.querySelector('.main');
+    if (main) main.prepend(banner);
+  } catch(e) { /* non-fatal */ }
 }
 
 // ── EMAIL ADMIN ───────────────────────────────
@@ -214,6 +245,7 @@ async function loadInvoices() {
             ${i.quote_id ? `<div class="q-meta-item">Quote Ref<span>${xss(i.quote_id)}</span></div>` : ''}
           </div>
           ${workSummary}
+          <button class="print-btn" onclick="printReceipt('" + i.id + "')">🖨 Print Receipt</button>
           <p style="color:var(--grey);font-size:.8rem;">Questions? Call (516) 644-7187.</p>
          </div>`
       : `${workSummary}<button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">💳 Pay Now — $${parseFloat(i.amount).toFixed(2)}</button>`;
@@ -435,7 +467,7 @@ async function submitRequest() {
       `Customer: ${USER.name}\nCompany: ${USER.company || '—'}\nEmail: ${USER.email}\nRequest ID: ${savedReq?.id || '—'}\n\nEquipment: ${equip || 'Not specified'}\nIssue Type: ${type || 'Not specified'}\nUrgency: ${urgency.toUpperCase()}\n\nDescription:\n${desc}${fileLinks}\n\nView in admin portal:\napexliftsolutionsusa.com/portal-admin.html`
     );
 
-    msgEl.innerHTML = `✓ Request sent! We'll contact you at <strong>${xss(USER.email)}</strong> within 1 business day.<br>Emergency? Call <strong>(516) 644-7187</strong>.`;
+    msgEl.innerHTML = `✓ Request sent! We'll contact you at <strong>${xss(USER.email)}</strong> within 1 business day.<br>Emergency? Call <strong><a href="tel:+15166447187" style="color:inherit;">(516) 644-7187</a></strong>.`;
     msgEl.className = 'banner banner-ok';
     msgEl.style.display = 'block';
 
@@ -449,7 +481,7 @@ async function submitRequest() {
 
   } catch (e) {
     console.error('Request error:', e);
-    msgEl.textContent = 'Failed to send. Please call (516) 644-7187 directly.';
+    msgEl.textContent = 'Failed to send. Please call <a href="tel:+15166447187" style="color:inherit;">(516) 644-7187</a> directly.';
     msgEl.className = 'banner banner-err';
     msgEl.style.display = 'block';
   } finally {
@@ -486,7 +518,8 @@ function showView(v, el) {
   if (v === 'quotes')   loadQuotes();
   if (v === 'invoices') loadInvoices();
   if (v === 'history')  loadHistory();
-  const titles = { quotes: 'My Quotes', invoices: 'My Invoices', pay: 'Pay Invoice', history: 'Service History', request: 'Request Service' };
+  if (v === 'account')  loadAccount();
+  const titles = { quotes: 'My Quotes', invoices: 'My Invoices', pay: 'Pay Invoice', history: 'Service History', request: 'Request Service', account: 'My Account' };
   const titleEl = document.getElementById('mobile-page-title');
   if (titleEl && titles[v]) titleEl.textContent = titles[v];
   closeMobileSidebar();
@@ -521,4 +554,138 @@ async function removeQuote(id) {
 async function doLogout() {
   await sb.auth.signOut();
   location.href = 'portal-login.html';
+}
+
+// ── ACCOUNT: LOAD ─────────────────────────────
+async function loadAccount() {
+  if (!USER) return;
+  document.getElementById('acct-name').value    = USER.name    || '';
+  document.getElementById('acct-company').value = USER.company || '';
+  document.getElementById('acct-phone').value   = USER.phone   || '';
+  document.getElementById('acct-email').value   = USER.email   || '';
+
+  // Attach phone formatter to account phone field
+  const ph = document.getElementById('acct-phone');
+  if (ph && !ph.dataset.fmtAttached) {
+    ph.dataset.fmtAttached = '1';
+    ph.addEventListener('input', () => {
+      const digits = ph.value.replace(/\D/g,'').slice(0,10);
+      let f = '';
+      if (digits.length === 0)     f = '';
+      else if (digits.length <= 3) f = '(' + digits;
+      else if (digits.length <= 6) f = '(' + digits.slice(0,3) + ') ' + digits.slice(3);
+      else                         f = '(' + digits.slice(0,3) + ') ' + digits.slice(3,6) + '-' + digits.slice(6);
+      if (ph.value !== f) ph.value = f;
+    });
+  }
+
+  // Load latest from DB to stay in sync
+  try {
+    const { data } = await sb.from('customers').select('name,company,phone').eq('id', USER.id).single();
+    if (data) {
+      document.getElementById('acct-name').value    = data.name    || '';
+      document.getElementById('acct-company').value = data.company || '';
+      document.getElementById('acct-phone').value   = data.phone   || '';
+    }
+  } catch(e) { /* non-fatal */ }
+}
+
+// ── ACCOUNT: SAVE PROFILE ─────────────────────
+async function saveProfile() {
+  const name    = document.getElementById('acct-name').value.trim();
+  const company = document.getElementById('acct-company').value.trim();
+  const phone   = document.getElementById('acct-phone').value.trim();
+  const msg     = document.getElementById('acct-profile-msg');
+  msg.style.display = 'none';
+
+  if (!name) { msg.textContent = 'Name is required.'; msg.className = 'banner banner-err'; msg.style.display = 'block'; return; }
+
+  const btn = document.querySelector('#view-account .account-section .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  try {
+    const { error } = await sb.from('customers').update({ name, company, phone }).eq('id', USER.id);
+    if (error) throw error;
+    USER.name    = name;
+    USER.company = company;
+    USER.phone   = phone;
+    document.getElementById('cust-name').textContent    = xss(name);
+    document.getElementById('cust-company').textContent = xss(company);
+    msg.textContent = '✓ Profile updated!';
+    msg.className = 'banner banner-ok';
+    msg.style.display = 'block';
+    setTimeout(() => msg.style.display = 'none', 3500);
+  } catch(e) {
+    msg.textContent = 'Error saving. Please try again.';
+    msg.className = 'banner banner-err';
+    msg.style.display = 'block';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+  }
+}
+
+// ── ACCOUNT: CHANGE PASSWORD ──────────────────
+async function changePassword() {
+  const pass  = document.getElementById('acct-pass').value;
+  const pass2 = document.getElementById('acct-pass2').value;
+  const msg   = document.getElementById('acct-pass-msg');
+  msg.style.display = 'none';
+
+  if (pass.length < 8) { msg.textContent = 'Password must be at least 8 characters.'; msg.className = 'banner banner-err'; msg.style.display = 'block'; return; }
+  if (pass !== pass2)  { msg.textContent = 'Passwords do not match.'; msg.className = 'banner banner-err'; msg.style.display = 'block'; return; }
+
+  const { error } = await sb.auth.updateUser({ password: pass });
+  if (error) {
+    msg.textContent = 'Error: ' + error.message;
+    msg.className = 'banner banner-err';
+  } else {
+    msg.textContent = '✓ Password updated successfully!';
+    msg.className = 'banner banner-ok';
+    document.getElementById('acct-pass').value  = '';
+    document.getElementById('acct-pass2').value = '';
+  }
+  msg.style.display = 'block';
+  setTimeout(() => msg.style.display = 'none', 4000);
+}
+
+// ── PRINT RECEIPT ─────────────────────────────
+async function printReceipt(invoiceId) {
+  const { data: invArr } = await sb.from('invoices').select('*').eq('id', invoiceId).eq('customer_id', USER.id);
+  const inv = invArr?.[0];
+  if (!inv) return;
+
+  const itemRows = inv.items?.map(i => {
+    const qty  = parseFloat(i.qty)  || 1;
+    const unit = parseFloat(i.unit_price || i.amount || 0);
+    return `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;">${xss(i.desc||'Service')}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${qty}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">$${(qty*unit).toFixed(2)}</td></tr>`;
+  }).join('') || '<tr><td colspan="3" style="padding:8px 12px;color:#666;">See invoice for details</td></tr>';
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><title>Receipt — ${xss(inv.id)}</title>
+  <style>body{font-family:Arial,sans-serif;color:#111;max-width:680px;margin:40px auto;padding:0 20px;}
+  h1{font-size:2rem;margin-bottom:4px;}
+  .red{color:#cc0000;} .grey{color:#666;font-size:.9rem;}
+  table{width:100%;border-collapse:collapse;margin:24px 0;}
+  th{background:#f5f5f5;padding:10px 12px;text-align:left;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;}
+  .total{text-align:right;font-size:1.3rem;font-weight:700;margin-top:8px;}
+  .paid-stamp{display:inline-block;border:3px solid #4caf50;color:#4caf50;padding:6px 18px;font-size:1.1rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;transform:rotate(-3deg);margin-bottom:16px;}
+  @media print{button{display:none;}}</style></head><body>
+  <h1>Apex Lift <span class="red">Solutions</span></h1>
+  <p class="grey">(516) 644-7187 · info@apexliftsolutionsusa.com · apexliftsolutionsusa.com</p>
+  <p class="grey">Nassau &amp; Suffolk County, Long Island, NY</p>
+  <hr style="margin:20px 0;border:none;border-top:2px solid #cc0000;"/>
+  <div class="paid-stamp">✓ PAID</div>
+  <table style="margin-bottom:8px;"><tr><td><strong>Invoice #</strong></td><td>${xss(inv.id)}</td></tr>
+  <tr><td><strong>Customer</strong></td><td>${xss(inv.customer_name||USER.name)}</td></tr>
+  <tr><td><strong>Company</strong></td><td>${xss(inv.company||USER.company||'—')}</td></tr>
+  <tr><td><strong>Paid On</strong></td><td>${new Date(inv.paid_at||inv.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</td></tr>
+  ${inv.quote_id ? `<tr><td><strong>Quote Ref</strong></td><td>${xss(inv.quote_id)}</td></tr>` : ''}
+  </table>
+  <table><thead><tr><th>Description</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Amount</th></tr></thead>
+  <tbody>${itemRows}</tbody></table>
+  <div class="total">Total Paid: $${parseFloat(inv.amount).toFixed(2)}</div>
+  <p class="grey" style="margin-top:32px;">Thank you for your business. For questions, call (516) 644-7187 or email service@apexliftsolutionsusa.com.</p>
+  <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:1rem;cursor:pointer;">Print / Save as PDF</button>
+  </body></html>`);
+  win.document.close();
 }
