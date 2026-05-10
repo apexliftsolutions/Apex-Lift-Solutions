@@ -546,12 +546,10 @@ document.addEventListener('DOMContentLoaded', () => {
       showView(item.dataset.view, item);
     });
   }
-  // Sidebar overlay close
+  // Sidebar overlay close (overlay has no onclick in HTML so this is needed)
   document.getElementById('sidebar-overlay')?.addEventListener('click', closeMobileSidebar);
-  // Mobile menu button
-  document.getElementById('mobile-menu-btn')?.addEventListener('click', toggleMobileSidebar);
-  // Logout
-  document.querySelector('.logout-btn')?.addEventListener('click', logout);
+  // NOTE: mobile-menu-btn uses onclick="toggleMobileSidebar()" in HTML — no addEventListener needed
+  // NOTE: logout-btn uses onclick="logout()" in HTML — no addEventListener needed
 });
 
 function showView(v, el) {
@@ -1049,9 +1047,15 @@ async function renderActivityLog() {
 
 // ── PDF PRINT — QUOTE ─────────────────────────
 async function printQuotePDF(quoteId) {
+  // Open the window SYNCHRONOUSLY before any await — mobile browsers block
+  // popups that aren't opened directly from a user gesture click handler.
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Popup blocked — please allow popups for this site and try again.'); return; }
+  win.document.write('<html><body style="background:#111;color:#aaa;font-family:sans-serif;padding:40px;text-align:center;"><p>Loading PDF…</p></body></html>');
+
   const quotes = await DB.getAllQuotes();
   const q = quotes.find(x => x.id === quoteId);
-  if (!q) { showToast('Quote not found.'); return; }
+  if (!q) { win.close(); showToast('Quote not found.'); return; }
 
   const itemRows = q.items?.map(i => {
     const qty  = parseFloat(i.qty) || 1;
@@ -1064,7 +1068,6 @@ async function printQuotePDF(quoteId) {
     </tr>`;
   }).join('') || '<tr><td colspan="4" style="padding:9px 12px;color:#666;">See description for details.</td></tr>';
 
-  const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head><title>Quote ${q.id} — Apex Lift Solutions</title>
   <style>
     *{box-sizing:border-box;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;}
@@ -1116,9 +1119,14 @@ async function printQuotePDF(quoteId) {
 
 // ── PDF PRINT — INVOICE ───────────────────────
 async function printInvoicePDF(invoiceId) {
+  // Open window synchronously before await — required for mobile popup policy
+  const win = window.open('', '_blank');
+  if (!win) { showToast('Popup blocked — please allow popups for this site and try again.'); return; }
+  win.document.write('<html><body style="background:#111;color:#aaa;font-family:sans-serif;padding:40px;text-align:center;"><p>Loading PDF…</p></body></html>');
+
   const invoices = await DB.getAllInvoices();
   const inv = invoices.find(x => x.id === invoiceId);
-  if (!inv) { showToast('Invoice not found.'); return; }
+  if (!inv) { win.close(); showToast('Invoice not found.'); return; }
 
   const itemRows = inv.items?.map(i => {
     const qty  = parseFloat(i.qty) || 1;
@@ -1132,7 +1140,6 @@ async function printInvoicePDF(invoiceId) {
   }).join('') || '<tr><td colspan="4" style="padding:9px 12px;color:#666;">See description for details.</td></tr>';
 
   const isPaid = inv.status === 'paid';
-  const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head><title>Invoice ${inv.id} — Apex Lift Solutions</title>
   <style>
     *{box-sizing:border-box;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;}
