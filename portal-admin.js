@@ -1051,7 +1051,7 @@ async function printQuotePDF(quoteId) {
   // popups that aren't opened directly from a user gesture click handler.
   const win = window.open('', '_blank');
   if (!win) { showToast('Popup blocked — please allow popups for this site and try again.'); return; }
-  win.document.write('<html><body style="background:#111;color:#aaa;font-family:sans-serif;padding:40px;text-align:center;"><p>Loading PDF…</p></body></html>');
+  win.document.write('<html><body style="background:#fff;color:#666;font-family:sans-serif;padding:40px;text-align:center;"><p>Loading…</p></body></html>');
 
   const quotes = await DB.getAllQuotes();
   const q = quotes.find(x => x.id === quoteId);
@@ -1070,7 +1070,7 @@ async function printQuotePDF(quoteId) {
 
   win.document.write(`<!DOCTYPE html><html><head><title>Quote ${q.id} — Apex Lift Solutions</title>
   <style>
-    *{box-sizing:border-box;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;}
+    *{box-sizing:border-box;} html,body{background:#ffffff !important;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;background:#ffffff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     h1{font-size:28px;margin:0 0 2px;} .red{color:#cc0000;} .grey{color:#666;font-size:13px;}
     .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #cc0000;}
     .badge{display:inline-block;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border:2px solid;margin-bottom:12px;}
@@ -1122,7 +1122,7 @@ async function printInvoicePDF(invoiceId) {
   // Open window synchronously before await — required for mobile popup policy
   const win = window.open('', '_blank');
   if (!win) { showToast('Popup blocked — please allow popups for this site and try again.'); return; }
-  win.document.write('<html><body style="background:#111;color:#aaa;font-family:sans-serif;padding:40px;text-align:center;"><p>Loading PDF…</p></body></html>');
+  win.document.write('<html><body style="background:#fff;color:#666;font-family:sans-serif;padding:40px;text-align:center;"><p>Loading…</p></body></html>');
 
   const invoices = await DB.getAllInvoices();
   const inv = invoices.find(x => x.id === invoiceId);
@@ -1142,7 +1142,7 @@ async function printInvoicePDF(invoiceId) {
   const isPaid = inv.status === 'paid';
   win.document.write(`<!DOCTYPE html><html><head><title>Invoice ${inv.id} — Apex Lift Solutions</title>
   <style>
-    *{box-sizing:border-box;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;}
+    *{box-sizing:border-box;} html,body{background:#ffffff !important;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;background:#ffffff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     h1{font-size:28px;margin:0 0 2px;} .red{color:#cc0000;} .grey{color:#666;font-size:13px;}
     .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-top:5px solid #cc0000;padding-top:20px;}
     .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;background:#f9f9f9;padding:16px;}
