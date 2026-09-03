@@ -2,7 +2,7 @@
 //  APEX LIFT SOLUTIONS — portal-customer.js
 //  Customer portal logic. Depends on:
 //    - supabase.min.js (CDN, loaded before this)
-//    - emailjs (CDN, loaded before this)
+//    - supabase-js (CDN, loaded before this)
 //  Self-contained — does not use portal-data.js
 //  so it can run independently of the admin flow.
 // =============================================
@@ -10,8 +10,6 @@
 const SB_URL  = 'https://cjtezsgfdfijmdxzzbiq.supabase.co';
 const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqdGV6c2dmZGZpam1keHp6YmlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNjg2OTIsImV4cCI6MjA5Mzc0NDY5Mn0.FkfIFgm5TUKa05nK4QQWdBRgK2cv3oPvq5MQArEUqbw';
 const ADMIN   = 'admin@apexliftsolutionsusa.com';
-const EJS_SVC = 'service_lfi9ixk';
-const EJS_TPL = 'template_jpqlmic';
 
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
@@ -22,7 +20,6 @@ let REQ_FILES = [];
 
 // ── BOOT ──────────────────────────────────────
 (async function boot() {
-  emailjs.init('P0tnD3LQqQ6Pujijz');
   try {
     const { data: { session }, error } = await sb.auth.getSession();
     if (error || !session) { location.href = 'portal-login.html'; return; }
@@ -48,19 +45,11 @@ let REQ_FILES = [];
     document.getElementById('cust-name').textContent    = xss(USER.name);
     document.getElementById('cust-company').textContent = xss(USER.company);
 
-    // Handle Stripe success redirect (?paid=INV-XXXX)
-    const params = new URLSearchParams(window.location.search);
-    const paidId = params.get('paid');
-    if (paidId) {
-      await sb.from('invoices').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', paidId);
-      history.replaceState({}, '', 'portal-customer.html');
-      showBanner('✓ Payment confirmed! A receipt will be sent to your email.', 'ok');
-      showView('invoices', document.querySelector('[onclick*="invoices"]'));
-    } else {
-      loadQuotes();
-      // Check for pending quotes and show a notification banner
-      checkPendingQuotes();
-    }
+    // NOTE: payment state is never set from a URL parameter. It is written
+    // server-side by the helcim-validate Edge Function after the response hash
+    // is verified. A browser redirect is not proof of payment.
+    loadQuotes();
+    checkPendingQuotes();
   } catch (e) {
     console.error('Boot error:', e);
     location.href = 'portal-login.html';
@@ -84,7 +73,7 @@ async function checkPendingQuotes() {
       .select('id, amount')
       .eq('customer_id', USER.id)
       .eq('status', 'pending')
-      .eq('invoiced', false);
+      .eq('invoiced', false).eq('hidden_by_customer', false);
     if (!data || data.length === 0) return;
     const count = data.length;
     const total = data.reduce((s, q) => s + parseFloat(q.amount), 0);
@@ -105,13 +94,8 @@ async function checkPendingQuotes() {
 }
 
 // ── EMAIL ADMIN ───────────────────────────────
-async function emailAdmin(subject, message) {
-  for (const addr of [ADMIN, 'apexliftsolutions1@gmail.com']) {
-    try {
-      await emailjs.send(EJS_SVC, EJS_TPL, { to_email: addr, to_name: 'Apex Lift Solutions', subject, message });
-    } catch (e) { console.error('Email failed:', addr, e); }
-  }
-}
+// Email is sent server-side by database triggers → notification_outbox → Resend.
+// Nothing in the browser sends mail.
 
 // ── DATE + BADGE HELPERS ──────────────────────
 function bdate(d) { return d ? new Date(d).toLocaleDateString('en-US') : '—'; }
@@ -119,27 +103,28 @@ function bdate(d) { return d ? new Date(d).toLocaleDateString('en-US') : '—'; 
 function badgeHtml(s) {
   const cls = {
     pending: 'badge-pending', approved: 'badge-approved', declined: 'badge-declined',
-    paid: 'badge-paid', unpaid: 'badge-unpaid', completed: 'badge-completed'
+    paid: 'badge-paid', unpaid: 'badge-unpaid', payment_pending: 'badge-pending', refunded: 'badge-declined', partially_refunded: 'badge-pending', void: 'badge-hidden', completed: 'badge-completed'
   }[s] || 'badge-pending';
   return `<span class="badge ${cls}">${xss(s)}</span>`;
 }
 
 // ── ATTACHMENT RENDERER ───────────────────────
-function attHtml(urls) {
-  if (!urls?.length) return '';
-  const items = urls.map(url => {
-    const raw   = decodeURIComponent(url.split('/').pop().split('?')[0]);
+async function attHtml(paths) {
+  if (!paths?.length) return '';
+  // Bucket is PRIVATE. Each path becomes a 10-minute signed URL for the signed-in
+  // user; storage RLS decides whether they may have it.
+  const { data: signed } = await sb.storage.from('apex-uploads').createSignedUrls(paths, 600);
+  const items = (signed || []).filter(s => s.signedUrl).map(s => {
+    const raw   = decodeURIComponent(s.path.split('/').pop());
     const name  = raw.replace(/^\d+_/, '');
     const short = name.length > 18 ? name.slice(0, 16) + '…' : name;
-    if (url.toLowerCase().endsWith('.pdf')) {
-      return `<a href="${url}" target="_blank" class="att-pdf-box" title="${xss(name)}"><span>📄</span><small>${xss(short)}</small></a>`;
+    if (s.path.toLowerCase().endsWith('.pdf')) {
+      return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="att-pdf-box" title="${xss(name)}"><span>📄</span><small>${xss(short)}</small></a>`;
     }
-    return `<a href="${url}" target="_blank" class="att-link" title="${xss(name)}"><img src="${url}" alt="${xss(name)}" loading="lazy" onerror="this.parentElement.style.display='none'"/></a>`;
+    return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="att-link" title="${xss(name)}"><img src="${s.signedUrl}" alt="${xss(name)}" loading="lazy"/></a>`;
   }).join('');
-  return `<div style="margin-top:12px;">
-    <div style="font-family:var(--font-head);font-size:.63rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;">📎 Attachments — click to view</div>
-    <div class="att-grid">${items}</div>
-  </div>`;
+  if (!items) return '';
+  return `<div style="margin-top:12px;"><div class="att-label">📎 Attachments — click to view</div><div class="att-grid">${items}</div></div>`;
 }
 
 // ── LINE ITEMS RENDERER ───────────────────────
@@ -169,13 +154,13 @@ async function loadQuotes() {
   const { data: quotes, error } = await sb
     .from('quotes').select('*')
     .eq('customer_id', USER.id)
-    .eq('invoiced', false)
+    .eq('invoiced', false).eq('hidden_by_customer', false)
     .order('created_at', { ascending: false });
 
   if (error) { wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">Error: ${xss(error.message)}</div>`; return; }
   if (!quotes?.length) { wrap.innerHTML = '<div class="empty-state">No quotes yet — contact us or use Request Service to get started!</div>'; return; }
 
-  wrap.innerHTML = '<div class="q-cards">' + quotes.map(q => `
+  const cards = await Promise.all(quotes.map(async q => `
     <div class="q-card">
       <div class="q-hdr">
         <span class="q-id">${xss(q.id)}</span>
@@ -183,7 +168,7 @@ async function loadQuotes() {
       </div>
       ${q.description ? `<div class="q-desc">${xss(q.description)}</div>` : ''}
       ${lineItemsHtml(q.items)}
-      ${attHtml(q.attachments)}
+      ${await attHtml(q.attachments)}
       <div class="q-meta" style="margin-top:12px;">
         <div class="q-meta-item">Sent<span>${bdate(q.created_at)}</span></div>
         ${q.equipment ? `<div class="q-meta-item">Equipment<span>${xss(q.equipment)}</span></div>` : ''}
@@ -202,7 +187,8 @@ async function loadQuotes() {
                <button class="decline-btn" style="padding:6px 14px;font-size:.72rem;" onclick="removeQuote('${xss(q.id)}')">🗑 Remove</button>
              </div>`
       }
-    </div>`).join('') + '</div>';
+    </div>`));
+  wrap.innerHTML = '<div class="q-cards">' + cards.join('') + '</div>';
 }
 
 // ── LOAD INVOICES ─────────────────────────────
@@ -248,7 +234,7 @@ async function loadInvoices() {
           <button class="print-btn" onclick="printReceipt('" + i.id + "')">🖨 Print Receipt</button>
           <p style="color:var(--grey);font-size:.8rem;">Questions? Call (516) 644-7187.</p>
          </div>`
-      : `${workSummary}<button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">💳 Pay Now — $${parseFloat(i.amount).toFixed(2)}</button>`;
+      : `${workSummary}<button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>`;
 
     return `<div class="q-card">
       <div class="q-hdr">
@@ -306,17 +292,11 @@ function respondQuote(id, response) {
       const btn = document.getElementById('confirm-yes');
       btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        const { error } = await sb.from('quotes')
-          .update({ status: response, responded_at: new Date().toISOString() })
-          .eq('id', id).eq('customer_id', USER.id);
+        // Direct UPDATE is not permitted for customers. This RPC allows exactly
+        // one transition (pending -> approved/declined) and nothing else.
+        const { error } = await sb.rpc('respond_to_quote', { p_quote_id: id, p_response: response });
         if (error) throw error;
         closeConfirm();
-        emailAdmin(
-          `Quote ${id} ${isApprove ? 'APPROVED ✓' : 'DECLINED ✗'} — ${USER.name}`,
-          `Customer: ${USER.name}\nCompany: ${USER.company || '—'}\nEmail: ${USER.email}\n\nQuote ${id} has been ${response.toUpperCase()} by the customer.\n\n${isApprove
-            ? 'Log in to the admin portal to convert to an invoice:\napexliftsolutionsusa.com/portal-admin.html'
-            : 'No action required — customer declined.'}`
-        );
         showBanner(
           isApprove ? "✓ Quote approved! We'll contact you soon to schedule." : 'Quote declined. Call (516) 644-7187 with any questions.',
           isApprove ? 'ok' : 'err'
@@ -330,46 +310,165 @@ function respondQuote(id, response) {
   );
 }
 
-// ── PAY INVOICE ───────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// STRIPE INTEGRATION
-// ─────────────────────────────────────────────────────────────────────────────
-// When you're ready to go live:
+// ── PAY INVOICE (HelcimPay.js) ────────────────
+// Card details are entered inside Helcim's iframe and never touch this page or
+// our server, which is what keeps Apex's PCI scope minimal.
 //
-// 1. Create a product + price in your Stripe dashboard
-//    (or use Payment Links, or create a price dynamically via your backend).
-//
-// 2. Replace the openPay() body below with a Stripe Checkout redirect:
-//
-//    const stripe = Stripe('pk_live_YOUR_PUBLISHABLE_KEY');
-//    const { error } = await stripe.redirectToCheckout({
-//      lineItems: [{ price: 'price_YOUR_PRICE_ID', quantity: 1 }],
-//      mode: 'payment',
-//      successUrl: window.location.origin + '/portal-customer.html?paid=' + id,
-//      cancelUrl:  window.location.origin + '/portal-customer.html',
-//    });
-//    if (error) showBanner(error.message, 'err');
-//
-// 3. Remove the "Demo mode" notice from the modal markup in portal-customer.html.
-//
-// 4. The ?paid= redirect is already handled in boot() above — it marks the
-//    invoice paid in Supabase when the customer returns from Stripe.
-//
-// Until then, the modal shows a clear notice that payment is not yet live.
-// ─────────────────────────────────────────────────────────────────────────────
+// Flow:  initialize (server) -> render modal (here) -> validate (server)
+// The amount is resolved server-side from the invoice. Nothing this file sends
+// can change what gets charged.
 
+const FN_BASE = `${SB_URL}/functions/v1`;
+let PAY_BUSY = false;
+let PAY_AMOUNT = 0;
+
+// Step 1 — open the modal and let the customer pick a method.
+// ACH is listed first: on a $2,000 forklift repair it saves real money vs card.
 function openPay(id, amount) {
   PAY_ID = id;
+  PAY_AMOUNT = Number(amount);
   document.getElementById('modal-inv-id').textContent  = id;
   document.getElementById('modal-inv-amt').textContent = '$' + Number(amount).toFixed(2);
-  document.getElementById('pay-success-block').style.display = 'none';
-  document.getElementById('pay-setup-notice').style.display  = 'block';
+  document.querySelectorAll('#pay-method-choice .pay-opt').forEach(b => b.disabled = false);
+  showPayState('choose');
   document.getElementById('pay-modal').className = 'modal-overlay open';
 }
 
+// Step 2 — start the server-side checkout for the chosen method.
+async function startPay(method) {
+  if (PAY_BUSY) return;                      // double-click guard
+  PAY_BUSY = true;
+  document.querySelectorAll('#pay-method-choice .pay-opt').forEach(b => b.disabled = true);
+
+  const id = PAY_ID, amount = PAY_AMOUNT;
+  showPayState('loading');
+
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { showPayState('error', 'Your session expired. Please sign in again.'); return; }
+
+    // One key per invoice per attempt. A retry reuses it, so the server returns
+    // the original attempt instead of opening a second chargeable session.
+    const idem = `${id}:${session.user.id}:${Date.now()}`;
+    sessionStorage.setItem('apex_pay_idem', idem);
+
+    const res = await fetch(`${FN_BASE}/payment-checkout`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${session.access_token}`,
+                 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoice_id: id, method, idempotency_key: idem }),
+    });
+
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({}));
+      showPayState('error',
+        error === 'already_paid'   ? 'This invoice has already been paid.'
+      : error === 'payment_pending' ? 'A bank payment for this invoice is already processing.'
+      : error === 'account_not_active' ? 'Your account is not active. Please call (516) 644-7187.'
+      : error === 'already_processed' ? 'A payment for this invoice is already being processed.'
+      : 'We could not start the payment. Please try again, or call (516) 644-7187.');
+      return;
+    }
+
+    const { checkoutToken } = await res.json();
+    showPayState('modal');
+
+    // Render Helcim's secure iframe.
+    appendHelcimPayIframe(checkoutToken, true);
+
+    // Listen once for the result, then verify it server-side.
+    const onMessage = async (ev) => {
+      if (!ev.data || ev.data.eventName !== `helcim-pay-js-${checkoutToken}`) return;
+      window.removeEventListener('message', onMessage);
+      removeHelcimPayIframe();
+
+      if (ev.data.eventStatus === 'ABORTED') { closePayModal(); return; }
+      showPayState('verifying');
+
+      try {
+        const vr = await fetch(`${FN_BASE}/payment-validate`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${session.access_token}`,
+                     'Content-Type': 'application/json' },
+          // Helcim computes the hash over JSON.stringify(eventMessage.data)
+          // concatenated with the secretToken. Send exactly that string so the
+          // server can reproduce it byte-for-byte.
+          body: JSON.stringify({
+            checkoutToken,
+            rawDataResponse: JSON.stringify(ev.data.eventMessage?.data ?? {}),
+            hash: ev.data.eventMessage?.hash,
+          }),
+        });
+        const out = await vr.json();
+
+        if (out.status === 'unknown') {
+          showPayState('error', "We couldn't confirm the payment status yet. Please DON'T submit another payment — we're verifying with the processor and your invoice will update automatically. Call (516) 644-7187 if you need confirmation now.");
+        } else if (out.status === 'succeeded') {
+          showPayState('success', null, out);
+          loadInvoices();
+        } else if (out.status === 'pending') {
+          showPayState('pending', null, out);
+          loadInvoices();
+        } else {
+          // Never say "your card was not charged" unless we actually know that.
+          showPayState('error', vr.ok
+            ? 'The payment was declined. Your card was not charged.'
+            : 'We could not confirm the payment status. Please do not submit another payment — call (516) 644-7187 and we will check.');
+        }
+      } catch (e) {
+        showPayState('error',
+          'We could not confirm the payment status. Please do not submit another payment — call (516) 644-7187 and we will check.');
+      }
+    };
+    window.addEventListener('message', onMessage);
+
+  } catch (e) {
+    console.error('Payment init error:', e);
+    showPayState('error', 'Connection problem. Please try again or call (516) 644-7187.');
+  } finally {
+    PAY_BUSY = false;
+  }
+}
+
+// Single place that drives every visual state of the payment modal.
+function showPayState(state, message, result) {
+  const ids = ['pay-method-choice','pay-loading','pay-modal-host','pay-verifying','pay-success-block','pay-pending-block','pay-error-block'];
+  ids.forEach(i => { const el = document.getElementById(i); if (el) el.style.display = 'none'; });
+  const show = (i) => { const el = document.getElementById(i); if (el) el.style.display = 'block'; };
+
+  if (state === 'choose')     show('pay-method-choice');
+  if (state === 'loading')    show('pay-loading');
+  if (state === 'modal')      show('pay-modal-host');
+  if (state === 'verifying')  show('pay-verifying');
+  if (state === 'success') {
+    show('pay-success-block');
+    const d = document.getElementById('pay-success-detail');
+    if (d && result) d.innerHTML =
+      `Invoice <strong>${xss(result.invoice_id)}</strong><br/>` +
+      `Amount: <strong>$${(result.amount_cents/100).toFixed(2)}</strong><br/>` +
+      (result.method_display ? `Method: ${xss(result.method_display)}<br/>` : '') +
+      (result.reference ? `Reference: ${xss(String(result.reference))}` : '');
+  }
+  if (state === 'pending') {
+    show('pay-pending-block');
+    const d = document.getElementById('pay-pending-detail');
+    if (d && result) d.innerHTML =
+      `Invoice <strong>${xss(result.invoice_id)}</strong><br/>` +
+      `Amount: <strong>$${(result.amount_cents/100).toFixed(2)}</strong>`;
+  }
+  if (state === 'error') {
+    show('pay-error-block');
+    const d = document.getElementById('pay-error-detail');
+    if (d) d.textContent = message || 'Something went wrong.';
+  }
+}
+
 function closePayModal() {
+  PAY_BUSY = false;
+  try { removeHelcimPayIframe(); } catch (e) { /* not rendered */ }
   document.getElementById('pay-modal').className = 'modal-overlay';
   PAY_ID = null;
+  PAY_BUSY = false;
 }
 
 // ── INVOICE LOOKUP ────────────────────────────
@@ -390,13 +489,81 @@ async function lookupInv() {
       <div style="text-align:right;">
         <div style="font-family:var(--font-head);font-size:1.6rem;font-weight:900;color:var(--red);">$${parseFloat(row.amount).toFixed(2)}</div>
         ${row.status === 'unpaid'
-          ? `<button class="approve-btn" style="margin-top:8px;" onclick="openPay('${xss(row.id)}',${parseFloat(row.amount)})">💳 Pay Now</button>`
+          ? `<button class="approve-btn" style="margin-top:8px;" onclick="openPay('${xss(row.id)}',${parseFloat(row.amount)})">Pay Securely</button>`
           : `<span style="color:#4caf50;font-weight:700;font-family:var(--font-head);font-size:.88rem;">✓ Already Paid</span>`}
       </div>
     </div>`;
   } else {
     box.innerHTML = '<p style="color:#ff4444;font-family:var(--font-head);font-weight:700;font-size:.85rem;">Invoice not found on your account. Call (516) 644-7187 for help.</p>';
   }
+}
+
+
+// ── PAYMENTS / RECEIPTS ───────────────────────
+// Sourced from the payments ledger — never from invoice.status, and never from
+// anything the browser computed.
+async function loadPayments() {
+  const wrap = document.getElementById('payments-wrap');
+  if (!USER || !wrap) return;
+  wrap.innerHTML = '<div class="loading-msg">Loading payments…</div>';
+  const { data: rows, error } = await sb.from('payments')
+    .select('*').eq('customer_id', USER.id).order('created_at', { ascending: false });
+  if (error) { wrap.innerHTML = '<div class="empty-state" style="color:#ff4444;">Could not load payments.</div>'; return; }
+  const shown = (rows || []).filter(r => r.status !== 'initiated');
+  if (!shown.length) { wrap.innerHTML = '<div class="empty-state">No payments yet.</div>'; return; }
+
+  const label = { succeeded:'Paid', pending:'Processing', failed:'Failed', unknown:'Needs review', voided:'Voided' };
+  const cls   = { succeeded:'badge-paid', pending:'badge-pending', failed:'badge-declined', unknown:'badge-pending', voided:'badge-hidden' };
+  wrap.innerHTML = '<div class="q-cards">' + shown.map(r => `
+    <div class="q-card">
+      <div class="q-hdr">
+        <span class="q-id">${xss(r.invoice_id)}${r.kind !== 'payment' ? ` · ${xss(r.kind)}` : ''}</span>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span class="badge ${cls[r.status] || 'badge-pending'}">${label[r.status] || xss(r.status)}</span>
+          <span class="q-amt">${r.kind === 'payment' ? '' : '−'}$${(r.amount_cents/100).toFixed(2)}</span>
+        </div>
+      </div>
+      <div class="q-meta">
+        <div class="q-meta-item">Date<span>${bdate(r.settled_at || r.approved_at || r.created_at)}</span></div>
+        <div class="q-meta-item">Method<span>${xss(r.method_display || methodName(r.method))}</span></div>
+        ${r.provider_transaction_id ? `<div class="q-meta-item">Reference<span>${xss(r.provider_transaction_id)}</span></div>` : ''}
+        ${r.reference ? `<div class="q-meta-item">Ref<span>${xss(r.reference)}</span></div>` : ''}
+      </div>
+      ${r.status === 'pending' && r.method === 'ach'
+        ? `<p style="color:#f0a500;font-size:.86rem;margin-top:4px;">Bank payment processing — this usually clears in a few business days.</p>`
+        : r.status === 'succeeded'
+          ? `<button class="approve-btn" style="padding:8px 16px;font-size:.76rem;" onclick="printReceipt('${xss(r.id)}')">Print Receipt</button>` : ''}
+    </div>`).join('') + '</div>';
+}
+function methodName(m) {
+  return ({ card:'Card', ach:'Bank transfer (ACH)', check:'Check', cash:'Cash', bank_transfer:'Bank transfer', terminal:'Card (in person)', other:'Other' })[m] || '—';
+}
+
+// Receipt is rendered from the stored ledger row, fetched fresh at print time.
+async function printReceipt(paymentId) {
+  const { data: r } = await sb.from('payments').select('*').eq('id', paymentId).eq('customer_id', USER.id).single();
+  if (!r) return;
+  const w = window.open('', '_blank', 'width=680,height=800');
+  w.document.write(`<!doctype html><html><head><title>Receipt ${r.invoice_id}</title>
+    <style>body{font-family:Arial,sans-serif;padding:40px;color:#111;max-width:640px}
+    h1{font-size:20px;letter-spacing:.06em;text-transform:uppercase;margin:0}
+    .r{border-top:3px solid #cc0000;padding-top:18px;margin-top:14px}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin-top:18px}
+    td{padding:9px 0;border-bottom:1px solid #eee}td:last-child{text-align:right;font-weight:700}
+    .tot{font-size:19px;font-weight:700}.f{margin-top:26px;font-size:12px;color:#666;line-height:1.7}</style></head><body>
+    <h1>Apex <span style="color:#cc0000">Lift Solutions</span></h1>
+    <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#888;">Payment Receipt</div>
+    <div class="r"><table>
+      <tr><td>Invoice</td><td>${r.invoice_id}</td></tr>
+      <tr><td>Payment date</td><td>${new Date(r.settled_at || r.approved_at || r.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</td></tr>
+      <tr><td>Method</td><td>${r.method_display || methodName(r.method)}</td></tr>
+      ${r.provider_transaction_id ? `<tr><td>Reference</td><td>${r.provider_transaction_id}</td></tr>` : ''}
+      <tr><td class="tot">Amount paid</td><td class="tot">$${(r.amount_cents/100).toFixed(2)}</td></tr>
+    </table>
+    <p class="f">Apex Lift Solutions · (516) 644-7187 · service@apexliftsolutionsusa.com<br>
+    Nassau &amp; Suffolk County, NY · apexliftsolutionsusa.com</p></div>
+    <script>window.print()<\/script></body></html>`);
+  w.document.close();
 }
 
 // ── SERVICE REQUEST ───────────────────────────
@@ -438,34 +605,29 @@ async function submitRequest() {
         const safePath = `service-requests/${USER.id}/${Date.now()}_${safeName}`;
         const { error: upErr } = await sb.storage.from('apex-uploads').upload(safePath, file, { upsert: true, contentType: file.type });
         if (!upErr) {
-          const { data: pub } = sb.storage.from('apex-uploads').getPublicUrl(safePath);
-          urls.push(pub.publicUrl);
+          urls.push(safePath);   // private bucket: store the PATH, mint signed URLs on read
         } else {
           console.error('Upload failed:', upErr.message);
         }
       }
     }
 
+    // Identity fields (customer_id / email / name / company) are deliberately NOT
+    // sent. A BEFORE INSERT trigger derives them from the authenticated customers
+    // row, so a crafted request cannot appear to come from someone else. We send
+    // only the request-specific fields.
     const { data: savedReq, error: reqErr } = await sb.from('service_requests').insert({
-      customer_id:    USER.id,
-      customer_email: USER.email,
-      customer_name:  USER.name,
-      company:        USER.company || '',
-      equipment:      equip || '',
-      issue_type:     type  || '',
-      description:    desc,
+      customer_id: USER.id,          // still required to satisfy the RLS WITH CHECK
+      equipment:   equip || '',
+      issue_type:  type  || '',
+      description: desc,
       urgency,
-      attachments:    urls.length ? urls : null,
-      status:         'open'
+      attachments: urls.length ? urls : null
     }).select().single();
 
     if (reqErr) console.error('Service request save error:', reqErr);
 
     const fileLinks = urls.length ? '\n\nPhoto attachments:\n' + urls.map((u, i) => `${i + 1}. ${u}`).join('\n') : '';
-    await emailAdmin(
-      `⚠️ Service Request [${urgency.toUpperCase()}] — ${USER.name} (${savedReq?.id || 'REQ'})`,
-      `Customer: ${USER.name}\nCompany: ${USER.company || '—'}\nEmail: ${USER.email}\nRequest ID: ${savedReq?.id || '—'}\n\nEquipment: ${equip || 'Not specified'}\nIssue Type: ${type || 'Not specified'}\nUrgency: ${urgency.toUpperCase()}\n\nDescription:\n${desc}${fileLinks}\n\nView in admin portal:\napexliftsolutionsusa.com/portal-admin.html`
-    );
 
     msgEl.innerHTML = `✓ Request sent! We'll contact you at <strong>${xss(USER.email)}</strong> within 1 business day.<br>Emergency? Call <strong><a href="tel:+15166447187" style="color:inherit;">(516) 644-7187</a></strong>.`;
     msgEl.className = 'banner banner-ok';
@@ -518,6 +680,7 @@ function showView(v, el) {
   if (v === 'quotes')   loadQuotes();
   if (v === 'invoices') loadInvoices();
   if (v === 'history')  loadHistory();
+  if (v === 'payments') loadPayments();
   if (v === 'account')  loadAccount();
   const titles = { quotes: 'My Quotes', invoices: 'My Invoices', pay: 'Pay Invoice', history: 'Service History', request: 'Request Service', account: 'My Account' };
   const titleEl = document.getElementById('mobile-page-title');
@@ -545,7 +708,7 @@ function closeMobileSidebar() {
 // ── REMOVE DECLINED QUOTE ─────────────────────
 async function removeQuote(id) {
   if (!confirm('Remove this declined quote from your view?')) return;
-  const { error } = await sb.from('quotes').update({ invoiced: true }).eq('id', id).eq('customer_id', USER.id);
+  const { error } = await sb.rpc('hide_declined_quote', { p_quote_id: id });
   if (!error) { showBanner('Quote removed from your view.', 'ok'); loadQuotes(); }
   else showBanner('Could not remove. Please try again.', 'err');
 }
@@ -604,7 +767,8 @@ async function saveProfile() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
   try {
-    const { error } = await sb.from('customers').update({ name, company, phone }).eq('id', USER.id);
+    // Customers have no UPDATE policy on their row. This RPC edits exactly three fields.
+    const { error } = await sb.rpc('update_my_profile', { p_name: name, p_company: company, p_phone: phone });
     if (error) throw error;
     USER.name    = name;
     USER.company = company;

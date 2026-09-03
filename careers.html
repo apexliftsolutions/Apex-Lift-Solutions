@@ -161,15 +161,13 @@
 
         <div class="apply-form-wrap">
           <form class="contact-form" id="applyForm"
-                action="https://formspree.io/f/myklrjov"
-                method="POST">
-            <input type="hidden" name="_subject" value="New Job Application — Apex Lift Solutions" />
+                method="POST" data-apex-form="careers">
             <input type="text" name="_gotcha" style="display:none" />
 
             <div class="form-row">
               <div class="form-group">
                 <label for="a-name">Full Name *</label>
-                <input type="text" id="a-name" name="Full Name" placeholder="Jane Smith" required />
+                <input type="text" id="a-name" name="name" placeholder="Jane Smith" required />
               </div>
               <div class="form-group">
                 <label for="a-email">Email Address *</label>
@@ -179,7 +177,7 @@
             <div class="form-row">
               <div class="form-group">
                 <label for="a-phone">Phone Number *</label>
-                <input type="tel" id="a-phone" name="Phone Number" placeholder="(555) 000-0000" required />
+                <input type="tel" id="a-phone" name="phone" placeholder="(555) 000-0000" required />
               </div>
               <div class="form-group">
                 <label for="a-position">Position of Interest *</label>
@@ -193,7 +191,7 @@
             </div>
             <div class="form-group">
               <label for="a-experience">Years of Relevant Experience</label>
-              <select id="a-experience" name="Experience">
+              <select id="a-experience" name="experience">
                 <option value="">Select...</option>
                 <option>No experience (willing to learn)</option>
                 <option>Less than 1 year</option>
@@ -205,11 +203,11 @@
             </div>
             <div class="form-group">
               <label for="a-brands">Brands / Equipment You've Worked With</label>
-              <input type="text" id="a-brands" name="Brands Worked With" placeholder="e.g. Toyota, Crown, Hyster — or 'None, but eager to learn'" />
+              <input type="text" id="a-brands" name="equipment" placeholder="e.g. Toyota, Crown, Hyster — or 'None, but eager to learn'" />
             </div>
             <div class="form-group">
               <label for="a-cover">Tell Us About Yourself *</label>
-              <textarea id="a-cover" name="About Yourself" rows="5" placeholder="Why do you want to work at Apex? What skills do you bring? What are you looking for in a role?" required></textarea>
+              <textarea id="a-cover" name="about" rows="5" placeholder="Why do you want to work at Apex? What skills do you bring? What are you looking for in a role?" required></textarea>
             </div>
             <div class="form-group">
               <label for="a-avail">Availability</label>
@@ -265,6 +263,28 @@
     </div>
   </footer>
 
-  <script src="main.js"></script>
+  
+<script>
+(function(){
+  var f = document.getElementById('applyForm'); if (!f) return;
+  f.addEventListener('submit', async function(e){
+    e.preventDefault();
+    var btn = f.querySelector('.form-submit, [type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    var fd = new FormData(f), body = { form: 'careers' };
+    fd.forEach(function(v,k){ if(k==='_gotcha'){ body._gotcha=v; return; } body[k.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')] = v; });
+    try {
+      var r = await fetch('https://cjtezsgfdfijmdxzzbiq.supabase.co/functions/v1/public-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error(r.status);
+      f.reset(); var ok = document.getElementById('applySuccess'); if (ok) ok.style.display = 'block';
+      if (window.APEX_TRACK) window.APEX_TRACK('request_submit','');
+      if (btn) btn.textContent = 'Sent ✓';
+    } catch(err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Try Again'; }
+      alert('Could not send. Please call (516) 644-7187.');
+    }
+  });
+})();
+</script>
+<script src="main.js"></script>
 </body>
 </html>

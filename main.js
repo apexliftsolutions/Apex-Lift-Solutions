@@ -56,26 +56,10 @@ const revealObserver = new IntersectionObserver((entries) => {
 
 document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
 
-// ── CONTACT FORM (Formspree) ──────────────────
-// No preventDefault — Formspree needs the native POST.
-const contactForm = document.getElementById('contactForm');
-if (contactForm) {
-  contactForm.addEventListener('submit', function () {
-    const btn = this.querySelector('.form-submit');
-    btn.textContent = 'Sending…';
-    btn.disabled = true;
-  });
-}
-
-// ── APPLY FORM (Formspree) ────────────────────
-const applyForm = document.getElementById('applyForm');
-if (applyForm) {
-  applyForm.addEventListener('submit', function () {
-    const btn = this.querySelector('.form-submit');
-    btn.textContent = 'Submitting…';
-    btn.disabled = true;
-  });
-}
+// ── PUBLIC FORMS ──────────────────────────────
+// Submission is handled by the inline script on each page, which POSTs to the
+// public-contact Edge Function (validation, honeypot, rate limiting, outbox).
+// No handler here — a native POST would bypass all of that.
 
 // ── ACTIVE NAV HIGHLIGHT (section-based, homepage only) ──
 const sections = document.querySelectorAll('section[id]');

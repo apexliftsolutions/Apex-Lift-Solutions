@@ -394,10 +394,46 @@
   </main>
 </div>
 
+
+<!-- RECORD MANUAL PAYMENT (admin only) -->
+<div class="modal-overlay" id="manual-pay-modal">
+  <div class="modal" style="max-width:520px;">
+    <h3>Record Manual Payment <span id="mp-inv-id" style="color:var(--red)"></span></h3>
+    <p style="color:var(--grey-light);font-size:.9rem;margin:6px 0 18px;line-height:1.6;">
+      Invoice total <strong id="mp-inv-amt" style="color:var(--white)"></strong>.
+      Use this only for money received <em>outside</em> the portal — check, cash, wire, or the card terminal.
+      Online card and bank payments are recorded automatically by the payment provider.
+    </p>
+    <div style="margin-bottom:12px;">
+      <label class="form-lbl" for="mp-method">How was it paid? *</label>
+      <select id="mp-method" class="hist-input">
+        <option value="">Select…</option>
+        <option value="check">Check</option>
+        <option value="cash">Cash</option>
+        <option value="bank_transfer">Bank transfer / wire</option>
+        <option value="terminal">Card terminal (in person)</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div><label class="form-lbl" for="mp-amount">Amount received *</label><input type="number" id="mp-amount" step="0.01" min="0" class="hist-input"/></div>
+      <div><label class="form-lbl" for="mp-ref">Reference / check #</label><input type="text" id="mp-ref" placeholder="Optional" class="hist-input"/></div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label class="form-lbl" for="mp-notes">Notes</label>
+      <textarea id="mp-notes" rows="2" class="hist-input" placeholder="Optional"></textarea>
+    </div>
+    <div id="mp-err" role="alert" style="display:none;color:#ff4444;font-family:var(--font-head);font-size:.8rem;font-weight:700;padding:10px;border:1px solid #ff4444;text-align:center;margin-bottom:12px;"></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn-primary" id="mp-submit" onclick="submitManualPayment()">Record Payment</button>
+      <button class="action-btn" onclick="closeManualPay()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="success-toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="portal-data.js"></script>
 <script src="portal-admin.js"></script>
 </body>

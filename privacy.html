@@ -62,7 +62,7 @@
           <li style="margin-bottom:8px;">Name, company name, email address, and phone number when you fill out a contact or quote request form</li>
           <li style="margin-bottom:8px;">Account credentials (email and password) when you register for our Client Portal</li>
           <li style="margin-bottom:8px;">Service request details, equipment information, and any photos you upload</li>
-          <li style="margin-bottom:8px;">Payment information processed securely through Stripe (we never see or store your full card number)</li>
+          <li style="margin-bottom:8px;">Payment information processed securely through Helcim, our payment processor (we never see or store your full card or bank account number)</li>
         </ul>
 
         <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">3. How We Use Your Information</h2>
@@ -81,10 +81,9 @@
         <ul style="margin:0 0 28px;padding-left:24px;">
           <li style="margin-bottom:8px;"><strong style="color:var(--white);">Supabase</strong> — database and authentication. Your account credentials and portal data are stored securely on Supabase's infrastructure.</li>
           <li style="margin-bottom:8px;"><strong style="color:var(--white);">Google Analytics 4 (GA4)</strong> — anonymous website analytics. We track page views and interactions (button clicks, form submissions) to understand how visitors use the site. No personally identifiable information is sent to Google Analytics. You can opt out via <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener" style="color:var(--red);">Google's opt-out tool</a>.</li>
-          <li style="margin-bottom:8px;"><strong style="color:var(--white);">Stripe</strong> — payment processing. We use Stripe Checkout for invoice payments. Stripe is PCI-compliant. We do not store payment card details.</li>
-          <li style="margin-bottom:8px;"><strong style="color:var(--white);">Formspree</strong> — contact and application form submissions. Submitted data is forwarded to our email.</li>
-          <li style="margin-bottom:8px;"><strong style="color:var(--white);">EmailJS</strong> — transactional email notifications (quote alerts, account confirmations). Used for portal-related emails only.</li>
-        </ul>
+          <li style="margin-bottom:8px;"><strong style="color:var(--white);">Helcim</strong> — payment processing. Card and bank details are entered directly into Helcim's secure payment window and are never transmitted to or stored by Apex Lift Solutions.</li>
+          <li style="margin-bottom:8px;"><strong style="color:var(--white);">Resend</strong> — delivers transactional email (quotes, invoices, payment receipts, service-request notifications) from our servers. Message content and your email address only.</li>
+          </ul>
 
         <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">5. Data Security</h2>
         <p style="margin-bottom:28px;">Your portal data is protected by Supabase's Row Level Security (RLS), which ensures each customer can only access their own records — even at the database level. All data is transmitted over HTTPS. Passwords are hashed and never stored in plain text.</p>

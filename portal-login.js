@@ -5,20 +5,8 @@
 // =============================================
 
 const SUPA_URL    = 'https://cjtezsgfdfijmdxzzbiq.supabase.co';
-// EmailJS — used only for admin registration notification
-const EJS_INIT = 'P0tnD3LQqQ6Pujijz';
-const EJS_SVC  = 'service_lfi9ixk';
-const EJS_TPL  = 'template_jpqlmic';
-emailjs.init(EJS_INIT);
-
-async function notifyAdminNewReg(name, email, company, phone) {
-  const msg = `New customer registration — action required!\n\nName: ${name}\nEmail: ${email}\nCompany: ${company || '—'}\nPhone: ${phone || '—'}\n\nStatus: PENDING — log in to the admin portal to review and activate:\nhttps://apexliftsolutionsusa.com/portal-admin.html`;
-  for (const addr of ['admin@apexliftsolutionsusa.com', 'apexliftsolutions1@gmail.com']) {
-    try {
-      await emailjs.send(EJS_SVC, EJS_TPL, { to_email: addr, to_name: 'Apex Lift Solutions', subject: `🔔 New Portal Registration — ${name || email}`, message: msg });
-    } catch(e) { console.warn('Admin notify failed:', e); }
-  }
-}
+// Admin is notified of new registrations by a database trigger (customers INSERT
+// → notification_outbox → Resend). Nothing here sends mail.
 const SUPA_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqdGV6c2dmZGZpam1keHp6YmlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNjg2OTIsImV4cCI6MjA5Mzc0NDY5Mn0.FkfIFgm5TUKa05nK4QQWdBRgK2cv3oPvq5MQArEUqbw';
 const ADMIN_EMAIL = 'admin@apexliftsolutionsusa.com';
 const _sb         = supabase.createClient(SUPA_URL, SUPA_KEY);
@@ -161,16 +149,18 @@ async function handleRegister() {
     }
 
     if (data.user) {
-      const { error: pErr } = await _sb.from('customers').insert({
-        id: data.user.id, email, name,
+      const { error: pErr } = // id, email and status are overwritten server-side by a BEFORE INSERT trigger
+      // (id from auth.uid(), email from the verified JWT claim, status forced to
+      // 'pending'). Sending them here is cosmetic; a crafted request cannot claim
+      // another person's address.
+      await _sb.from('customers').insert({
+        id: data.user.id,
+        name,
         company: company || '', phone: phone || '',
-        status: 'pending',
         since: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
       });
       if (pErr) console.warn('Profile insert warning:', pErr.message);
     }
-
-    await notifyAdminNewReg(name, email, company, phone);
     await _sb.auth.signOut();
     showLoad(false);
 

@@ -2,13 +2,11 @@
 //  APEX LIFT SOLUTIONS — portal-admin.js
 //  Admin portal logic. Depends on:
 //    - supabase.min.js (CDN)
-//    - emailjs (CDN)
+//    - supabase-js (CDN)
 //    - portal-data.js  (Auth, DB, SB helpers)
 // =============================================
 
 // ── CONSTANTS ─────────────────────────────────
-const EJS_SVC   = 'service_lfi9ixk';
-const EJS_NOTIF = 'template_jpqlmic';
 
 let _currentUser    = null;
 let _allCustomers   = [];
@@ -17,7 +15,6 @@ let lastQuoteStatuses = {};
 
 // ── INIT ──────────────────────────────────────
 async function initAdmin() {
-  emailjs.init('P0tnD3LQqQ6Pujijz');
   try {
     const session = await Auth.getSession();
     if (!session || session.user.email !== 'admin@apexliftsolutionsusa.com') {
@@ -78,13 +75,8 @@ async function logActivity(action, description) {
 }
 
 // ── EMAIL ─────────────────────────────────────
-async function sendEmail(to_email, to_name, subject, message) {
-  try {
-    await emailjs.send(EJS_SVC, EJS_NOTIF, { to_email, to_name, subject, message });
-  } catch (e) {
-    console.error('Email failed:', e);
-  }
-}
+// Email is sent server-side by database triggers → notification_outbox → Resend.
+// Creating a quote/invoice or recording a payment enqueues the email automatically.
 
 // ── STATS ─────────────────────────────────────
 async function renderStats() {
@@ -215,7 +207,7 @@ async function renderInvoices() {
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
       <td>
-        ${i.status === 'unpaid' ? `<button class="action-btn green" onclick="markPaid('${i.id}')">✓ Mark Paid</button>` : ''}
+        ${i.status === 'unpaid' ? `<button class="action-btn green" onclick="markPaid('${i.id}')">Record Payment</button>` : ''}
         <button class="action-btn" onclick="printInvoicePDF('${i.id}')">🖨 PDF</button>
         ${i.status !== 'hidden' ? `<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`
           : `<button class="action-btn green" onclick="unhideInvoice('${i.id}')">Unhide</button>`}
@@ -260,9 +252,6 @@ async function renderCustomers() {
 async function activateCustomer(id, email, name) {
   await DB.updateCustomerStatus(id, 'active');
   await logActivity('activate_customer', `Customer ${name || email} activated`);
-  await sendEmail(email, name || 'Customer',
-    'Your Apex Lift Solutions Account is Approved!',
-    `Hi ${name || 'there'},\n\nYour portal account has been approved! You can now sign in at:\napexliftsolutionsusa.com/portal-login.html\n\nFrom your portal you can view quotes, approve or decline them, see invoices, and track your service history.\n\nQuestions? Call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
   showToast('✓ Customer activated and notified by email!');
   await renderCustomers();
   await loadCustomerDropdown();
@@ -289,25 +278,70 @@ async function deleteCustomer(id, name) {
 }
 
 // ── INVOICE ACTIONS ───────────────────────────
+// "Record Manual Payment" — for money received outside the portal (check, cash,
+// wire, terminal). Writes a payments ledger row via admin-action; the invoice
+// status is then DERIVED from the ledger. Online card/ACH never touch this.
+let _manualInvoice = null;
 async function markPaid(id) {
-  await DB.markInvoicePaid(id);
   const invs = await DB.getAllInvoices();
-  const inv  = invs.find(i => i.id === id);
-  if (inv) {
-    await sendEmail(inv.customer_email, inv.customer_name || 'Customer',
-      `Payment Confirmed — Invoice ${inv.id}`,
-      `Hi ${inv.customer_name || 'there'},\n\nYour payment for invoice ${inv.id} ($${parseFloat(inv.amount).toFixed(2)}) has been confirmed.\n\nThank you for your business! Log in to view your full receipt:\napexliftsolutionsusa.com/portal-login.html\n\nQuestions? Call (516) 644-7187.\n\n— Apex Lift Solutions`);
-    await sendEmail('admin@apexliftsolutionsusa.com', 'Apex Admin',
-      `Invoice ${inv.id} Marked Paid — $${parseFloat(inv.amount).toFixed(2)}`,
-      `Invoice ${inv.id} for ${inv.customer_name || 'customer'} ($${parseFloat(inv.amount).toFixed(2)}) has been marked as paid.\nCustomer: ${inv.customer_email}`);
-    await sendEmail('apexliftsolutions1@gmail.com', 'Apex Admin',
-      `Invoice ${inv.id} Marked Paid — $${parseFloat(inv.amount).toFixed(2)}`,
-      `Invoice ${inv.id} for ${inv.customer_name || 'customer'} ($${parseFloat(inv.amount).toFixed(2)}) has been marked as paid.\nCustomer: ${inv.customer_email}`);
-  }
-  await logActivity('mark_invoice_paid', `Invoice ${id} marked paid${inv ? ' — $' + parseFloat(inv.amount).toFixed(2) + ' — ' + (inv.customer_name || inv.customer_email) : ''}`);
-  showToast('✓ ' + id + ' marked as paid — customer notified!');
+  _manualInvoice = invs.find(i => i.id === id);
+  if (!_manualInvoice) return;
+  document.getElementById('mp-inv-id').textContent  = id;
+  document.getElementById('mp-inv-amt').textContent = '$' + parseFloat(_manualInvoice.amount).toFixed(2);
+  document.getElementById('mp-amount').value = parseFloat(_manualInvoice.amount).toFixed(2);
+  document.getElementById('mp-method').value = '';
+  document.getElementById('mp-ref').value = '';
+  document.getElementById('mp-notes').value = '';
+  document.getElementById('mp-err').style.display = 'none';
+  document.getElementById('manual-pay-modal').className = 'modal-overlay open';
+}
+function closeManualPay() { document.getElementById('manual-pay-modal').className = 'modal-overlay'; _manualInvoice = null; }
+
+let _mpBusy = false;
+async function submitManualPayment() {
+  const inv = _manualInvoice; if (!inv || _mpBusy) return;
+  const method    = document.getElementById('mp-method').value;
+  const amount    = parseFloat(document.getElementById('mp-amount').value);
+  const reference = document.getElementById('mp-ref').value.trim();
+  const notes     = document.getElementById('mp-notes').value.trim();
+  const err = document.getElementById('mp-err'); err.style.display = 'none';
+  if (!method)      { err.textContent = 'Select how the payment was received.'; err.style.display = 'block'; return; }
+  if (!(amount > 0)) { err.textContent = 'Enter the amount received.'; err.style.display = 'block'; return; }
+
+  _mpBusy = true;
+  const btn = document.getElementById('mp-submit'); btn.disabled = true; btn.textContent = 'Recording…';
+  try {
+    const { data: { session } } = await _sb.auth.getSession();
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/admin-action`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'record-manual-payment', invoiceId: inv.id, method, amount, reference, notes }),
+    });
+    const out = await r.json();
+    if (!r.ok) { err.textContent = out.error || 'Could not record payment.'; err.style.display = 'block'; return; }
+    closeManualPay();
+    showToast(`✓ ${inv.id} recorded as paid by ${method.replace('_',' ')} — receipt email queued`);
+    renderInvoices();
+  } catch (e) {
+    err.textContent = 'Connection error. Please try again.'; err.style.display = 'block';
+  } finally { _mpBusy = false; btn.disabled = false; btn.textContent = 'Record Payment'; }
+}
+
+// Admin refund — uses the privileged server path. Customers cannot reach this.
+async function refundPayment(paymentId, invoiceId, maxAmount) {
+  const amt = prompt(`Refund amount for ${invoiceId} (max $${(maxAmount/100).toFixed(2)}):`, (maxAmount/100).toFixed(2));
+  if (amt == null) return;
+  if (!confirm(`Refund $${parseFloat(amt).toFixed(2)} on ${invoiceId}? This sends money back to the customer and cannot be undone.`)) return;
+  const { data: { session } } = await _sb.auth.getSession();
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/payment-refund`, {
+    method: 'POST', headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payment_id: paymentId, amount: parseFloat(amt) }),
+  });
+  const out = await r.json();
+  showToast(r.ok ? `✓ Refund issued on ${invoiceId}` : `Refund failed: ${out.error || 'unknown'}`);
   renderInvoices();
 }
+
 
 async function hideInvoice(id) {
   await SB.patch('invoices', `id=eq.${encodeURIComponent(id)}`, { status: 'hidden' });
@@ -343,9 +377,6 @@ async function convertToInvoice(quoteId) {
           return `  • ${i.desc || 'Service'} x${qty} @ $${unit.toFixed(2)} = $${(qty * unit).toFixed(2)}`;
         }).join('\n')
       : '';
-    await sendEmail(inv.customer_email, inv.customer_name || 'Customer',
-      `Invoice ${inv.id} Ready — $${parseFloat(inv.amount).toFixed(2)} Due`,
-      `Hi ${inv.customer_name || 'there'},\n\nYour invoice ${inv.id} for $${parseFloat(inv.amount).toFixed(2)} is ready for payment.\nDue Date: ${new Date(inv.due).toLocaleDateString('en-US')}${invLines}\n\nTotal Due: $${parseFloat(inv.amount).toFixed(2)}\n\nLog in to review and pay online:\napexliftsolutionsusa.com/portal-login.html\n\nOr call us at (516) 644-7187.\n\n— Apex Lift Solutions`);
     await logActivity('create_invoice', `Invoice ${inv.id} created from quote ${quoteId} — $${parseFloat(inv.amount).toFixed(2)} — ${inv.customer_name || inv.customer_email}`);
     showToast(`✓ Invoice ${inv.id} created — customer notified!`);
     await refreshAll();
@@ -397,8 +428,7 @@ async function uploadFiles(quoteId) {
     if (error) {
       console.error('Upload failed:', error.message);
     } else {
-      const { data: urlData } = _sb.storage.from('apex-uploads').getPublicUrl(path);
-      urls.push(urlData.publicUrl);
+      urls.push(path);   // private bucket: store the PATH, mint signed URLs on read
     }
   }
   return urls;
@@ -510,12 +540,8 @@ async function saveQuote() {
   }
 
   const attLinks = (_pendingFiles.length && saved.attachments?.length)
-    ? '\n\nAttachments (click to view):\n' + saved.attachments.map((url, i) => `${i + 1}. ${url}`).join('\n')
+    ? `\n\n${saved.attachments.length} photo${saved.attachments.length>1?'s':''} attached — view them in your client portal.`
     : '';
-
-  await sendEmail(email, name,
-    `New Quote from Apex Lift Solutions — $${total.toFixed(2)}`,
-    `Hi ${name},\n\nYou have a new quote (${saved.id}) for $${total.toFixed(2)} ready for your review.\n\nLog in to approve or decline:\napexliftsolutionsusa.com/portal-login.html${attLinks}\n\nOnce approved, we will contact you within 1 business day to schedule.\nQuestions? Call (516) 644-7187.\n\n— Apex Lift Solutions`);
 
   await logActivity('create_quote', `Quote ${saved.id} created for ${name} (${company || '—'}) — $${total.toFixed(2)}`);
   showToast(`✓ Quote sent to ${name} — email notification sent!`);
@@ -667,22 +693,23 @@ async function openReqDetail(id, autoQuote) {
   _currentRequest = r;
   document.getElementById('req-detail-id').textContent = r.id;
   const urgencyColor = { normal: 'var(--grey)', urgent: 'orange', emergency: '#ff4444' };
-  const attHtml = r.attachments?.length
-    ? `<div style="margin-top:16px;">
+  // Private bucket: mint 10-minute signed URLs for the admin session.
+  let attHtml = '<p style="color:var(--grey);font-size:.85rem;margin-top:10px;">No attachments.</p>';
+  if (r.attachments?.length) {
+    const { data: signed } = await _sb.storage.from('apex-uploads').createSignedUrls(r.attachments, 600);
+    const items = (signed || []).filter(s => s.signedUrl).map(s => {
+      const raw   = decodeURIComponent(s.path.split('/').pop());
+      const name  = raw.replace(/^\d+_/, '');
+      const short = name.length > 18 ? name.slice(0, 16) + '…' : name;
+      if (/\.(pdf|txt|doc)/.test(s.path.toLowerCase())) {
+        return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="req-att-pdf"><span style="font-size:1.8rem;">📄</span><small style="font-family:var(--font-head);font-size:.58rem;color:var(--grey);margin-top:3px;text-align:center;padding:0 4px;">${esc(short)}</small></a>`;
+      }
+      return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="req-att-img" title="${esc(name)}"><img src="${s.signedUrl}" alt="${esc(name)}"/></a>`;
+    }).join('');
+    if (items) attHtml = `<div style="margin-top:16px;">
         <div style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;">📎 Attachments — click to open</div>
-        <div class="req-att-grid">
-          ${r.attachments.map(url => {
-            const raw   = decodeURIComponent(url.split('/').pop().split('?')[0]);
-            const name  = raw.replace(/^\d+_/, '');
-            const short = name.length > 18 ? name.slice(0, 16) + '…' : name;
-            if (/\.(pdf|txt|doc)/.test(url.toLowerCase())) {
-              return `<a href="${url}" target="_blank" class="req-att-pdf"><span style="font-size:1.8rem;">📄</span><small style="font-family:var(--font-head);font-size:.58rem;color:var(--grey);margin-top:3px;text-align:center;padding:0 4px;">${esc(short)}</small></a>`;
-            }
-            return `<a href="${url}" target="_blank" class="req-att-img" title="${esc(name)}"><img src="${url}" alt="${esc(name)}" onerror="this.parentElement.style.display='none'"/></a>`;
-          }).join('')}
-        </div>
-       </div>`
-    : '<p style="color:var(--grey);font-size:.85rem;margin-top:10px;">No attachments.</p>';
+        <div class="req-att-grid">${items}</div></div>`;
+  }
 
   document.getElementById('req-detail-body').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
@@ -791,7 +818,7 @@ async function renderHistory() {
           : r.amount
             ? '<span style="color:orange;font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;">UNPAID</span>'
             : '<span style="color:var(--grey);font-family:var(--font-head);font-size:.72rem;">—</span>'}
-        ${!r.paid && r.amount ? `<button class="action-btn green" style="margin-top:4px;display:block;" onclick="markHistPaid('${esc(r.id)}')">✓ Mark Paid</button>` : ''}
+        ${!r.paid && r.amount ? `<button class="action-btn green" style="margin-top:4px;display:block;" onclick="markHistPaid('${esc(r.id)}')">Record Payment</button>` : ''}
       </td>
       <td>
         <button class="action-btn" onclick="openEditHistory('${esc(r.id)}')">Edit</button>

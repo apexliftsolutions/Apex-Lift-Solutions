@@ -1,9 +1,14 @@
 User-agent: *
 Allow: /
+
+# Private portal — no SEO value, and shouldn't appear in search
 Disallow: /portal-admin.html
 Disallow: /portal-customer.html
 Disallow: /portal-login.html
 Disallow: /portal-forgot.html
 Disallow: /portal-reset.html
+
+# Stray dev artifact — should be deleted from the repo entirely
+Disallow: /.Rhistory
 
 Sitemap: https://apexliftsolutionsusa.com/sitemap.xml

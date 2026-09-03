@@ -21,8 +21,11 @@ const ADMIN_EMAIL = 'admin@apexliftsolutionsusa.com';
 const SB_URL      = Deno.env.get('SUPABASE_URL')!;
 const SB_SERVICE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!; // server-only key
 
+// Locked to the production origin. A wildcard here lets any website on the
+// internet invoke this function with a victim's session.
+const ALLOWED_ORIGIN = Deno.env.get('APP_BASE_URL') ?? 'https://apexliftsolutionsusa.com';
 const corsHeaders = {
-  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
@@ -99,25 +102,40 @@ Deno.serve(async (req) => {
       }
 
       // Mark invoice as paid
-      case 'mark-paid': {
-        const { invoiceId } = body;
-        if (!invoiceId) return json({ error: 'invoiceId required' }, 400);
+      // Record a payment taken outside the portal (check, cash, wire, terminal).
+      // Writes a payments row — history is never overwritten — then marks paid.
+      case 'record-manual-payment': {
+        const { invoiceId, method, amount, reference, notes } = body;
+        const okMethods = ['check','cash','bank_transfer','terminal','other'];
+        if (!invoiceId || !okMethods.includes(method)) return json({ error: 'invoiceId and a valid method required' }, 400);
 
         const { data: invArr } = await admin.from('invoices').select('*').eq('id', invoiceId);
         const inv = invArr?.[0];
         if (!inv) return json({ error: 'Invoice not found' }, 404);
+        if (inv.status === 'paid') return json({ error: 'Invoice is already paid' }, 409);
 
-        const { error: pErr } = await admin.from('invoices').update({
-          status: 'paid',
-          paid_at: new Date().toISOString()
-        }).eq('id', invoiceId);
+        // Amount defaults to the invoice total; if supplied it must match to the cent.
+        const invCents = Math.round(Number(inv.amount) * 100);
+        const paidCents = amount != null ? Math.round(Number(amount) * 100) : invCents;
+        if (!Number.isFinite(paidCents) || paidCents <= 0) return json({ error: 'Invalid amount' }, 400);
+        if (paidCents !== invCents) return json({ error: `Amount must equal invoice total $${(invCents/100).toFixed(2)} (partial payments not supported yet)` }, 400);
 
-        if (pErr) return json({ error: pErr.message }, 500);
+        const { data: pay, error: payErr } = await admin.from('payments').insert({
+          invoice_id: inv.id, customer_id: inv.customer_id, provider: 'manual', kind: 'payment',
+          method, amount_cents: paidCents, currency: 'USD', status: 'succeeded',
+          reference: reference || null, notes: notes || null, recorded_by: user.id,
+          approved_at: new Date().toISOString(), settled_at: new Date().toISOString(), completed_at: new Date().toISOString(),
+        }).select().single();
+        if (payErr) return json({ error: payErr.message }, 500);
 
-        await logAction(admin, user.id, 'mark_invoice_paid',
-          `Invoice ${invoiceId} marked paid — $${parseFloat(inv.amount).toFixed(2)} — customer: ${inv.customer_name}`);
+        await admin.from('payment_events').insert({ payment_id: pay.id, invoice_id: inv.id, event: 'settled', source: 'admin',
+          detail: { method, reference: reference || null } });
+        await admin.rpc('recalc_invoice_status', { p_invoice_id: inv.id });
+        await admin.from('invoices').update({ paid_via: 'manual', payment_id: pay.id }).eq('id', inv.id);
 
-        return json({ ok: true });
+        await logAction(admin, user.id, 'manual_payment_recorded',
+          `${invoiceId} — $${(paidCents/100).toFixed(2)} via ${method}${reference ? ' ref ' + reference : ''} — ${inv.customer_name}`);
+        return json({ ok: true, payment_id: pay.id });
       }
 
       // Activate customer account
