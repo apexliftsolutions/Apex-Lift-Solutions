@@ -218,6 +218,12 @@ const DB = {
         customer_id: q.customer_id, customer_email: q.customer_email,
         customer_name: q.customer_name, company: q.company,
         description: q.description, items: q.items,
+        // Copy the agreed tax from the quote — never recalculate it here.
+        subtotal_cents: q.subtotal_cents,
+        tax_cents: q.tax_cents ?? 0,
+        tax_rate_milli_pct: q.tax_rate_milli_pct ?? 0,
+        tax_exempt: q.tax_exempt ?? false,
+        tax_jurisdiction: q.tax_jurisdiction,
         amount: q.amount, status: 'unpaid',
         due: due.toISOString(), quote_id: q.id
       });

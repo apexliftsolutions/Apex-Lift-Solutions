@@ -23,6 +23,24 @@ const usd = (n: unknown) => "$" + Number(n ?? 0).toFixed(2);
 const date = (d: unknown) => d ? new Date(String(d)).toLocaleDateString("en-US", { year:"numeric", month:"long", day:"numeric" }) : "—";
 const methodLabel = (m: unknown) => ({ card:"Card", ach:"Bank transfer (ACH)", check:"Check", cash:"Cash", bank_transfer:"Bank transfer", terminal:"Card (in person)", other:"Other" }[String(m)] ?? "Payment");
 
+
+function totalsHtml(p: Record<string, unknown>): string {
+  const sub = Number(p.subtotal ?? 0), tax = Number(p.tax ?? 0);
+  if (!sub && !tax) return `<p style="font-size:18px;"><b>Total: ${usd(p.amount)}</b></p>`;
+  const rateLbl = p.tax_exempt ? "Sales Tax (exempt)" : `Sales Tax (${Number(p.tax_rate ?? 0).toFixed(3)}%)`;
+  return `<table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;margin:14px 0;">
+    <tr><td style="padding:6px 0;color:#666;">Subtotal</td><td style="padding:6px 0;text-align:right;">${usd(sub)}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;border-bottom:1px solid #eee;">${esc(rateLbl)}</td><td style="padding:6px 0;text-align:right;border-bottom:1px solid #eee;">${usd(tax)}</td></tr>
+    <tr><td style="padding:10px 0;font-size:17px;"><b>Total</b></td><td style="padding:10px 0;text-align:right;font-size:17px;"><b>${usd(p.amount)}</b></td></tr>
+  </table>`;
+}
+function totalsText(p: Record<string, unknown>): string {
+  const sub = Number(p.subtotal ?? 0), tax = Number(p.tax ?? 0);
+  if (!sub && !tax) return `Total: ${usd(p.amount)}`;
+  const rateLbl = p.tax_exempt ? "Sales Tax (exempt)" : `Sales Tax (${Number(p.tax_rate ?? 0).toFixed(3)}%)`;
+  return `Subtotal: ${usd(sub)}\n${rateLbl}: ${usd(tax)}\nTotal: ${usd(p.amount)}`;
+}
+
 function itemsHtml(items: unknown): string {
   if (!Array.isArray(items) || !items.length) return "";
   const rows = items.map((i: Record<string, unknown>) => {
@@ -72,10 +90,10 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
       html: shell(`Quote ${esc(p.quote_id)}`,
         `<p>Hi ${name},</p><p>Here is your quote from Apex Lift Solutions.${p.equipment ? ` <b>Equipment:</b> ${esc(p.equipment)}.` : ""}</p>
          ${p.description ? `<p>${esc(p.description)}</p>` : ""}${itemsHtml(p.items)}
-         <p style="font-size:18px;"><b>Total: ${usd(p.amount)}</b></p>
+         ${totalsHtml(p)}
          <p>Log in to review the full breakdown and approve or decline. Once approved, we'll contact you within 1 business day to schedule.</p>`,
         { label: "Review Quote", href: portal() }),
-      text: `Hi ${p.customer_name || "there"},\n\nQuote ${p.quote_id} from Apex Lift Solutions.${p.equipment ? ` Equipment: ${p.equipment}.` : ""}\n${p.description ?? ""}${itemsText(p.items)}Total: ${usd(p.amount)}\n\nReview and approve or decline: ${portal()}${textFoot}` };
+      text: `Hi ${p.customer_name || "there"},\n\nQuote ${p.quote_id} from Apex Lift Solutions.${p.equipment ? ` Equipment: ${p.equipment}.` : ""}\n${p.description ?? ""}${itemsText(p.items)}${totalsText(p)}\n\nReview and approve or decline: ${portal()}${textFoot}` };
 
     case "quote_approved": return {
       subject: `Your Apex Quote ${p.quote_id} Has Been Approved`,
@@ -107,10 +125,11 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
       html: shell(`Invoice ${esc(p.invoice_id)}`,
         `<p>Hi ${name},</p><p>Your invoice is ready.${p.quote_id ? ` This covers the work from quote <b>${esc(p.quote_id)}</b>.` : ""}</p>
          ${p.description ? `<p>${esc(p.description)}</p>` : ""}${itemsHtml(p.items)}
-         <p style="font-size:18px;"><b>Amount due: ${usd(p.amount)}</b>${p.due ? `<br><span style="font-size:14px;color:#666;">Due ${date(p.due)}</span>` : ""}</p>
+         ${totalsHtml(p)}
+         <p style="font-size:15px;"><b>Amount due: ${usd(p.amount)}</b>${p.due ? `<br><span style="font-size:14px;color:#666;">Due ${date(p.due)}</span>` : ""}</p>
          <p>Pay securely online by card or bank transfer (ACH) from your portal.</p>`,
         { label: "View & Pay Invoice", href: portal() }),
-      text: `Hi ${p.customer_name || "there"},\n\nInvoice ${p.invoice_id} is ready.${p.quote_id ? ` Covers quote ${p.quote_id}.` : ""}\n${p.description ?? ""}${itemsText(p.items)}Amount due: ${usd(p.amount)}${p.due ? `\nDue ${date(p.due)}` : ""}\n\nPay securely: ${portal()}${textFoot}` };
+      text: `Hi ${p.customer_name || "there"},\n\nInvoice ${p.invoice_id} is ready.${p.quote_id ? ` Covers quote ${p.quote_id}.` : ""}\n${p.description ?? ""}${itemsText(p.items)}${totalsText(p)}\nAmount due: ${usd(p.amount)}${p.due ? `\nDue ${date(p.due)}` : ""}\n\nPay securely: ${portal()}${textFoot}` };
 
     case "payment_received": return {
       subject: `Payment Received — Apex Invoice ${p.invoice_id}`,
@@ -123,13 +142,33 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
          <tr><td style="color:#666;">Method</td><td>${esc(p.method_display || methodLabel(p.method))}</td></tr>
          ${p.reference ? `<tr><td style="color:#666;">Reference</td><td>${esc(p.reference)}</td></tr>` : ""}</table>`,
         { label: "View Receipt", href: portal() }),
-      text: `Hi ${p.customer_name || "there"},\n\nPayment received.\nInvoice: ${p.invoice_id}\nInvoice amount: ${usd(p.amount)}${Number(p.fee ?? 0) > 0 ? `\nCard convenience fee: ${usd(p.fee)}\nTotal charged: ${usd(p.total_charged ?? p.amount)}` : ""}\nDate: ${date(p.paid_at)}\nMethod: ${p.method_display || methodLabel(p.method)}${p.reference ? `\nReference: ${p.reference}` : ""}\n\nReceipt: ${portal()}${textFoot}` };
+      text: `Hi ${p.customer_name || "there"},\n\nPayment received.\nInvoice: ${p.invoice_id}\nInvoice total (incl. tax): ${usd(p.amount)}${Number(p.fee ?? 0) > 0 ? `\nCard convenience fee: ${usd(p.fee)}\nTotal charged: ${usd(p.total_charged ?? p.amount)}` : ""}\nDate: ${date(p.paid_at)}\nMethod: ${p.method_display || methodLabel(p.method)}${p.reference ? `\nReference: ${p.reference}` : ""}\n\nReceipt: ${portal()}${textFoot}` };
 
     case "payment_received_admin": return {
-      subject: `Payment Received — Invoice ${p.invoice_id}${co}`,
+      subject: `Payment Received — ${p.invoice_id}`,
       html: shell(`Payment received${co}`,
-        `<p><b>${usd(p.amount)}</b> received for invoice <b>${esc(p.invoice_id)}</b> from ${name}${co}.</p><p>Method: ${esc(p.method_display || methodLabel(p.method))}${p.reference ? ` · Ref ${esc(p.reference)}` : ""} · ${date(p.paid_at)}</p>`),
-      text: `${usd(p.amount)} received for invoice ${p.invoice_id} from ${p.customer_name}${co}.\nMethod: ${p.method_display || methodLabel(p.method)}${p.reference ? ` · Ref ${p.reference}` : ""}` };
+        `<table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;">
+           <tr><td style="padding:6px 0;color:#666;">Customer</td><td style="padding:6px 0;text-align:right;"><b>${name}</b>${co}</td></tr>
+           <tr><td style="padding:6px 0;color:#666;">Invoice</td><td style="padding:6px 0;text-align:right;"><b>${esc(p.invoice_id)}</b></td></tr>
+           <tr><td style="padding:6px 0;color:#666;border-bottom:1px solid #eee;">Date</td><td style="padding:6px 0;text-align:right;border-bottom:1px solid #eee;">${date(p.paid_at)}</td></tr>
+           <tr><td style="padding:6px 0;color:#666;">Subtotal</td><td style="padding:6px 0;text-align:right;">${usd(p.subtotal ?? p.amount)}</td></tr>
+           <tr><td style="padding:6px 0;color:#666;">Sales Tax</td><td style="padding:6px 0;text-align:right;">${usd(p.tax ?? 0)}</td></tr>
+           <tr><td style="padding:6px 0;color:#666;border-bottom:1px solid #eee;"><b>Invoice Total</b></td><td style="padding:6px 0;text-align:right;border-bottom:1px solid #eee;"><b>${usd(p.amount)}</b></td></tr>
+           <tr><td style="padding:6px 0;color:#666;">Payment Method</td><td style="padding:6px 0;text-align:right;">${esc(p.method_display || methodLabel(p.method))}</td></tr>
+           ${Number(p.fee ?? 0) > 0 ? `<tr><td style="padding:6px 0;color:#666;">Helcim Fee Saver</td><td style="padding:6px 0;text-align:right;">${usd(p.fee)}</td></tr>` : ""}
+           <tr><td style="padding:6px 0;color:#666;"><b>Total Charged</b></td><td style="padding:6px 0;text-align:right;"><b>${usd(p.total_charged ?? p.amount)}</b></td></tr>
+           <tr><td style="padding:10px 0 6px;color:#666;">Payment Status</td><td style="padding:10px 0 6px;text-align:right;"><b style="color:#2e7d32;">PAID</b></td></tr>
+           ${p.reference ? `<tr><td style="padding:6px 0;color:#666;">Transaction ID</td><td style="padding:6px 0;text-align:right;font-family:monospace;">${esc(p.reference)}</td></tr>` : ""}
+         </table>
+         <p style="font-size:13px;color:#666;margin-top:16px;">The Fee Saver amount is collected by the processor and is not Apex invoice revenue.</p>`,
+        { label: "Open Admin Portal", href: `${SITE()}/portal-admin.html` }),
+      text: `Payment Received — ${p.invoice_id}\n\n` +
+            `Customer: ${p.customer_name}${co}\nInvoice: ${p.invoice_id}\nDate: ${date(p.paid_at)}\n\n` +
+            `Subtotal: ${usd(p.subtotal ?? p.amount)}\nSales Tax: ${usd(p.tax ?? 0)}\nInvoice Total: ${usd(p.amount)}\n\n` +
+            `Payment Method: ${p.method_display || methodLabel(p.method)}\n` +
+            (Number(p.fee ?? 0) > 0 ? `Helcim Fee Saver: ${usd(p.fee)}\n` : "") +
+            `Total Charged: ${usd(p.total_charged ?? p.amount)}\n\nPayment Status: PAID\n` +
+            (p.reference ? `Transaction ID: ${p.reference}\n` : "") };
 
     case "ach_submitted": return {
       subject: `Bank Payment Submitted — Invoice ${p.invoice_id}`,
@@ -141,7 +180,15 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
 
     case "ach_submitted_admin": return {
       subject: `ACH Submitted — Invoice ${p.invoice_id}${co}`,
-      html: shell(`ACH payment submitted${co}`, `<p>${name}${co} submitted a bank payment of <b>${usd(p.amount)}</b> for invoice <b>${esc(p.invoice_id)}</b>. It is pending settlement.</p>`),
+      html: shell(`Bank payment submitted${co}`,
+        `<p>${name}${co} submitted a bank payment for invoice <b>${esc(p.invoice_id)}</b>.</p>
+         <table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;">
+           <tr><td style="padding:6px 0;color:#666;">Invoice Total</td><td style="padding:6px 0;text-align:right;"><b>${usd(p.amount)}</b></td></tr>
+           <tr><td style="padding:6px 0;color:#666;">Payment Method</td><td style="padding:6px 0;text-align:right;">Bank transfer (ACH)</td></tr>
+           <tr><td style="padding:6px 0;color:#666;">Payment Status</td><td style="padding:6px 0;text-align:right;"><b style="color:#f0a500;">PENDING SETTLEMENT</b></td></tr>
+           ${p.reference ? `<tr><td style="padding:6px 0;color:#666;">Transaction ID</td><td style="padding:6px 0;text-align:right;font-family:monospace;">${esc(p.reference)}</td></tr>` : ""}
+         </table>
+         <p style="font-size:13px;color:#666;margin-top:14px;">The invoice stays at Payment Pending until the bank clears it. You'll get a second email when it settles.</p>`),
       text: `${p.customer_name}${co} submitted ACH ${usd(p.amount)} for invoice ${p.invoice_id}. Pending settlement.` };
 
     case "payment_declined": return {

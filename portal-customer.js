@@ -193,6 +193,7 @@ async function loadQuotes() {
 
 // ── LOAD INVOICES ─────────────────────────────
 async function loadInvoices() {
+  INVOICE_CACHE = {};
   const wrap = document.getElementById('invoices-wrap');
   if (!USER) return;
   wrap.innerHTML = '<div class="loading-msg">Loading invoices…</div>';
@@ -203,6 +204,10 @@ async function loadInvoices() {
     .order('created_at', { ascending: false });
 
   if (error) { wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">Error: ${xss(error.message)}</div>`; return; }
+
+  // Index by id so openPay() can read the tax breakdown without stuffing JSON
+  // into an onclick attribute.
+  (invoices || []).forEach(r => { INVOICE_CACHE[r.id] = r; });
 
   // Show unpaid always; show paid invoices for 90 days (receipt window); hide hidden
   const now = Date.now();
@@ -234,7 +239,9 @@ async function loadInvoices() {
           <button class="print-btn" onclick="printReceipt('" + i.id + "')">🖨 Print Receipt</button>
           <p style="color:var(--grey);font-size:.8rem;">Questions? Call (516) 644-7187.</p>
          </div>`
-      : `${workSummary}<button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>`;
+      : (i.status === 'payment_pending' || LOCKED_INVOICES.has(i.id))
+        ? `${workSummary}${taxRows(i)}<div class="pay-locked">⏳ Payment received — being confirmed. No further payment is needed.</div>`
+        : `${workSummary}${taxRows(i)}<button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>`;
 
     return `<div class="q-card">
       <div class="q-hdr">
@@ -321,6 +328,27 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
+let PAY_INVOICE = null;
+
+
+// ── TAX BREAKDOWN ─────────────────────────────
+// invoices.amount / quotes.amount are the GRAND TOTAL, tax inclusive.
+// subtotal_cents + tax_cents reconcile to it. Older rows have tax_cents = 0.
+function taxRows(r) {
+  const sub = r.subtotal_cents ?? Math.round(Number(r.amount) * 100);
+  const tax = Number(r.tax_cents) || 0;
+  const rate = Number(r.tax_rate_milli_pct) || 0;
+  const total = Math.round(Number(r.amount) * 100);
+  if (tax === 0 && !r.tax_exempt) {
+    return '';   // pre-tax historical record — show the total alone
+  }
+  return `
+    <div class="tax-rows">
+      <div class="tax-row"><span>Subtotal</span><span>$${(sub/100).toFixed(2)}</span></div>
+      <div class="tax-row"><span>${r.tax_exempt ? 'Sales Tax (exempt)' : `Sales Tax (${(rate/1000).toFixed(3)}%)`}</span><span>$${(tax/100).toFixed(2)}</span></div>
+      <div class="tax-row tax-row-total"><span>Total</span><span>$${(total/100).toFixed(2)}</span></div>
+    </div>`;
+}
 
 // ── PAY INVOICE (HelcimPay.js + Fee Saver) ────
 // Fee Saver requires Helcim's modal to offer BOTH card and ACH so the customer
@@ -333,12 +361,16 @@ let PAY_AMOUNT = 0;
 let PAY_LISTENER = null;   // exactly one message listener per checkout
 
 function openPay(id, amount) {
+  if (LOCKED_INVOICES.has(id)) return;   // already approved this session
   PAY_ID = id;
+  PAY_INVOICE = INVOICE_CACHE[id] || null;
   PAY_AMOUNT = Number(amount);
   document.getElementById('modal-inv-id').textContent  = id;
   document.getElementById('modal-inv-amt').textContent = '$' + Number(amount).toFixed(2);
   const ia = document.getElementById('pay-intro-amt');
   if (ia) ia.textContent = '$' + Number(amount).toFixed(2);
+  const br = document.getElementById('pay-intro-breakdown');
+  if (br) br.innerHTML = PAY_INVOICE ? taxRows(PAY_INVOICE) : '';
   showPayState('intro');
   document.getElementById('pay-modal').className = 'modal-overlay open';
 }
@@ -417,19 +449,22 @@ async function startPay() {
         });
         const out = await vr.json();
 
-        if (out.status === 'succeeded')      { showPayState('success', null, out); loadInvoices(); }
-        else if (out.status === 'pending')   { showPayState('pending', null, out); loadInvoices(); }
-        else if (out.status === 'unknown')   {
-          showPayState('error', "We couldn't confirm the payment status yet. Please DON'T submit another payment — we're verifying with the processor and your invoice will update automatically. Call (516) 644-7187 if you need confirmation now.");
-        } else {
-          showPayState('error', vr.ok
-            ? 'The payment was declined. Your invoice is still open, and you can try again.'
-            : "We couldn't confirm the payment status. Please don't submit another payment — call (516) 644-7187 and we'll check.");
-        }
+        // Helcim already told the customer the card was approved. From here on
+        // the ONLY safe outcomes are "paid", "processing" or "confirming".
+        // Never "declined" — that invites a double payment.
+        if (out.status === 'succeeded')    showPayState('success', null, out);
+        else if (out.status === 'pending') showPayState('pending', null, out);
+        else                               showPayState('confirming', null, out);
       } catch (e) {
-        showPayState('error', "We couldn't confirm the payment status. Please don't submit another payment — call (516) 644-7187 and we'll check.");
+        // Network/timeout AFTER Helcim approved. Same rule applies.
+        console.error('validate failed after SUCCESS:', e);
+        showPayState('confirming');
       } finally {
-        PAY_BUSY = false;
+        // Deliberately NOT clearing PAY_BUSY: Helcim approved, so this invoice
+        // must not accept another attempt in this session. LOCKED_INVOICES also
+        // suppresses the Pay button after the refresh below.
+        LOCKED_INVOICES.add(id);
+        try { await loadInvoices(); } catch (e) { /* display only */ }
       }
     };
     window.addEventListener('message', PAY_LISTENER);
@@ -454,7 +489,7 @@ function cleanupHelcim() {
 
 // Single place that drives every visual state of the payment modal.
 function showPayState(state, message, result) {
-  const ids = ['pay-intro','pay-loading','pay-modal-host','pay-verifying','pay-success-block','pay-pending-block','pay-error-block'];
+  const ids = ['pay-intro','pay-loading','pay-modal-host','pay-verifying','pay-success-block','pay-pending-block','pay-confirming-block','pay-error-block'];
   ids.forEach(i => { const el = document.getElementById(i); if (el) el.style.display = 'none'; });
   const show = (i) => { const el = document.getElementById(i); if (el) el.style.display = 'block'; };
 
@@ -480,6 +515,13 @@ function showPayState(state, message, result) {
     if (d && result) d.innerHTML =
       `Invoice <strong>${xss(result.invoice_id)}</strong><br/>` +
       `Amount: <strong>$${(result.amount_cents/100).toFixed(2)}</strong>`;
+  }
+  if (state === 'confirming') {
+    show('pay-confirming-block');
+    const d = document.getElementById('pay-confirming-detail');
+    if (d && result) d.innerHTML =
+      `Invoice <strong>${xss(result.invoice_id || '')}</strong>` +
+      (result.amount_cents ? `<br/>Amount: <strong>$${(result.amount_cents/100).toFixed(2)}</strong>` : '');
   }
   if (state === 'error') {
     show('pay-error-block');

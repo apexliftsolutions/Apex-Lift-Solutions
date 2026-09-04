@@ -202,7 +202,7 @@ async function renderInvoices() {
     <tr>
       <td><strong style="color:var(--white)">${esc(i.id)}</strong></td>
       <td>${esc(i.customer_name || '')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company || '')}</span></td>
-      <td><strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong></td>
+      <td><strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong>${i.tax_exempt ? '<br><span style="font-size:.68rem;color:var(--grey);">TAX EXEMPT</span>' : (Number(i.tax_cents) > 0 ? `<br><span style="font-size:.68rem;color:var(--grey);">incl. $${(i.tax_cents/100).toFixed(2)} tax</span>` : '')}</td>
       <td>${badge(i.status)}</td>
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
@@ -399,7 +399,7 @@ async function viewQuoteDetail(id) {
   const items = q.items ? q.items.map(i =>
     `  • ${i.desc} x${i.qty || 1} (${i.type}): $${parseFloat(i.unit_price || i.amount || 0).toFixed(2)} ea = $${(parseFloat(i.unit_price || i.amount || 0) * (i.qty || 1)).toFixed(2)}`
   ).join('\n') : '';
-  alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${q.customer_name} — ${q.company || ''}\nEquipment: ${q.equipment || 'N/A'}\nStatus: ${q.status.toUpperCase()}${q.responded_at ? ' on ' + fmtDate(q.responded_at) : ''}\n\nDescription:\n${q.description || ''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
+  alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${q.customer_name} — ${q.company || ''}\nEquipment: ${q.equipment || 'N/A'}\nStatus: ${q.status.toUpperCase()}${q.responded_at ? ' on ' + fmtDate(q.responded_at) : ''}\n\nDescription:\n${q.description || ''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nSubtotal: $${((q.subtotal_cents ?? Math.round(q.amount*100))/100).toFixed(2)}\n${q.tax_exempt ? 'Sales Tax: $0.00 (EXEMPT)' : `Sales Tax (${((q.tax_rate_milli_pct||0)/1000).toFixed(3)}%): $${((q.tax_cents||0)/100).toFixed(2)}`}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
 }
 
 // ── FILE HANDLING ─────────────────────────────
@@ -485,18 +485,67 @@ function removeLine(btn) {
   updateTotal();
 }
 
-function updateTotal() {
-  const total = [...document.querySelectorAll('.line-item')].reduce((s, row) => {
+// ── TAX ───────────────────────────────────────
+// New York taxes repair and maintenance of tangible personal property
+// (Tax Law 1105(c)(3)), so parts, labor and travel on a forklift job are all
+// normally taxable. Rate defaults to 8.625% (Nassau/Suffolk) and is editable
+// per quote. All money math is done in integer cents.
+const DEFAULT_TAX_MILLI_PCT = 8625;   // 8.625%
+
+function subtotalCents() {
+  return [...document.querySelectorAll('.line-item')].reduce((s, row) => {
     const qty  = parseFloat(row.querySelector('.item-qty')?.value) || 1;
     const unit = parseFloat(row.querySelector('.item-unit')?.value) || 0;
-    return s + (qty * unit);
+    return s + Math.round(qty * unit * 100);
   }, 0);
-  document.getElementById('quote-total-display').textContent = '$' + total.toFixed(2);
+}
+
+function taxMilliPct() {
+  const el = document.getElementById('q-tax-rate');
+  const pct = el ? parseFloat(el.value) : NaN;
+  return Number.isFinite(pct) && pct >= 0 ? Math.round(pct * 1000) : DEFAULT_TAX_MILLI_PCT;
+}
+
+function isExempt() {
+  const el = document.getElementById('q-tax-exempt');
+  return !!(el && el.checked);
+}
+
+// subtotal * rate, rounded once at the end. Never float-multiply dollars.
+function computeTotals() {
+  const sub    = subtotalCents();
+  const milli  = taxMilliPct();
+  const exempt = isExempt();
+  const tax    = exempt ? 0 : Math.round((sub * milli) / 100000);
+  return { sub, tax, total: sub + tax, milli, exempt };
+}
+
+function toggleExempt() {
+  const exempt = isExempt();
+  const rate = document.getElementById('q-tax-rate');
+  const cert = document.getElementById('q-exempt-cert');
+  if (rate) rate.disabled = exempt;
+  if (cert) cert.disabled = !exempt;
+  updateTotal();
+}
+
+function updateTotal() {
+  const { sub, tax, total, milli, exempt } = computeTotals();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('quote-subtotal-display', '$' + (sub / 100).toFixed(2));
+  set('quote-tax-display',      '$' + (tax / 100).toFixed(2));
+  set('quote-total-display',    '$' + (total / 100).toFixed(2));
+  // Always show the tax line, even at $0.00 -- an invoice that silently omits
+  // it is ambiguous to the customer and on audit.
+  set('quote-tax-label', exempt ? 'Sales Tax (exempt)' : `Sales Tax (${(milli / 1000).toFixed(3)}%)`);
 }
 
 function resetLineItems() {
   document.getElementById('line-items-container').innerHTML = lineItemHTML();
-  document.getElementById('quote-total-display').textContent = '$0.00';
+  const ex = document.getElementById('q-tax-exempt'); if (ex) ex.checked = false;
+  const rt = document.getElementById('q-tax-rate');   if (rt) { rt.value = (DEFAULT_TAX_MILLI_PCT/1000).toFixed(3); rt.disabled = false; }
+  const ct = document.getElementById('q-exempt-cert');if (ct) { ct.value = ''; ct.disabled = true; }
+  updateTotal();
 }
 
 // ── SAVE QUOTE ────────────────────────────────
@@ -518,8 +567,10 @@ async function saveQuote() {
     amount:     (parseFloat(row.querySelector('.item-qty')?.value) || 1) * (parseFloat(row.querySelector('.item-unit')?.value) || 0)
   })).filter(i => i.amount > 0);
 
-  const total = items.reduce((s, i) => s + i.amount, 0);
-  if (total === 0) { alert('Add at least one line item with an amount.'); return; }
+  const { sub, tax, total, milli, exempt } = computeTotals();
+  if (sub === 0) { alert('Add at least one line item with an amount.'); return; }
+  if (exempt && !document.getElementById('q-exempt-cert').value.trim() &&
+      !confirm('No exemption certificate number entered. New York requires a valid certificate on file to defend an exempt sale. Continue anyway?')) return;
 
   const newQuote = {
     customer_id:    custId,
@@ -528,7 +579,14 @@ async function saveQuote() {
     company,
     equipment:   document.getElementById('q-equipment').value.trim(),
     description: document.getElementById('q-desc').value.trim() || 'Forklift Service',
-    items, amount: total, status: 'pending'
+    items,
+    subtotal_cents:     sub,
+    tax_cents:          tax,
+    tax_rate_milli_pct: exempt ? 0 : milli,
+    tax_exempt:         exempt,
+    tax_jurisdiction:   document.getElementById('q-tax-juris').value.trim() || null,
+    amount:             total / 100,          // GRAND TOTAL, tax-inclusive
+    status: 'pending'
   };
 
   const saved = await DB.addQuote(newQuote);

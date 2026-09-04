@@ -244,8 +244,9 @@
         </div>
       </div>
 
+      <div id="pay-intro-breakdown"></div>
       <p style="color:var(--grey);font-size:.82rem;margin-top:14px;line-height:1.6;">
-        Your invoice amount is <strong style="color:var(--white);" id="pay-intro-amt"></strong>. Choosing ACH in the next step charges exactly that.
+        Your invoice total is <strong style="color:var(--white);" id="pay-intro-amt"></strong>, including any sales tax. Choosing ACH in the next step charges exactly that.
       </p>
 
       <button class="btn-primary" onclick="startPay()" style="width:100%;margin-top:14px;">Continue to Secure Payment</button>
@@ -289,6 +290,18 @@
       <p style="color:var(--grey-light);font-size:.9rem;margin-top:10px;">
         Bank payments take a few business days to clear. Your invoice balance will
         update automatically once the payment is confirmed.
+      </p>
+    </div>
+
+    <!-- Helcim approved but our confirmation is still in flight.
+         Deliberately NOT styled as an error. -->
+    <div id="pay-confirming-block" style="display:none;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.3);padding:20px;">
+      <h3 style="color:#f0a500;">✓ Payment Received</h3>
+      <p id="pay-confirming-detail" style="color:var(--grey-light);margin-top:8px;line-height:1.7;"></p>
+      <p style="color:var(--grey-light);font-size:.9rem;margin-top:10px;">
+        Your payment went through and we're finishing the confirmation now.
+        <strong style="color:var(--white);">Please don't submit another payment.</strong>
+        Your invoice will update automatically within a few minutes.
       </p>
     </div>
 

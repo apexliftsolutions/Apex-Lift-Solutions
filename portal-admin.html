@@ -184,7 +184,36 @@
           </div>
           <div class="uploaded-files" id="uploaded-files-list"></div>
         </div>
-        <div class="quote-total">Total: <span id="quote-total-display">$0.00</span></div>
+        <div id="quote-tax-block" style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div>
+            <label class="form-lbl" for="q-tax-rate">Sales tax rate (%)</label>
+            <input type="number" id="q-tax-rate" class="hist-input" step="0.001" min="0" max="15" value="8.625" oninput="updateTotal()"/>
+          </div>
+          <div>
+            <label class="form-lbl" for="q-tax-juris">Tax jurisdiction</label>
+            <input type="text" id="q-tax-juris" class="hist-input" placeholder="Nassau County, NY"/>
+          </div>
+          <div>
+            <label class="form-lbl" for="q-exempt-cert">Exemption cert #</label>
+            <input type="text" id="q-exempt-cert" class="hist-input" placeholder="ST-119.1 / ST-120" disabled/>
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:9px;cursor:pointer;margin-bottom:16px;font-size:.9rem;color:var(--grey-light);">
+          <input type="checkbox" id="q-tax-exempt" onchange="toggleExempt()" style="width:16px;height:16px;accent-color:var(--red);"/>
+          Customer is sales-tax exempt <span style="color:var(--grey);font-size:.82rem;">(certificate must be on file)</span>
+        </label>
+
+        <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:.95rem;color:var(--grey-light);">
+          <span>Subtotal</span><span id="quote-subtotal-display">$0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:7px 0;font-size:.95rem;color:var(--grey-light);border-bottom:1px solid var(--border);">
+          <span id="quote-tax-label">Sales Tax (8.625%)</span><span id="quote-tax-display">$0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:13px 0 0;font-family:var(--font-head);font-size:1.25rem;font-weight:900;text-transform:uppercase;">
+          <span>Total</span><span id="quote-total-display" style="color:var(--red);">$0.00</span>
+        </div>
+      </div>
       </div>
       <div style="display:flex;gap:12px;">
         <button class="btn-primary" onclick="saveQuote()">Send Quote to Customer</button>

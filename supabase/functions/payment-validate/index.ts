@@ -51,37 +51,62 @@ Deno.serve(async (req) => {
     return j(view(pay), 200, cors);
   }
 
-  // ── GATE 1: integrity ──────────────────────────────────────────────────────
-  const expected = await sha256Hex(String(rawDataResponse ?? "") + sess.secret_token);
-  if (!hash || !timingSafeEqual(String(hash), expected)) {
-    await fail(sb, pay, "hash_mismatch");
-    return j({ error: "verification_failed" }, 400, cors);
+  // ── GATE 1: integrity (ADVISORY) ───────────────────────────────────────────
+  // The hash proves the browser did not edit Helcim's payload. It is useful but
+  // it is NOT the security control -- GATE 2 re-fetches the transaction from
+  // Helcim with our own admin token, which is strictly stronger evidence.
+  //
+  // Helcim's eventMessage shape varies (object vs JSON string, hash at the top
+  // level vs nested), so a failed hash extraction must NEVER be reported to the
+  // customer as a declined payment. We record it and let GATE 2 decide.
+  let hashOk = false;
+  if (hash) {
+    const expected = await sha256Hex(String(rawDataResponse ?? "") + sess.secret_token);
+    hashOk = timingSafeEqual(String(hash), expected);
   }
 
-  // The browser's own status/amount are read for the transaction ID ONLY.
-  let claimed: Record<string, unknown> = {};
-  try { claimed = JSON.parse(String(rawDataResponse)); } catch { /* ignore */ }
-  const inner = (claimed.data ?? claimed) as Record<string, unknown>;
-  const txnId = String(inner.transactionId ?? inner.id ?? "");
-  if (!txnId) { await fail(sb, pay, "no_transaction_id"); return j({ error: "verification_failed" }, 400, cors); }
+  // Pull the transaction id out of whatever shape arrived.
+  const txnId = extractTxnId(rawDataResponse);
+  if (!txnId) {
+    // Helcim said SUCCESS but we cannot identify the transaction. Do not fail
+    // the payment -- park it for the webhook / reconcile job.
+    await sb.from("payments").update({ status: "unknown", failure_category: "no_transaction_id" }).eq("id", pay.id);
+    await ev(sb, pay, "verify_deferred", "browser_validate", { hash_ok: hashOk, reason: "no_transaction_id" });
+    return j({ status: "unknown", invoice_id: pay.invoice_id }, 202, cors);
+  }
+  const inner = parseInner(rawDataResponse);
+  if (!hashOk) {
+    await ev(sb, pay, "hash_unverified", "browser_validate",
+      { txn_id: txnId, note: "proceeding to authoritative provider lookup" });
+  }
 
 
   // ── GATE 2: authority — ask Helcim directly ────────────────────────────────
-  // We do not yet know the rail; try card first, then bank.
-  const guessACH = looksACH(inner) || pay.method === "ach";
-  const path = guessACH ? `bank-transactions/${txnId}` : `card-transactions/${txnId}`;
-  const tRes = await fetch(`${HELCIM_API}/${path}`, {
-    headers: { "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!, "accept": "application/json" },
-  });
-  if (!tRes.ok) {
-    // We cannot confirm. Do NOT guess, and do NOT let the customer retry — the
-    // webhook or the reconcile job will settle it.
+  // payment-checkout no longer fixes the rail (Helcim's modal chooses), so we
+  // try the likely endpoint and fall back to the other rather than guessing.
+  const order = (looksACH(inner) || pay.method === "ach")
+    ? ["bank-transactions", "card-transactions"]
+    : ["card-transactions", "bank-transactions"];
+
+  let txn: Record<string, unknown> | null = null;
+  let lastStatus = 0;
+  for (const seg of order) {
+    const r = await fetch(`${HELCIM_API}/${seg}/${txnId}`, {
+      headers: { "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!, "accept": "application/json" },
+    });
+    lastStatus = r.status;
+    if (r.ok) { txn = await r.json().catch(() => null); if (txn) break; }
+  }
+
+  if (!txn) {
+    // Cannot confirm right now. Helcim already told the customer SUCCESS, so
+    // this is NOT a failure -- park it and let the webhook / reconcile settle.
     await sb.from("payments").update({ status: "unknown", failure_category: "verify_unavailable",
       provider_transaction_id: txnId }).eq("id", pay.id);
-    await ev(sb, pay, "verify_unavailable", "browser_validate", { http: tRes.status, txn_id: txnId });
+    await ev(sb, pay, "verify_deferred", "browser_validate",
+      { http: lastStatus, txn_id: txnId, hash_ok: hashOk });
     return j({ status: "unknown", invoice_id: pay.invoice_id }, 202, cors);
   }
-  const txn = await tRes.json();
 
   const status   = String(txn.status ?? "").toUpperCase();
   const approved = status === "APPROVED" || status === "APPROVAL";
@@ -136,7 +161,7 @@ Deno.serve(async (req) => {
   }).eq("id", pay.id);
 
   await ev(sb, pay, newStatus === "succeeded" ? "approved" : newStatus === "pending" ? "pending" : "declined",
-           "browser_validate", { txn_id: txnId, ach: achTxn, provider_status: status,
+           "browser_validate", { txn_id: txnId, ach: achTxn, provider_status: status, hash_ok: hashOk,
              base_cents: rec.baseCents, fee_cents: rec.feeCents, charged_cents: rec.totalCents });
 
   // Invoice state is DERIVED from the ledger — never assigned here.
@@ -153,15 +178,47 @@ function view(p: Record<string, unknown>) {
   return { status: p.status, invoice_id: p.invoice_id, amount_cents: p.amount_cents,
            method_display: p.method_display, reference: p.provider_transaction_id };
 }
-async function fail(sb: ReturnType<typeof createClient>, pay: Record<string, unknown>, why: string) {
-  await sb.from("payments").update({ status: "unknown", failure_category: why,
-    completed_at: new Date().toISOString() }).eq("id", pay.id);
-  await ev(sb, pay, "verification_failed", "browser_validate", { reason: why });
-}
 async function ev(sb: ReturnType<typeof createClient>, pay: Record<string, unknown>,
                   event: string, source: string, detail: unknown) {
   await sb.from("payment_events").insert({ payment_id: pay.id, invoice_id: pay.invoice_id, event, source, detail });
 }
+// Helcim's eventMessage arrives in more than one shape depending on version and
+// platform. Dig for the transaction id rather than assuming one path.
+function parseInner(raw: unknown): Record<string, unknown> {
+  let v: unknown = raw;
+  for (let i = 0; i < 3 && typeof v === "string"; i++) {
+    try { v = JSON.parse(v); } catch { break; }
+  }
+  const o = (v ?? {}) as Record<string, unknown>;
+  const d1 = (o.data ?? o) as Record<string, unknown>;
+  const d2 = (d1.data ?? d1) as Record<string, unknown>;
+  return d2;
+}
+
+function extractTxnId(raw: unknown): string {
+  const seen = new Set<unknown>();
+  const walk = (v: unknown, depth: number): string => {
+    if (!v || depth > 6 || seen.has(v)) return "";
+    if (typeof v === "string") {
+      try { return walk(JSON.parse(v), depth + 1); } catch { return ""; }
+    }
+    if (typeof v !== "object") return "";
+    seen.add(v);
+    const o = v as Record<string, unknown>;
+    for (const k of ["transactionId", "cardTransactionId", "bankTransactionId", "id"]) {
+      const c = o[k];
+      if (typeof c === "number" && Number.isFinite(c)) return String(c);
+      if (typeof c === "string" && /^\d+$/.test(c.trim())) return c.trim();
+    }
+    for (const val of Object.values(o)) {
+      const found = walk(val, depth + 1);
+      if (found) return found;
+    }
+    return "";
+  };
+  return walk(raw, 0);
+}
+
 async function sha256Hex(s: string) {
   const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join("");

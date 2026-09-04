@@ -69,22 +69,58 @@ Deno.serve(async (req) => {
   if (!tRes.ok) { await markProcessed(sb, whId, `fetch_failed:${tRes.status}`); return new Response("ok", { status: 200 }); }
   const txn = await tRes.json();
 
+  const txnCents = Math.round(Number(txn.amount ?? 0) * 100);
   const status   = String(txn.status ?? "").toUpperCase();
   const approved = status === "APPROVED";
-  const txnCents = Math.round(Number(txn.amount ?? 0) * 100);
-  const currency = String(txn.currency ?? "USD").toUpperCase();
+    const currency = String(txn.currency ?? "USD").toUpperCase();
 
   // ── 6. Link to our payment row via the invoiceNumber we set at checkout ────
   //    (that is OUR invoice id, e.g. INV-3F9A2C1B7D). Nothing else is trusted.
+  // Linking strategy, most reliable first. payment-checkout does not send an
+  // invoiceNumber to Helcim, so matching on that alone would never hit -- which
+  // silently disabled the webhook as a fallback authority.
+  let pay: Record<string, unknown> | null = null;
+
+  // 1. Already stamped by payment-validate.
+  {
+    const { data } = await sb.from("payments").select("*")
+      .eq("provider", "helcim").eq("provider_transaction_id", txnId).maybeSingle();
+    if (data) pay = data;
+  }
+  // 2. Helcim echoed our invoice number (only if a Helcim invoice was linked).
   const invoiceId = String(txn.invoiceNumber ?? "");
-  const { data: pay } = await sb.from("payments")
-    .select("*").eq("invoice_id", invoiceId).eq("provider", "helcim")
-    .in("status", ["initiated", "pending", "unknown"]).maybeSingle();
+  if (!pay && invoiceId) {
+    const { data } = await sb.from("payments").select("*")
+      .eq("invoice_id", invoiceId).eq("provider", "helcim")
+      .in("status", ["initiated", "pending", "unknown"])
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (data) pay = data;
+  }
+  // 3. Fallback: an in-flight attempt whose charged total is consistent with
+  //    this transaction (base, or base + a Fee Saver amount) and recent.
+  if (!pay) {
+    const since = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const { data: cands } = await sb.from("payments").select("*")
+      .eq("provider", "helcim").eq("kind", "payment")
+      .in("status", ["initiated", "pending", "unknown"])
+      .gte("initiated_at", since)
+      .order("initiated_at", { ascending: false }).limit(25);
+    const hits = (cands ?? []).filter((c) => {
+      const base = Number(c.amount_cents);
+      return txnCents >= base && txnCents - base <= Math.max(Math.ceil(base * 0.10), 200);
+    });
+    // Only auto-link when it is unambiguous.
+    if (hits.length === 1) pay = hits[0];
+    else if (hits.length > 1) {
+      await markProcessed(sb, whId, `ambiguous_match:${hits.length} candidates for ${txnCents}c`);
+      return new Response("ok", { status: 200 });
+    }
+  }
 
   if (!pay) {
     // Could be a terminal/manual Helcim payment with no portal checkout. Record it,
     // but do not auto-mark the invoice: admin reconciles manually.
-    await markProcessed(sb, whId, `no_matching_attempt:${invoiceId}`);
+    await markProcessed(sb, whId, `no_matching_attempt txn=${txnId} amount=${txnCents}c`);
     return new Response("ok", { status: 200 });
   }
 

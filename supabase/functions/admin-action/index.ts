@@ -76,17 +76,25 @@ Deno.serve(async (req) => {
         const due = new Date();
         due.setDate(due.getDate() + 30);
 
+        // Tax is COPIED from the approved quote, never recalculated. The quote
+        // is a price the customer accepted; if the default rate changes later,
+        // the invoice must still reflect what was agreed.
         const { data: inv, error: invErr } = await admin.from('invoices').insert({
-          customer_id:    q.customer_id,
-          customer_email: q.customer_email,
-          customer_name:  q.customer_name,
-          company:        q.company,
-          description:    q.description,
-          items:          q.items,
-          amount:         q.amount,
-          status:         'unpaid',
-          due:            due.toISOString(),
-          quote_id:       q.id,
+          customer_id:        q.customer_id,
+          customer_email:     q.customer_email,
+          customer_name:      q.customer_name,
+          company:            q.company,
+          description:        q.description,
+          items:              q.items,
+          subtotal_cents:     q.subtotal_cents,
+          tax_cents:          q.tax_cents ?? 0,
+          tax_rate_milli_pct: q.tax_rate_milli_pct ?? 0,
+          tax_exempt:         q.tax_exempt ?? false,
+          tax_jurisdiction:   q.tax_jurisdiction,
+          amount:             q.amount,       // already tax-inclusive
+          status:             'unpaid',
+          due:                due.toISOString(),
+          quote_id:           q.id,
         }).select().single();
 
         if (invErr) return json({ error: invErr.message }, 500);
