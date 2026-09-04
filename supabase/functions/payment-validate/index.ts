@@ -16,6 +16,7 @@
 // The browser event never marks an invoice paid. It only asks the server to go
 // and check. Invoice state is then derived from the ledger by recalc_invoice_status().
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { reconcileAmount, looksACH } from "../_shared/feesaver.ts";
 
 const HELCIM_API = "https://api.helcim.com/v2";
 
@@ -64,10 +65,11 @@ Deno.serve(async (req) => {
   const txnId = String(inner.transactionId ?? inner.id ?? "");
   if (!txnId) { await fail(sb, pay, "no_transaction_id"); return j({ error: "verification_failed" }, 400, cors); }
 
-  const isACH = /ach|bank/i.test(String(inner.type ?? "")) || pay.method === "ach";
 
   // ── GATE 2: authority — ask Helcim directly ────────────────────────────────
-  const path = isACH ? `bank-transactions/${txnId}` : `card-transactions/${txnId}`;
+  // We do not yet know the rail; try card first, then bank.
+  const guessACH = looksACH(inner) || pay.method === "ach";
+  const path = guessACH ? `bank-transactions/${txnId}` : `card-transactions/${txnId}`;
   const tRes = await fetch(`${HELCIM_API}/${path}`, {
     headers: { "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!, "accept": "application/json" },
   });
@@ -83,30 +85,49 @@ Deno.serve(async (req) => {
 
   const status   = String(txn.status ?? "").toUpperCase();
   const approved = status === "APPROVED" || status === "APPROVAL";
-  const txnCents = Math.round(Number(txn.amount ?? 0) * 100);
+  const txnCents = Math.round(Number(txn.amount ?? 0) * 100);   // TOTAL charged (incl. Fee Saver)
   const currency = String(txn.currency ?? "").toUpperCase();
   const invNum   = String(txn.invoiceNumber ?? "");
+  const achTxn   = looksACH(txn);
 
-  // Amount, currency and invoice linkage must all match what the server set.
-  if (txnCents !== Number(pay.amount_cents) || currency !== pay.currency || (invNum && invNum !== pay.invoice_id)) {
-    await sb.from("payments").update({ status: "unknown", failure_category: "amount_mismatch",
+  // Invoice linkage, when Helcim returns it, must match ours.
+  if (invNum && invNum !== pay.invoice_id) {
+    await sb.from("payments").update({ status: "unknown", failure_category: "invoice_mismatch",
       provider_transaction_id: txnId, completed_at: new Date().toISOString() }).eq("id", pay.id);
     await ev(sb, pay, "amount_mismatch", "browser_validate",
-      { expected_cents: pay.amount_cents, got_cents: txnCents, currency, invoice_number: invNum });
+      { expected_invoice: pay.invoice_id, got_invoice: invNum });
+    return j({ error: "verification_failed" }, 409, cors);
+  }
+
+  // Fee Saver: the charged total legitimately exceeds the base on card payments.
+  // We split it, and refuse to auto-settle anything outside the configured bound.
+  const rec = await reconcileAmount(sb, {
+    baseCents: Number(pay.amount_cents), chargedCents: txnCents,
+    currency, expectedCurrency: pay.currency, isACH: achTxn,
+  });
+  if (!rec.ok) {
+    await sb.from("payments").update({ status: "unknown", failure_category: `amount_${rec.reason}`,
+      provider_transaction_id: txnId, total_charged_cents: txnCents,
+      completed_at: new Date().toISOString() }).eq("id", pay.id);
+    await ev(sb, pay, "amount_mismatch", "browser_validate",
+      { reason: rec.reason, base_cents: rec.baseCents, charged_cents: rec.totalCents,
+        implied_fee_cents: rec.impliedFeeCents, currency, ach: achTxn });
     return j({ error: "verification_failed" }, 409, cors);
   }
 
   // Card APPROVED is final. ACH APPROVED at initiation is NOT settlement —
   // it stays pending until the bank clears (webhook or reconcile job).
-  const achSettled = isACH && /settl|clear|complet/i.test(String(txn.bankStatus ?? txn.settlementStatus ?? ""));
-  const newStatus  = !approved ? "failed" : (isACH && !achSettled) ? "pending" : "succeeded";
+  const achSettled = achTxn && /settl|clear|complet/i.test(String(txn.bankStatus ?? txn.settlementStatus ?? ""));
+  const newStatus  = !approved ? "failed" : (achTxn && !achSettled) ? "pending" : "succeeded";
   const now = new Date().toISOString();
 
   await sb.from("payments").update({
     status: newStatus,
     provider_transaction_id: txnId,
-    method: isACH ? "ach" : "card",
+    method: achTxn ? "ach" : "card",
     method_display: mask(txn),
+    fee_cents: rec.feeCents,                 // 0 for ACH; inferred fee for card
+    total_charged_cents: rec.totalCents,     // what the customer actually paid
     failure_category: approved ? null : "declined",
     approved_at: approved ? (pay.approved_at ?? now) : null,
     settled_at:  newStatus === "succeeded" ? now : null,
@@ -115,7 +136,8 @@ Deno.serve(async (req) => {
   }).eq("id", pay.id);
 
   await ev(sb, pay, newStatus === "succeeded" ? "approved" : newStatus === "pending" ? "pending" : "declined",
-           "browser_validate", { txn_id: txnId, ach: isACH, provider_status: status });
+           "browser_validate", { txn_id: txnId, ach: achTxn, provider_status: status,
+             base_cents: rec.baseCents, fee_cents: rec.feeCents, charged_cents: rec.totalCents });
 
   // Invoice state is DERIVED from the ledger — never assigned here.
   await sb.rpc("recalc_invoice_status", { p_invoice_id: pay.invoice_id });

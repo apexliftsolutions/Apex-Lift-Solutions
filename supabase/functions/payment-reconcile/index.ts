@@ -12,7 +12,9 @@ Deno.serve(async (req) => {
 
   // 1. Abandoned checkouts → failed (no charge ever happened).
   const cutoff = new Date(Date.now() - 90 * 60_000).toISOString();
-  await sb.from("payments").update({ status: "failed", failure_category: "abandoned", completed_at: now })
+  // 'voided' (not 'failed') so the partial unique index frees up and the
+  // customer can simply try again.
+  await sb.from("payments").update({ status: "voided", failure_category: "abandoned", completed_at: now })
     .eq("status", "initiated").eq("provider", "helcim").lt("initiated_at", cutoff);
 
   // 2. Pending ACH → ask the provider.
@@ -31,8 +33,11 @@ Deno.serve(async (req) => {
     else if (/DECLIN|RETURN|REJECT|FAIL/.test(st)) next = "failed";
     if (!next) continue;
 
+    // ACH carries no convenience fee, so charged == base by definition here.
     await sb.from("payments").update({ status: next, settled_at: next === "succeeded" ? now : null,
-      declined_at: next === "failed" ? now : null, completed_at: now, failure_category: next === "failed" ? "ach_returned" : null }).eq("id", p.id);
+      declined_at: next === "failed" ? now : null, completed_at: now,
+      fee_cents: 0, total_charged_cents: p.amount_cents,
+      failure_category: next === "failed" ? "ach_returned" : null }).eq("id", p.id);
     await sb.from("payment_events").insert({ payment_id: p.id, invoice_id: p.invoice_id, source: "reconcile",
       event: next === "succeeded" ? "settled" : "declined", detail: { provider_status: st } });
     await sb.rpc("recalc_invoice_status", { p_invoice_id: p.invoice_id });

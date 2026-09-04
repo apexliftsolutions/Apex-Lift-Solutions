@@ -11,6 +11,7 @@
 //   sig     = base64(HMAC-SHA256(key, signed))
 //   header  = "v1,<sig> v2,<sig>"  — any entry may match
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { reconcileAmount, looksACH } from "../_shared/feesaver.ts";
 
 const HELCIM_API = "https://api.helcim.com/v2";
 
@@ -87,13 +88,21 @@ Deno.serve(async (req) => {
     return new Response("ok", { status: 200 });
   }
 
-  // ── 7. Amount and currency MUST match what we resolved server-side ─────────
-  if (txnCents !== Number(pay.amount_cents) || currency !== pay.currency) {
-    await sb.from("payments").update({ status: "unknown", failure_category: "amount_mismatch",
-      provider_transaction_id: txnId, completed_at: new Date().toISOString() }).eq("id", pay.id);
+  // ── 7. Fee Saver aware amount reconciliation ───────────────────────────────
+  // txnCents is the TOTAL charged. On card it legitimately exceeds the invoice
+  // base by the convenience fee; on ACH it must match exactly.
+  const rec = await reconcileAmount(sb, {
+    baseCents: Number(pay.amount_cents), chargedCents: txnCents,
+    currency, expectedCurrency: pay.currency, isACH: isBank,
+  });
+  if (!rec.ok) {
+    await sb.from("payments").update({ status: "unknown", failure_category: `amount_${rec.reason}`,
+      provider_transaction_id: txnId, total_charged_cents: txnCents,
+      completed_at: new Date().toISOString() }).eq("id", pay.id);
     await sb.from("payment_events").insert({ payment_id: pay.id, invoice_id: pay.invoice_id, source: "webhook",
-      event: "amount_mismatch", detail: { expected: pay.amount_cents, got: txnCents, currency } });
-    await markProcessed(sb, whId, `amount_mismatch ${txnCents}!=${pay.amount_cents}`);
+      event: "amount_mismatch", detail: { reason: rec.reason, base_cents: rec.baseCents,
+        charged_cents: rec.totalCents, implied_fee_cents: rec.impliedFeeCents, currency, ach: isBank } });
+    await markProcessed(sb, whId, `amount_${rec.reason} charged=${txnCents} base=${pay.amount_cents}`);
     return new Response("ok", { status: 200 });
   }
 
@@ -110,6 +119,8 @@ Deno.serve(async (req) => {
     provider_transaction_id: txnId,
     method: isBank ? "ach" : "card",
     method_display: mask(txn),
+    fee_cents: rec.feeCents,
+    total_charged_cents: rec.totalCents,
     failure_category: approved ? null : "declined",
     approved_at: approved ? (pay.approved_at ?? now) : pay.approved_at,
     settled_at:  newStatus === "succeeded" ? now : null,
@@ -118,7 +129,8 @@ Deno.serve(async (req) => {
   }).eq("id", pay.id);
   await sb.from("payment_events").insert({ payment_id: pay.id, invoice_id: pay.invoice_id, source: "webhook",
     event: newStatus === "succeeded" ? "settled" : newStatus === "pending" ? "pending" : "declined",
-    detail: { txn_id: txnId, event_type: eventType, ach: isBank } });
+    detail: { txn_id: txnId, event_type: eventType, ach: isBank,
+      base_cents: rec.baseCents, fee_cents: rec.feeCents, charged_cents: rec.totalCents } });
 
   await sb.rpc("recalc_invoice_status", { p_invoice_id: pay.invoice_id });
   if (newStatus === "succeeded") {

@@ -219,23 +219,37 @@
     <div class="modal-amount" id="modal-inv-amt"></div>
 
     <!-- Step 1: choose how to pay. ACH first — cheaper on large B2B invoices. -->
-    <div id="pay-method-choice" style="display:none;padding:6px 0 2px;">
-      <p style="color:var(--grey-light);font-size:.92rem;margin-bottom:14px;">How would you like to pay?</p>
-      <button class="pay-opt" onclick="startPay('ach')" style="width:100%;display:flex;align-items:center;gap:14px;text-align:left;background:var(--dark-2);border:1px solid var(--border);border-left:3px solid #4caf50;color:var(--white);padding:16px 18px;cursor:pointer;margin-bottom:10px;font-family:inherit;">
-        <span style="font-size:1.5rem;">🏦</span>
-        <span style="flex:1;">
-          <strong style="display:block;font-family:var(--font-head);font-size:.98rem;letter-spacing:.03em;text-transform:uppercase;">Bank Account (ACH)</strong>
-          <span style="color:var(--grey);font-size:.85rem;">Pay directly from your business checking account. Best for larger invoices.</span>
-        </span>
-      </button>
-      <button class="pay-opt" onclick="startPay('cc')" style="width:100%;display:flex;align-items:center;gap:14px;text-align:left;background:var(--dark-2);border:1px solid var(--border);border-left:3px solid var(--red);color:var(--white);padding:16px 18px;cursor:pointer;font-family:inherit;">
-        <span style="font-size:1.5rem;">💳</span>
-        <span style="flex:1;">
-          <strong style="display:block;font-family:var(--font-head);font-size:.98rem;letter-spacing:.03em;text-transform:uppercase;">Credit or Debit Card</strong>
-          <span style="color:var(--grey);font-size:.85rem;">Processed immediately. Visa, Mastercard, Amex, Discover.</span>
-        </span>
-      </button>
-      <p style="color:var(--grey);font-size:.78rem;margin-top:14px;text-align:center;">🔒 Secure payment powered by Helcim. Apex never sees or stores your card or bank details.</p>
+    <!-- Step 1: explain the two rails BEFORE opening Helcim.
+         Fee Saver requires Helcim's modal to offer both card and ACH, so Helcim
+         owns the actual method choice and displays the exact fee. We do not
+         state a percentage here -- only Helcim knows the applicable rate. -->
+    <div id="pay-intro" style="display:none;padding:4px 0 2px;">
+      <p style="color:var(--grey-light);font-size:.92rem;margin-bottom:16px;">
+        You'll choose how to pay in the secure payment window. Here's the difference:
+      </p>
+
+      <div style="display:flex;gap:13px;align-items:flex-start;background:var(--dark-2);border:1px solid var(--border);border-left:3px solid #4caf50;padding:15px 17px;margin-bottom:10px;">
+        <span style="font-size:1.4rem;line-height:1;">🏦</span>
+        <div>
+          <strong style="display:block;font-family:var(--font-head);font-size:.96rem;letter-spacing:.03em;text-transform:uppercase;margin-bottom:3px;">Bank Account (ACH)</strong>
+          <span style="color:var(--grey-light);font-size:.86rem;line-height:1.55;">Pay directly from your bank account. <strong style="color:#4caf50;">No credit-card convenience fee.</strong> Takes a few business days to clear.</span>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:13px;align-items:flex-start;background:var(--dark-2);border:1px solid var(--border);border-left:3px solid var(--red);padding:15px 17px;">
+        <span style="font-size:1.4rem;line-height:1;">💳</span>
+        <div>
+          <strong style="display:block;font-family:var(--font-head);font-size:.96rem;letter-spacing:.03em;text-transform:uppercase;margin-bottom:3px;">Credit or Debit Card</strong>
+          <span style="color:var(--grey-light);font-size:.86rem;line-height:1.55;">A convenience fee applies, calculated by our payment processor. <strong style="color:var(--white);">The exact fee and your final total are shown before you authorize the payment.</strong> Processed immediately.</span>
+        </div>
+      </div>
+
+      <p style="color:var(--grey);font-size:.82rem;margin-top:14px;line-height:1.6;">
+        Your invoice amount is <strong style="color:var(--white);" id="pay-intro-amt"></strong>. Choosing ACH in the next step charges exactly that.
+      </p>
+
+      <button class="btn-primary" onclick="startPay()" style="width:100%;margin-top:14px;">Continue to Secure Payment</button>
+      <p style="color:var(--grey);font-size:.78rem;margin-top:12px;text-align:center;">🔒 Secure payment powered by Helcim. Apex never sees or stores your card or bank details.</p>
     </div>
 
     <!-- Opening the secure session -->

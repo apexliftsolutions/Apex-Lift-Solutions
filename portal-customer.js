@@ -322,77 +322,93 @@ const FN_BASE = `${SB_URL}/functions/v1`;
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 
-// Step 1 — open the modal and let the customer pick a method.
-// ACH is listed first: on a $2,000 forklift repair it saves real money vs card.
+// ── PAY INVOICE (HelcimPay.js + Fee Saver) ────
+// Fee Saver requires Helcim's modal to offer BOTH card and ACH so the customer
+// can avoid the card fee. We therefore do not present our own method chooser --
+// Helcim's modal does that and shows the exact fee once it reads the card.
+//
+// Modal lifecycle: our modal must be CLOSED before Helcim's iframe is appended,
+// or the two overlays stack and the customer sees a dead screen.
+
+let PAY_LISTENER = null;   // exactly one message listener per checkout
+
 function openPay(id, amount) {
   PAY_ID = id;
   PAY_AMOUNT = Number(amount);
   document.getElementById('modal-inv-id').textContent  = id;
   document.getElementById('modal-inv-amt').textContent = '$' + Number(amount).toFixed(2);
-  document.querySelectorAll('#pay-method-choice .pay-opt').forEach(b => b.disabled = false);
-  showPayState('choose');
+  const ia = document.getElementById('pay-intro-amt');
+  if (ia) ia.textContent = '$' + Number(amount).toFixed(2);
+  showPayState('intro');
   document.getElementById('pay-modal').className = 'modal-overlay open';
 }
 
-// Step 2 — start the server-side checkout for the chosen method.
-async function startPay(method) {
-  if (PAY_BUSY) return;                      // double-click guard
+async function startPay() {
+  if (PAY_BUSY) return;                       // double-click guard
   PAY_BUSY = true;
-  document.querySelectorAll('#pay-method-choice .pay-opt').forEach(b => b.disabled = true);
-
-  const id = PAY_ID, amount = PAY_AMOUNT;
+  const id = PAY_ID;
   showPayState('loading');
 
   try {
     const { data: { session } } = await sb.auth.getSession();
-    if (!session) { showPayState('error', 'Your session expired. Please sign in again.'); return; }
+    if (!session) { showPayState('error', 'Your session expired. Please sign in again.'); PAY_BUSY = false; return; }
 
-    // One key per invoice per attempt. A retry reuses it, so the server returns
-    // the original attempt instead of opening a second chargeable session.
+    // Fresh key per attempt. A failed or abandoned attempt never blocks a retry;
+    // the server voids stale sessions and lets a new one open.
     const idem = `${id}:${session.user.id}:${Date.now()}`;
-    sessionStorage.setItem('apex_pay_idem', idem);
 
     const res = await fetch(`${FN_BASE}/payment-checkout`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${session.access_token}`,
-                 'Content-Type': 'application/json' },
-      body: JSON.stringify({ invoice_id: id, method, idempotency_key: idem }),
+      headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoice_id: id, idempotency_key: idem }),
     });
 
     if (!res.ok) {
       const { error } = await res.json().catch(() => ({}));
-      showPayState('error',
-        error === 'already_paid'   ? 'This invoice has already been paid.'
-      : error === 'payment_pending' ? 'A bank payment for this invoice is already processing.'
-      : error === 'account_not_active' ? 'Your account is not active. Please call (516) 644-7187.'
-      : error === 'already_processed' ? 'A payment for this invoice is already being processed.'
-      : 'We could not start the payment. Please try again, or call (516) 644-7187.');
+      const msg = {
+        already_paid:         'This invoice has already been paid.',
+        payment_pending:      'A bank payment for this invoice is already processing. It will clear in a few business days.',
+        payment_under_review: "A previous payment on this invoice is being reviewed. Please call (516) 644-7187 and we'll sort it out.",
+        account_not_active:   'Your account is not active yet. Please call (516) 644-7187.',
+        invoice_not_payable:  'This invoice is not currently payable.',
+        duplicate_in_flight:  'A payment is already being started. Give it a moment and try again.',
+      }[error] || 'We could not start the payment. Please try again, or call (516) 644-7187.';
+      showPayState('error', msg);
+      PAY_BUSY = false;
       return;
     }
 
     const { checkoutToken } = await res.json();
-    showPayState('modal');
 
-    // Render Helcim's secure iframe.
-    appendHelcimPayIframe(checkoutToken, true);
+    // Tear down any previous listener before attaching a new one.
+    if (PAY_LISTENER) { window.removeEventListener('message', PAY_LISTENER); PAY_LISTENER = null; }
 
-    // Listen once for the result, then verify it server-side.
-    const onMessage = async (ev) => {
+    let settled = false;   // guards against SUCCESS followed by a HIDE event
+
+    PAY_LISTENER = async (ev) => {
       if (!ev.data || ev.data.eventName !== `helcim-pay-js-${checkoutToken}`) return;
-      window.removeEventListener('message', onMessage);
-      removeHelcimPayIframe();
+      const status = ev.data.eventStatus;
 
-      if (ev.data.eventStatus === 'ABORTED') { closePayModal(); return; }
+      if (status === 'ABORTED' || status === 'HIDE') {
+        if (settled) return;                 // success already handled; ignore
+        cleanupHelcim();
+        closePayModal();                     // customer backed out — no charge
+        return;
+      }
+      if (status !== 'SUCCESS') return;
+
+      settled = true;
+      cleanupHelcim();
+
+      // Re-open our modal to show the verifying/result state.
+      document.getElementById('pay-modal').className = 'modal-overlay open';
       showPayState('verifying');
 
       try {
         const vr = await fetch(`${FN_BASE}/payment-validate`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${session.access_token}`,
-                     'Content-Type': 'application/json' },
-          // Helcim computes the hash over JSON.stringify(eventMessage.data)
-          // concatenated with the secretToken. Send exactly that string so the
-          // server can reproduce it byte-for-byte.
+          headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          // Helcim hashes JSON.stringify(eventMessage.data) + secretToken.
           body: JSON.stringify({
             checkoutToken,
             rawDataResponse: JSON.stringify(ev.data.eventMessage?.data ?? {}),
@@ -401,42 +417,48 @@ async function startPay(method) {
         });
         const out = await vr.json();
 
-        if (out.status === 'unknown') {
+        if (out.status === 'succeeded')      { showPayState('success', null, out); loadInvoices(); }
+        else if (out.status === 'pending')   { showPayState('pending', null, out); loadInvoices(); }
+        else if (out.status === 'unknown')   {
           showPayState('error', "We couldn't confirm the payment status yet. Please DON'T submit another payment — we're verifying with the processor and your invoice will update automatically. Call (516) 644-7187 if you need confirmation now.");
-        } else if (out.status === 'succeeded') {
-          showPayState('success', null, out);
-          loadInvoices();
-        } else if (out.status === 'pending') {
-          showPayState('pending', null, out);
-          loadInvoices();
         } else {
-          // Never say "your card was not charged" unless we actually know that.
           showPayState('error', vr.ok
-            ? 'The payment was declined. Your card was not charged.'
-            : 'We could not confirm the payment status. Please do not submit another payment — call (516) 644-7187 and we will check.');
+            ? 'The payment was declined. Your invoice is still open, and you can try again.'
+            : "We couldn't confirm the payment status. Please don't submit another payment — call (516) 644-7187 and we'll check.");
         }
       } catch (e) {
-        showPayState('error',
-          'We could not confirm the payment status. Please do not submit another payment — call (516) 644-7187 and we will check.');
+        showPayState('error', "We couldn't confirm the payment status. Please don't submit another payment — call (516) 644-7187 and we'll check.");
+      } finally {
+        PAY_BUSY = false;
       }
     };
-    window.addEventListener('message', onMessage);
+    window.addEventListener('message', PAY_LISTENER);
+
+    // CLOSE our modal, THEN hand the screen to Helcim.
+    document.getElementById('pay-modal').className = 'modal-overlay';
+    document.body.classList.add('helcim-active');   // sinks Apex chrome below the iframe
+    appendHelcimPayIframe(checkoutToken, true);
 
   } catch (e) {
     console.error('Payment init error:', e);
     showPayState('error', 'Connection problem. Please try again or call (516) 644-7187.');
-  } finally {
     PAY_BUSY = false;
   }
 }
 
+function cleanupHelcim() {
+  document.body.classList.remove('helcim-active');
+  try { removeHelcimPayIframe(); } catch (e) { /* not rendered */ }
+  if (PAY_LISTENER) { window.removeEventListener('message', PAY_LISTENER); PAY_LISTENER = null; }
+}
+
 // Single place that drives every visual state of the payment modal.
 function showPayState(state, message, result) {
-  const ids = ['pay-method-choice','pay-loading','pay-modal-host','pay-verifying','pay-success-block','pay-pending-block','pay-error-block'];
+  const ids = ['pay-intro','pay-loading','pay-modal-host','pay-verifying','pay-success-block','pay-pending-block','pay-error-block'];
   ids.forEach(i => { const el = document.getElementById(i); if (el) el.style.display = 'none'; });
   const show = (i) => { const el = document.getElementById(i); if (el) el.style.display = 'block'; };
 
-  if (state === 'choose')     show('pay-method-choice');
+  if (state === 'intro')      show('pay-intro');
   if (state === 'loading')    show('pay-loading');
   if (state === 'modal')      show('pay-modal-host');
   if (state === 'verifying')  show('pay-verifying');
@@ -445,7 +467,10 @@ function showPayState(state, message, result) {
     const d = document.getElementById('pay-success-detail');
     if (d && result) d.innerHTML =
       `Invoice <strong>${xss(result.invoice_id)}</strong><br/>` +
-      `Amount: <strong>$${(result.amount_cents/100).toFixed(2)}</strong><br/>` +
+      `Invoice amount: <strong>$${(result.amount_cents/100).toFixed(2)}</strong><br/>` +
+      (result.fee_cents > 0
+        ? `Card convenience fee: $${(result.fee_cents/100).toFixed(2)}<br/>Total charged: <strong>$${(result.total_charged_cents/100).toFixed(2)}</strong><br/>`
+        : '') +
       (result.method_display ? `Method: ${xss(result.method_display)}<br/>` : '') +
       (result.reference ? `Reference: ${xss(String(result.reference))}` : '');
   }
@@ -465,6 +490,7 @@ function showPayState(state, message, result) {
 
 function closePayModal() {
   PAY_BUSY = false;
+  cleanupHelcim();
   try { removeHelcimPayIframe(); } catch (e) { /* not rendered */ }
   document.getElementById('pay-modal').className = 'modal-overlay';
   PAY_ID = null;

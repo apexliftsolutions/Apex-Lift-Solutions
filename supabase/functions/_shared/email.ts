@@ -117,11 +117,13 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
       html: shell(`Payment received`,
         `<p>Hi ${name},</p><p>Thank you — we've received your payment.</p>
          <table role="presentation" style="font-size:14px;line-height:1.9;"><tr><td style="color:#666;padding-right:18px;">Invoice</td><td><b>${esc(p.invoice_id)}</b></td></tr>
-         <tr><td style="color:#666;">Amount</td><td><b>${usd(p.amount)}</b></td></tr><tr><td style="color:#666;">Date</td><td>${date(p.paid_at)}</td></tr>
+         <tr><td style="color:#666;">Invoice amount</td><td><b>${usd(p.amount)}</b></td></tr>
+         ${Number(p.fee ?? 0) > 0 ? `<tr><td style="color:#666;">Card convenience fee</td><td>${usd(p.fee)}</td></tr><tr><td style="color:#666;"><b>Total charged</b></td><td><b>${usd(p.total_charged ?? p.amount)}</b></td></tr>` : ""}
+         <tr><td style="color:#666;">Date</td><td>${date(p.paid_at)}</td></tr>
          <tr><td style="color:#666;">Method</td><td>${esc(p.method_display || methodLabel(p.method))}</td></tr>
          ${p.reference ? `<tr><td style="color:#666;">Reference</td><td>${esc(p.reference)}</td></tr>` : ""}</table>`,
         { label: "View Receipt", href: portal() }),
-      text: `Hi ${p.customer_name || "there"},\n\nPayment received.\nInvoice: ${p.invoice_id}\nAmount: ${usd(p.amount)}\nDate: ${date(p.paid_at)}\nMethod: ${p.method_display || methodLabel(p.method)}${p.reference ? `\nReference: ${p.reference}` : ""}\n\nReceipt: ${portal()}${textFoot}` };
+      text: `Hi ${p.customer_name || "there"},\n\nPayment received.\nInvoice: ${p.invoice_id}\nInvoice amount: ${usd(p.amount)}${Number(p.fee ?? 0) > 0 ? `\nCard convenience fee: ${usd(p.fee)}\nTotal charged: ${usd(p.total_charged ?? p.amount)}` : ""}\nDate: ${date(p.paid_at)}\nMethod: ${p.method_display || methodLabel(p.method)}${p.reference ? `\nReference: ${p.reference}` : ""}\n\nReceipt: ${portal()}${textFoot}` };
 
     case "payment_received_admin": return {
       subject: `Payment Received — Invoice ${p.invoice_id}${co}`,
