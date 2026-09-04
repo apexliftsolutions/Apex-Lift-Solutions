@@ -14,8 +14,20 @@ Deno.serve(async (req) => {
   const cutoff = new Date(Date.now() - 90 * 60_000).toISOString();
   // 'voided' (not 'failed') so the partial unique index frees up and the
   // customer can simply try again.
-  await sb.from("payments").update({ status: "voided", failure_category: "abandoned", completed_at: now })
+  const { data: stale } = await sb.from("payments").select("id, invoice_id")
     .eq("status", "initiated").eq("provider", "helcim").lt("initiated_at", cutoff);
+
+  if (stale?.length) {
+    await sb.from("payments").update({ status: "voided", failure_category: "abandoned", completed_at: now })
+      .in("id", stale.map((r) => r.id));
+    // Without this the invoice stays at payment_pending forever: recalc counts
+    // 'initiated' as pending, and nothing else re-derives the status.
+    for (const inv of new Set(stale.map((r) => r.invoice_id))) {
+      await sb.rpc("recalc_invoice_status", { p_invoice_id: inv });
+      await sb.from("payment_events").insert({ invoice_id: inv, event: "voided", source: "reconcile",
+        detail: { reason: "stale_checkout_session", swept: true } });
+    }
+  }
 
   // 2. Pending ACH → ask the provider.
   const { data: pend } = await sb.from("payments").select("*")
@@ -43,5 +55,5 @@ Deno.serve(async (req) => {
     await sb.rpc("recalc_invoice_status", { p_invoice_id: p.invoice_id });
     if (next === "succeeded") { await sb.from("invoices").update({ paid_via: "helcim", payment_id: p.id }).eq("id", p.invoice_id); settled++; } else declined++;
   }
-  return Response.json({ checked: pend?.length ?? 0, settled, declined });
+  return Response.json({ voided_stale: stale?.length ?? 0, checked: pend?.length ?? 0, settled, declined });
 });

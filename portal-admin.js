@@ -202,7 +202,7 @@ async function renderInvoices() {
     <tr>
       <td><strong style="color:var(--white)">${esc(i.id)}</strong></td>
       <td>${esc(i.customer_name || '')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company || '')}</span></td>
-      <td><strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong>${i.tax_exempt ? '<br><span style="font-size:.68rem;color:var(--grey);">TAX EXEMPT</span>' : (Number(i.tax_cents) > 0 ? `<br><span style="font-size:.68rem;color:var(--grey);">incl. $${(i.tax_cents/100).toFixed(2)} tax</span>` : '')}</td>
+      <td>${!i.customer_id ? '<div style="color:#f0a500;font-size:.68rem;font-family:var(--font-head);font-weight:700;letter-spacing:.06em;">⚠ NO PORTAL LINK — customer cannot see or pay this</div>' : ''}<strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong>${i.tax_exempt ? '<br><span style="font-size:.68rem;color:var(--grey);">TAX EXEMPT</span>' : (Number(i.tax_cents) > 0 ? `<br><span style="font-size:.68rem;color:var(--grey);">incl. $${(i.tax_cents/100).toFixed(2)} tax</span>` : '')}</td>
       <td>${badge(i.status)}</td>
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
@@ -558,6 +558,13 @@ async function saveQuote() {
   const name    = opt.dataset.name || '';
   const custId  = opt.dataset.id || null;
   if (!email) { alert('Customer email missing. Re-select the customer.'); return; }
+  // customer_id is the ONLY ownership link the customer portal and RLS use.
+  // Without it the quote and any invoice made from it are invisible to the
+  // customer and unpayable, while still showing up here in admin.
+  if (!custId) {
+    alert('This customer has no portal account linked, so they would never see the quote or be able to pay it.\n\nActivate their portal account first, then re-select them.');
+    return;
+  }
 
   const items = [...document.querySelectorAll('.line-item')].map(row => ({
     desc:       row.querySelector('.item-desc').value || 'Service',

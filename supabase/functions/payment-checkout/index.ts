@@ -154,6 +154,7 @@ async function resolve(
   sb: ReturnType<typeof createClient>, inv: Record<string, unknown>,
   userId: string, idem: string, baseCents: number, cors: Record<string, string>,
 ): Promise<Response | null> {
+  let voidedStale = false;
 
   // Same idempotency key replayed → return the original session, never a new charge.
   const { data: same } = await sb.from("payments")
@@ -192,13 +193,25 @@ async function resolve(
         payment_id: p.id, invoice_id: inv.id as string, event: "voided", source: "reconcile",
         detail: { reason: "stale_checkout_session" },
       });
+      // recalc counts 'initiated' as pending, so the invoice may be sitting at
+      // payment_pending because of the row we just voided. Re-derive it, or the
+      // status check below would refuse a perfectly payable invoice.
+      await sb.rpc("recalc_invoice_status", { p_invoice_id: inv.id as string });
+      voidedStale = true;
     }
     // 'failed' and 'voided' are terminal and non-blocking — a retry is allowed.
   }
 
-  if (inv.status === "paid")            return j({ error: "already_paid" }, 409, cors);
-  if (inv.status === "payment_pending") return j({ error: "payment_pending" }, 409, cors);
-  if (inv.status !== "unpaid")          return j({ error: "invoice_not_payable" }, 409, cors);
+  // If we voided anything, the cached status is stale — re-read it.
+  let status = inv.status as string;
+  if (voidedStale) {
+    const { data: fresh } = await sb.from("invoices").select("status").eq("id", inv.id as string).maybeSingle();
+    if (fresh?.status) status = fresh.status;
+  }
+
+  if (status === "paid")            return j({ error: "already_paid" }, 409, cors);
+  if (status === "payment_pending") return j({ error: "payment_pending" }, 409, cors);
+  if (status !== "unpaid")          return j({ error: "invoice_not_payable", invoice_status: status }, 409, cors);
   return null;
 }
 

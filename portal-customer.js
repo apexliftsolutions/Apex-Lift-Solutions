@@ -157,7 +157,15 @@ async function loadQuotes() {
     .eq('invoiced', false).eq('hidden_by_customer', false)
     .order('created_at', { ascending: false });
 
-  if (error) { wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">Error: ${xss(error.message)}</div>`; return; }
+  if (error) {
+    console.error('[Apex] invoice query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
+    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+      Couldn't load your invoices.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
+      <button class="approve-btn" style="margin-top:12px;" onclick="loadInvoices()">Try Again</button>
+      <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
+    return;
+  }
+  console.info(`[Apex] invoices loaded: ${(invoices || []).length} for ${USER.id}`);
   if (!quotes?.length) { wrap.innerHTML = '<div class="empty-state">No quotes yet — contact us or use Request Service to get started!</div>'; return; }
 
   const cards = await Promise.all(quotes.map(async q => `
@@ -203,7 +211,15 @@ async function loadInvoices() {
     .eq('customer_id', USER.id)
     .order('created_at', { ascending: false });
 
-  if (error) { wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">Error: ${xss(error.message)}</div>`; return; }
+  if (error) {
+    console.error('[Apex] invoice query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
+    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+      Couldn't load your invoices.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
+      <button class="approve-btn" style="margin-top:12px;" onclick="loadInvoices()">Try Again</button>
+      <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
+    return;
+  }
+  console.info(`[Apex] invoices loaded: ${(invoices || []).length} for ${USER.id}`);
 
   // Index by id so openPay() can read the tax breakdown without stuffing JSON
   // into an onclick attribute.
@@ -217,7 +233,15 @@ async function loadInvoices() {
     return true;
   });
 
-  if (!visible.length) { wrap.innerHTML = '<div class="empty-state">No outstanding invoices. All paid up! 🎉</div>'; return; }
+  if (!visible.length) {
+    // Distinguish "genuinely nothing" from "we fetched zero rows", which can
+    // mean the invoice was never linked to this portal account.
+    wrap.innerHTML = (invoices || []).length
+      ? '<div class="empty-state">No outstanding invoices. All paid up! 🎉</div>'
+      : `<div class="empty-state">No invoices on your account yet.<br/>
+         <span style="font-size:.82rem;color:var(--grey);">Expecting one? Call (516) 644-7187 and we'll check it's linked to your account.</span></div>`;
+    return;
+  }
 
   wrap.innerHTML = '<div class="q-cards">' + visible.map(i => {
     const workSummary = i.items?.length
@@ -269,7 +293,15 @@ async function loadHistory() {
     .eq('customer_id', USER.id)
     .order('date', { ascending: false });
 
-  if (error) { wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">Error: ${xss(error.message)}</div>`; return; }
+  if (error) {
+    console.error('[Apex] invoice query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
+    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+      Couldn't load your invoices.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
+      <button class="approve-btn" style="margin-top:12px;" onclick="loadInvoices()">Try Again</button>
+      <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
+    return;
+  }
+  console.info(`[Apex] invoices loaded: ${(invoices || []).length} for ${USER.id}`);
   if (!rows?.length) { wrap.innerHTML = '<div class="empty-state">No service history yet.</div>'; return; }
 
   wrap.innerHTML = '<div class="q-cards">' + rows.map(h => `
@@ -405,6 +437,7 @@ async function startPay() {
         invoice_not_payable:  'This invoice is not currently payable.',
         duplicate_in_flight:  'A payment is already being started. Give it a moment and try again.',
       }[error] || 'We could not start the payment. Please try again, or call (516) 644-7187.';
+      console.error('[Apex] payment-checkout rejected', { http: res.status, error, invoice_id: id });
       showPayState('error', msg);
       PAY_BUSY = false;
       return;
@@ -475,7 +508,7 @@ async function startPay() {
     appendHelcimPayIframe(checkoutToken, true);
 
   } catch (e) {
-    console.error('Payment init error:', e);
+    console.error('[Apex] payment-checkout threw', { invoice_id: PAY_ID, err: e });
     showPayState('error', 'Connection problem. Please try again or call (516) 644-7187.');
     PAY_BUSY = false;
   }
