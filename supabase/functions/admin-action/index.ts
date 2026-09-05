@@ -191,17 +191,43 @@ Deno.serve(async (req) => {
       }
 
       // Delete invoice
+      // Hard-delete ONLY when nothing references the invoice. payments.invoice_id
+      // is ON DELETE RESTRICT, so an invoice with any ledger row cannot be
+      // removed -- and must not be, because that is accounting history. Those
+      // are voided instead: gone from the customer's payable list, audit intact.
       case 'delete-invoice': {
         const { invoiceId } = body;
         if (!invoiceId) return json({ error: 'invoiceId required' }, 400);
 
-        await admin.from('invoices').delete().eq('id', invoiceId);
-        await logAction(admin, user.id, 'delete_invoice', `Invoice ${invoiceId} deleted`);
+        const { data: invArr, error: invErr } = await admin.from('invoices').select('*').eq('id', invoiceId);
+        if (invErr) return json({ error: invErr.message }, 500);
+        const inv = invArr?.[0];
+        if (!inv) return json({ error: 'Invoice not found' }, 404);
 
-        return json({ ok: true });
+        const { count, error: cErr } = await admin.from('payments')
+          .select('id', { count: 'exact', head: true }).eq('invoice_id', invoiceId);
+        if (cErr) return json({ error: cErr.message }, 500);
+
+        if ((count ?? 0) > 0) {
+          if (inv.status === 'paid') {
+            return json({ error: 'A paid invoice cannot be deleted. Refund it in Helcim first if it was taken in error.' }, 409);
+          }
+          const { error: vErr } = await admin.from('invoices')
+            .update({ status: 'void' }).eq('id', invoiceId);
+          if (vErr) return json({ error: vErr.message }, 500);
+          await logAction(admin, user.id, 'invoice_voided',
+            `${invoiceId} voided (${count} payment record${count === 1 ? '' : 's'} preserved) — ${inv.customer_name || ''}`);
+          return json({ ok: true, action: 'voided', payment_rows: count,
+            message: `Invoice ${invoiceId} has payment history and cannot be permanently deleted. It has been voided instead — the customer can no longer pay it, and the payment records are preserved.` });
+        }
+
+        const { error: dErr } = await admin.from('invoices').delete().eq('id', invoiceId);
+        if (dErr) return json({ error: dErr.message }, 500);
+        await logAction(admin, user.id, 'invoice_deleted',
+          `${invoiceId} permanently deleted (no payment history) — ${inv.customer_name || ''}`);
+        return json({ ok: true, action: 'deleted', message: `Invoice ${invoiceId} permanently deleted.` });
       }
 
-      // Delete customer (also deletes auth user via cascade)
       case 'delete-customer': {
         const { customerId } = body;
         if (!customerId) return json({ error: 'customerId required' }, 400);

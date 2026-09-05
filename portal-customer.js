@@ -17,10 +17,11 @@ const sb = supabase.createClient(SB_URL, SB_KEY);
 let USER      = null;  // { id, email, name, company }
 let PAY_ID    = null;
 let REQ_FILES = [];
-
-// Invoice/payment UI state
-let INVOICE_CACHE = {};
-const LOCKED_INVOICES = new Set();
+// Invoice/payment UI state. Must stay in module scope — loadInvoices(),
+// openPay() and the Helcim SUCCESS handler all read them.
+let INVOICE_CACHE = {};              // invoice id -> row, for the tax breakdown
+const LOCKED_INVOICES = new Set();   // approved this session; in-memory only,
+                                     // never persisted. The DB is the authority.
 
 // ── BOOT ──────────────────────────────────────
 (async function boot() {
@@ -161,32 +162,16 @@ async function loadQuotes() {
     .eq('invoiced', false).eq('hidden_by_customer', false)
     .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('[Apex] quote query failed', {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        customer_id: USER.id
-      });
-
-      wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
-      Couldn't load your quotes.<br/>
-      <span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
+  if (error) {
+    console.error('[Apex] quote query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
+    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+      Couldn't load your quotes.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
       <button class="approve-btn" style="margin-top:12px;" onclick="loadQuotes()">Try Again</button>
-      <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">
-      If this keeps happening, call (516) 644-7187.
-      </p>
-      </div>`;
-      return;
-    }
-
-    console.info(`[Apex] quotes loaded: ${(quotes || []).length} for ${USER.id}`);
-
-    if (!quotes?.length) {
-      wrap.innerHTML = '<div class="empty-state">No quotes yet — contact us or use Request Service to get started!</div>';
-      return;
-    }
+      <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
+    return;
+  }
+  console.info(`[Apex] quotes loaded: ${(quotes || []).length} for ${USER.id}`);
+  if (!quotes?.length) { wrap.innerHTML = '<div class="empty-state">No quotes yet — contact us or use Request Service to get started!</div>'; return; }
 
   const cards = await Promise.all(quotes.map(async q => `
     <div class="q-card">
@@ -313,32 +298,16 @@ async function loadHistory() {
     .eq('customer_id', USER.id)
     .order('date', { ascending: false });
 
-    if (error) {
-      console.error('[Apex] service history query failed', {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        customer_id: USER.id
-      });
-
-      wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
-      Couldn't load your service history.<br/>
-      <span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
+  if (error) {
+    console.error('[Apex] service history query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
+    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+      Couldn't load your service history.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
       <button class="approve-btn" style="margin-top:12px;" onclick="loadHistory()">Try Again</button>
-      <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">
-      If this keeps happening, call (516) 644-7187.
-      </p>
-      </div>`;
-      return;
-    }
-
-    console.info(`[Apex] service history loaded: ${(rows || []).length} for ${USER.id}`);
-
-    if (!rows?.length) {
-      wrap.innerHTML = '<div class="empty-state">No service history yet.</div>';
-      return;
-    }
+      <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
+    return;
+  }
+  console.info(`[Apex] service history loaded: ${(rows || []).length} for ${USER.id}`);
+  if (!rows?.length) { wrap.innerHTML = '<div class="empty-state">No service history yet.</div>'; return; }
 
   wrap.innerHTML = '<div class="q-cards">' + rows.map(h => `
     <div class="q-card">

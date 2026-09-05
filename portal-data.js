@@ -232,12 +232,9 @@ const DB = {
     }
   },
   async deleteInvoice(id) {
-    try {
-      return await EF.adminAction('delete-invoice', { invoiceId: id });
-    } catch (e) {
-      console.warn('Edge function unavailable, using direct delete:', e.message);
-      return SB.delete('invoices', `id=eq.${encodeURIComponent(id)}`);
-    }
+    // No direct-delete fallback: the FK from payments would reject it anyway,
+    // and the server needs to decide between delete and void.
+    return await EF.adminAction('delete-invoice', { invoiceId: id });
   },
 
   // ── SERVICE HISTORY ──────────────────────────

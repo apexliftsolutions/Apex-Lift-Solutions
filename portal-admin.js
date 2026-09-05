@@ -356,11 +356,26 @@ async function unhideInvoice(id) {
   renderInvoices();
 }
 
+// Routed through admin-action so the server decides delete vs void. The old
+// version called SB.delete() directly, ignored the result, and showed a success
+// toast either way -- so an invoice with payment history silently stayed put
+// (payments.invoice_id is ON DELETE RESTRICT).
 async function deleteInvoice(id) {
-  if (!confirm(`Permanently delete invoice ${id}? This cannot be undone.`)) return;
-  await SB.delete('invoices', `id=eq.${encodeURIComponent(id)}`);
-  await logActivity('delete_invoice', `Invoice ${id} permanently deleted`);
-  showToast('✓ Invoice deleted.');
+  if (!confirm(`Delete invoice ${id}?\n\nIf it has any payment history it will be VOIDED instead, so the accounting record is preserved.`)) return;
+  try {
+    const res = await DB.deleteInvoice(id);
+    if (res?.error) {
+      console.error('[Apex] delete-invoice failed', res);
+      alert(res.error);
+      return;
+    }
+    showToast(res?.action === 'voided' ? `✓ ${id} voided — payment history preserved` : `✓ ${id} deleted`);
+    if (res?.action === 'voided' && res.message) alert(res.message);
+  } catch (e) {
+    console.error('[Apex] delete-invoice threw', e);
+    alert(`Could not delete invoice ${id}: ${e.message || e}`);
+    return;
+  }
   renderInvoices();
 }
 
@@ -1029,7 +1044,7 @@ function downloadCSV(rows, filename) {
 }
 
 async function exportInvoicesCSV() {
-  const invoices = await DB.getAllInvoices();
+  const invoices = (await DB.getAllInvoices()).filter(i => i.status !== 'void');
   const rows = invoices.map(i => ({
     'Invoice #':     i.id,
     'Customer':      i.customer_name || '',

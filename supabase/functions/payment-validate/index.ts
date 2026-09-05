@@ -131,9 +131,10 @@ Deno.serve(async (req) => {
     currency, expectedCurrency: pay.currency, isACH: achTxn,
   });
   if (!rec.ok) {
-    await sb.from("payments").update({ status: "unknown", failure_category: `amount_${rec.reason}`,
+    const { error: mmErr } = await sb.from("payments").update({ status: "unknown", failure_category: `amount_${rec.reason}`,
       provider_transaction_id: txnId, total_charged_cents: txnCents,
       completed_at: new Date().toISOString() }).eq("id", pay.id);
+    if (mmErr) console.error("[payment-validate] mismatch write failed", mmErr);
     await ev(sb, pay, "amount_mismatch", "browser_validate",
       { reason: rec.reason, base_cents: rec.baseCents, charged_cents: rec.totalCents,
         implied_fee_cents: rec.impliedFeeCents, currency, ach: achTxn });
@@ -146,7 +147,11 @@ Deno.serve(async (req) => {
   const newStatus  = !approved ? "failed" : (achTxn && !achSettled) ? "pending" : "succeeded";
   const now = new Date().toISOString();
 
-  await sb.from("payments").update({
+  // ── PERSIST ────────────────────────────────────────────────────────────────
+  // Every write below is error-checked. The browser must NEVER be told the
+  // payment persisted when it did not -- that is what produced "success, then
+  // the invoice is unpaid again after a refresh".
+  const { error: payErr } = await sb.from("payments").update({
     status: newStatus,
     provider_transaction_id: txnId,
     method: achTxn ? "ach" : "card",
@@ -160,18 +165,62 @@ Deno.serve(async (req) => {
     completed_at: newStatus === "pending" ? null : now,
   }).eq("id", pay.id);
 
+  if (payErr) {
+    // The money moved but we could not record it. Do not claim success --
+    // the webhook and reconcile job are still authoritative and will retry.
+    console.error("[payment-validate] payments UPDATE failed", payErr);
+    await ev(sb, pay, "persist_failed", "browser_validate",
+      { step: "payments_update", txn_id: txnId, db_error: payErr.message, code: payErr.code });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, amount_cents: pay.amount_cents }, 202, cors);
+  }
+
   await ev(sb, pay, newStatus === "succeeded" ? "approved" : newStatus === "pending" ? "pending" : "declined",
            "browser_validate", { txn_id: txnId, ach: achTxn, provider_status: status, hash_ok: hashOk,
              base_cents: rec.baseCents, fee_cents: rec.feeCents, charged_cents: rec.totalCents });
 
   // Invoice state is DERIVED from the ledger — never assigned here.
-  await sb.rpc("recalc_invoice_status", { p_invoice_id: pay.invoice_id });
+  const { error: recalcErr } = await sb.rpc("recalc_invoice_status", { p_invoice_id: pay.invoice_id });
+  if (recalcErr) {
+    console.error("[payment-validate] recalc_invoice_status failed", recalcErr);
+    await ev(sb, pay, "persist_failed", "browser_validate",
+      { step: "recalc_invoice_status", invoice_id: pay.invoice_id,
+        db_error: recalcErr.message, code: recalcErr.code, hint: recalcErr.hint });
+    // The payment row IS correct. Only the derived invoice status is behind, so
+    // report "confirming" rather than success or failure.
+    return j({ status: "confirming", invoice_id: pay.invoice_id, amount_cents: pay.amount_cents,
+               reason: "invoice_recalc_pending" }, 202, cors);
+  }
+
   if (newStatus === "succeeded") {
-    await sb.from("invoices").update({ paid_via: "helcim", payment_id: pay.id }).eq("id", pay.invoice_id);
+    const { error: linkErr } = await sb.from("invoices")
+      .update({ paid_via: "helcim", payment_id: pay.id }).eq("id", pay.invoice_id);
+    if (linkErr) console.error("[payment-validate] invoice link update failed", linkErr);
+  }
+
+  // ── VERIFY THE WRITE ACTUALLY LANDED ───────────────────────────────────────
+  // Triggers (guard_tax_totals, guard_payment) can raise and silently leave the
+  // invoice behind. Read it back before telling the customer anything.
+  const { data: invAfter, error: invErr } = await sb.from("invoices")
+    .select("status, paid_at").eq("id", pay.invoice_id).maybeSingle();
+
+  if (invErr) console.error("[payment-validate] invoice read-back failed", invErr);
+
+  const expected = newStatus === "succeeded" ? "paid"
+                 : newStatus === "pending"   ? "payment_pending" : null;
+
+  if (expected && invAfter && invAfter.status !== expected) {
+    // Payment recorded, invoice did not follow. This is an internal
+    // inconsistency, not a customer-facing failure.
+    console.error("[payment-validate] INCONSISTENCY: payment=%s but invoice=%s",
+      newStatus, invAfter.status);
+    await ev(sb, pay, "invoice_status_inconsistent", "browser_validate",
+      { payment_status: newStatus, invoice_status: invAfter.status, expected });
+    return j({ status: "confirming", invoice_id: pay.invoice_id, amount_cents: pay.amount_cents,
+               reason: "invoice_status_lagging" }, 202, cors);
   }
 
   const { data: fresh } = await sb.from("payments").select("*").eq("id", pay.id).single();
-  return j(view(fresh), 200, cors);
+  return j(view(fresh ?? pay), 200, cors);
 });
 
 function view(p: Record<string, unknown>) {
