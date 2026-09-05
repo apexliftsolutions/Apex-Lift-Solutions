@@ -473,8 +473,15 @@ async function startPay() {
     let settled = false;   // guards against SUCCESS followed by a HIDE event
 
     PAY_LISTENER = async (ev) => {
+      // Log every Helcim-shaped message, even non-matching ones, so a mismatched
+      // event name is visible instead of silently doing nothing.
+      if (ev.data && typeof ev.data === 'object' && 'eventName' in ev.data) {
+        console.info('[Apex] Helcim event received:', ev.data.eventName, ev.data.eventStatus,
+          ev.data.eventName === `helcim-pay-js-${checkoutToken}` ? '(matches our checkout)' : '(different checkout — ignored)');
+      }
       if (!ev.data || ev.data.eventName !== `helcim-pay-js-${checkoutToken}`) return;
       const status = ev.data.eventStatus;
+      console.info('[Apex] Helcim event status:', status);
 
       if (status === 'ABORTED' || status === 'HIDE') {
         if (settled) return;                 // success already handled; ignore
@@ -485,6 +492,7 @@ async function startPay() {
       if (status !== 'SUCCESS') return;
 
       settled = true;
+      console.info('[Apex] SUCCESS — invoking payment-validate for', PAY_ID);
       cleanupHelcim();
 
       // Re-open our modal to show the verifying/result state.
@@ -503,6 +511,8 @@ async function startPay() {
           }),
         });
         const out = await vr.json();
+        // Status + resulting state only. Never the transaction payload.
+        console.info('[Apex] payment-validate HTTP', vr.status, '→ status:', out?.status ?? out?.error);
 
         // Helcim already told the customer the card was approved. From here on
         // the ONLY safe outcomes are "paid", "processing" or "confirming".
@@ -512,7 +522,7 @@ async function startPay() {
         else                               showPayState('confirming', null, out);
       } catch (e) {
         // Network/timeout AFTER Helcim approved. Same rule applies.
-        console.error('validate failed after SUCCESS:', e);
+        console.error('[Apex] payment-validate threw after Helcim SUCCESS — invoice will be recovered by webhook/reconcile:', e);
         showPayState('confirming');
       } finally {
         // Deliberately NOT clearing PAY_BUSY: Helcim approved, so this invoice

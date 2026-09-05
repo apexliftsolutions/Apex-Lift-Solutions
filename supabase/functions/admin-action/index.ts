@@ -195,6 +195,76 @@ Deno.serve(async (req) => {
       // is ON DELETE RESTRICT, so an invoice with any ledger row cannot be
       // removed -- and must not be, because that is accounting history. Those
       // are voided instead: gone from the customer's payable list, audit intact.
+      // Recover a payment Helcim took but Apex never recorded. The admin reads
+      // the transaction id off the Helcim dashboard; the SERVER then verifies it
+      // against Helcim before touching anything. This never charges a card.
+      case 'reconcile-payment': {
+        const { paymentId, helcimTransactionId } = body;
+        if (!paymentId || !helcimTransactionId) {
+          return json({ error: 'paymentId and helcimTransactionId are both required' }, 400);
+        }
+
+        const { data: payArr, error: pErr } = await admin.from('payments').select('*').eq('id', paymentId);
+        if (pErr) return json({ error: pErr.message }, 500);
+        const pay = payArr?.[0];
+        if (!pay) return json({ error: 'Payment attempt not found' }, 404);
+        if (pay.status === 'succeeded') return json({ error: 'This payment is already recorded as succeeded.' }, 409);
+
+        // Verify with Helcim. The admin's word is not enough to move money state.
+        let txn = null, lastStatus = 0;
+        for (const seg of ['card-transactions', 'bank-transactions']) {
+          const r = await fetch(`https://api.helcim.com/v2/${seg}/${encodeURIComponent(helcimTransactionId)}`, {
+            headers: { 'api-token': Deno.env.get('HELCIM_ADMIN_API_TOKEN'), accept: 'application/json' },
+          });
+          lastStatus = r.status;
+          if (r.ok) { txn = await r.json().catch(() => null); if (txn) break; }
+        }
+        if (!txn) return json({ error: `Helcim has no transaction ${helcimTransactionId} (HTTP ${lastStatus}). Check the id.` }, 404);
+
+        if (!/APPROV/i.test(String(txn.status ?? ''))) {
+          return json({ error: `That transaction is ${txn.status}, not approved. It cannot settle an invoice.` }, 409);
+        }
+
+        const chargedCents = Math.round(Number(txn.amount ?? 0) * 100);
+        const base = Number(pay.amount_cents);
+        if (chargedCents < base) {
+          return json({ error: `Transaction charged $${(chargedCents/100).toFixed(2)} but the invoice is $${(base/100).toFixed(2)}. Refusing to settle an underpayment.` }, 409);
+        }
+        const fee = chargedCents - base;
+        const ceiling = Math.max(Math.ceil(base * 0.10), 200);
+        if (fee > ceiling) {
+          return json({ error: `Transaction charged $${(chargedCents/100).toFixed(2)} vs invoice $${(base/100).toFixed(2)}. The $${(fee/100).toFixed(2)} difference is too large to assume it is a convenience fee. Reconcile manually.` }, 409);
+        }
+
+        const isBank = /ach|bank/i.test(String(txn.type ?? '')) || !!txn.bankAccountNumber;
+        const nowIso = new Date().toISOString();
+        const { error: uErr } = await admin.from('payments').update({
+          status: isBank ? 'pending' : 'succeeded',
+          provider_transaction_id: String(txn.transactionId ?? txn.id ?? helcimTransactionId),
+          method: isBank ? 'ach' : 'card',
+          method_display: txn.cardNumber ? `${txn.cardType ?? 'Card'} ····${String(txn.cardNumber).slice(-4)}` : null,
+          fee_cents: fee, total_charged_cents: chargedCents,
+          approved_at: nowIso, settled_at: isBank ? null : nowIso,
+          completed_at: isBank ? null : nowIso, failure_category: null,
+        }).eq('id', paymentId);
+        if (uErr) return json({ error: uErr.message }, 500);
+
+        await admin.from('payment_events').insert({ payment_id: paymentId, invoice_id: pay.invoice_id,
+          event: 'recovered_settled', source: 'admin',
+          detail: { txn_id: helcimTransactionId, base_cents: base, fee_cents: fee,
+                    charged_cents: chargedCents, note: 'manually reconciled by admin from Helcim dashboard' } });
+        await admin.rpc('recalc_invoice_status', { p_invoice_id: pay.invoice_id });
+        if (!isBank) {
+          await admin.from('invoices').update({ paid_via: 'helcim', payment_id: paymentId }).eq('id', pay.invoice_id);
+        }
+        await logAction(admin, user.id, 'payment_reconciled',
+          `${pay.invoice_id} reconciled to Helcim txn ${helcimTransactionId} — $${(chargedCents/100).toFixed(2)}`);
+
+        const { data: invAfter } = await admin.from('invoices').select('status').eq('id', pay.invoice_id).maybeSingle();
+        return json({ ok: true, payment_status: isBank ? 'pending' : 'succeeded',
+          invoice_status: invAfter?.status, fee_cents: fee, charged_cents: chargedCents });
+      }
+
       case 'delete-invoice': {
         const { invoiceId } = body;
         if (!invoiceId) return json({ error: 'invoiceId required' }, 400);

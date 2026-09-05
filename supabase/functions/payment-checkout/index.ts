@@ -82,12 +82,19 @@ Deno.serve(async (req) => {
   // can qualify commercial-card transactions for lower interchange. It is
   // informational to the processor; it does NOT change what is charged.
   const taxDollars = Number(((Number(inv.tax_cents) || 0) / 100).toFixed(2));
+  // invoiceNumber is what lets the webhook and the reconcile job find this
+  // transaction later. Without it, a payment whose browser died is unrecoverable.
+  // Helcim: "If the invoiceNumber exists in your Helcim account, the payment will
+  // be linked to that Invoice. If it does not exist, the Invoice object created
+  // by the transaction event will be assigned that invoiceNumber." So passing an
+  // id Helcim has never seen is safe.
   const body: Record<string, unknown> = {
     paymentType:       "purchase",
     amount:            Number((baseCents / 100).toFixed(2)),
     currency:          "USD",
     paymentMethod:     "cc-ach",
     hasConvenienceFee: 1,
+    invoiceNumber:     inv.id,
   };
   if (taxDollars > 0) body.taxAmount = taxDollars;
 
@@ -138,7 +145,7 @@ Deno.serve(async (req) => {
   await sb.from("payment_events").insert({
     payment_id: pay.id, invoice_id: inv.id, event: "checkout_created", source: "browser_validate",
     detail: { amount_cents: baseCents, tax_cents: Number(inv.tax_cents) || 0,
-              fee_saver: true, payment_method: "cc-ach" },
+              fee_saver: true, payment_method: "cc-ach", invoice_number: inv.id },
   });
   await sb.from("activity_log").insert({
     actor_id: user.id, action: "payment_checkout_created",

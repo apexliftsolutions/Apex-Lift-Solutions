@@ -33,18 +33,41 @@ Deno.serve(async (req) => {
   const { data: { user } } = await sb.auth.getUser(jwt);
   if (!user) return j({ error: "unauthorized" }, 401, cors);
 
-  const { checkoutToken, rawDataResponse, hash } = await req.json();
-  if (!checkoutToken) return j({ error: "bad_request" }, 400, cors);
+  const { checkoutToken, rawDataResponse, hash } = await req.json().catch(() => ({}));
+  if (!checkoutToken) {
+    console.error("[payment-validate] bad request: no checkoutToken");
+    return j({ error: "bad_request" }, 400, cors);
+  }
 
   // Read through a service-role-only SECURITY DEFINER function. The `private`
   // schema is not in the Data API's exposed schemas, so there is no browser path
   // to secret_token at all.
-  const { data: sess } = await sb.rpc("read_checkout_session", { p_checkout_token: checkoutToken }).maybeSingle();
-  if (!sess) return j({ error: "unknown_session" }, 404, cors);
+  const { data: sess, error: sessErr } = await sb.rpc("read_checkout_session",
+    { p_checkout_token: checkoutToken }).maybeSingle();
+  if (!sess) {
+    // Leave a trail even here. Previously this exit was silent, which meant a
+    // failed validation was indistinguishable from validation never running.
+    console.error("[payment-validate] unknown checkout session", { checkoutToken, sessErr });
+    await sb.from("payment_events").insert({ event: "validation_failed", source: "browser_validate",
+      detail: { reason: "unknown_checkout_session", checkout_token: checkoutToken,
+                db_error: sessErr?.message ?? null } });
+    return j({ error: "unknown_session" }, 404, cors);
+  }
 
   const { data: pay } = await sb.from("payments").select("*").eq("id", sess.attempt_id).single();
-  if (!pay) return j({ error: "unknown_session" }, 404, cors);
-  if (pay.customer_id !== user.id) return j({ error: "forbidden" }, 403, cors);
+  if (!pay) {
+    await sb.from("payment_events").insert({ event: "validation_failed", source: "browser_validate",
+      detail: { reason: "attempt_row_missing", attempt_id: sess.attempt_id } });
+    return j({ error: "unknown_session" }, 404, cors);
+  }
+  if (pay.customer_id !== user.id) {
+    await ev(sb, pay, "validation_failed", "browser_validate", { reason: "ownership_mismatch" });
+    return j({ error: "forbidden" }, 403, cors);
+  }
+
+  // First thing we can attribute to this payment: proof validation actually ran.
+  await ev(sb, pay, "validation_started", "browser_validate",
+    { has_hash: !!hash, has_raw: !!rawDataResponse });
 
   // Replay guard — a settled attempt is reported back, never re-processed.
   if (!["initiated", "pending"].includes(pay.status)) {
