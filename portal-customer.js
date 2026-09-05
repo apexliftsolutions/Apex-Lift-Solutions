@@ -156,10 +156,12 @@ async function loadQuotes() {
   if (!USER) return;
   wrap.innerHTML = '<div class="loading-msg">Loading quotes…</div>';
 
+  // Invoiced quotes stay visible, read-only. A customer needs the document that
+  // shows what they approved. Only quotes they explicitly dismissed are hidden.
   const { data: quotes, error } = await sb
     .from('quotes').select('*')
     .eq('customer_id', USER.id)
-    .eq('invoiced', false).eq('hidden_by_customer', false)
+    .eq('hidden_by_customer', false)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -177,7 +179,7 @@ async function loadQuotes() {
     <div class="q-card">
       <div class="q-hdr">
         <span class="q-id">${xss(q.id)}</span>
-        <div style="display:flex;align-items:center;gap:12px;">${badgeHtml(q.status)}<span class="q-amt">$${parseFloat(q.amount).toFixed(2)}</span></div>
+        <div style="display:flex;align-items:center;gap:12px;">${badgeHtml(q.status)}${q.invoiced ? '<span class="badge badge-hidden">Invoiced</span>' : ''}<span class="q-amt">$${parseFloat(q.amount).toFixed(2)}</span></div>
       </div>
       ${q.description ? `<div class="q-desc">${xss(q.description)}</div>` : ''}
       ${lineItemsHtml(q.items)}
@@ -194,7 +196,10 @@ async function loadQuotes() {
           <button class="decline-btn" onclick="respondQuote('${xss(q.id)}','declined')">✗ Decline</button>
         </div>` :
         q.status === 'approved'
-          ? `<p style="color:#4caf50;font-size:.88rem;font-weight:600;margin-top:6px;">✓ Approved on ${bdate(q.responded_at)} — we'll contact you to schedule.</p>`
+          ? `<p style="color:#4caf50;font-size:.88rem;font-weight:600;margin-top:6px;">✓ Approved on ${bdate(q.responded_at)}${q.invoiced ? ' — invoiced.' : " — we'll contact you to schedule."}</p>
+             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+               <button class="print-btn" onclick="printQuote('${xss(q.id)}')">🖨 View / Print Quote</button>
+             </div>`
           : `<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px;">
                <p style="color:#ff4444;font-size:.88rem;margin:0;">Declined on ${bdate(q.responded_at)}.</p>
                <button class="decline-btn" style="padding:6px 14px;font-size:.72rem;" onclick="removeQuote('${xss(q.id)}')">🗑 Remove</button>
@@ -231,10 +236,12 @@ async function loadInvoices() {
   (invoices || []).forEach(r => { INVOICE_CACHE[r.id] = r; });
 
   // Show unpaid always; show paid invoices for 90 days (receipt window); hide hidden
-  const now = Date.now();
+  const now = Date.now();   // used by other status branches
   const visible = (invoices || []).filter(i => {
     if (i.status === 'hidden') return false;
-    if (i.status === 'paid') return (now - new Date(i.paid_at || 0).getTime()) < 90 * 864e5;
+    // Paid invoices are permanent records — the customer's proof of payment.
+    // If this list ever gets long, add paging or a year filter; never hide history.
+    if (i.status === 'paid') return true;
     return true;
   });
 
@@ -265,12 +272,22 @@ async function loadInvoices() {
             ${i.quote_id ? `<div class="q-meta-item">Quote Ref<span>${xss(i.quote_id)}</span></div>` : ''}
           </div>
           ${workSummary}
-          <button class="print-btn" onclick="printReceipt('" + i.id + "')">🖨 Print Receipt</button>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
+            ${i.payment_id ? `<button class="print-btn" onclick="printPaymentReceipt('${xss(i.payment_id)}')">🧾 Payment Receipt</button>` : ''}
+            ${i.quote_id ? `<button class="print-btn" onclick="printQuote('${xss(i.quote_id)}')">📄 Original Quote</button>` : ''}
+          </div>
           <p style="color:var(--grey);font-size:.8rem;">Questions? Call (516) 644-7187.</p>
          </div>`
       : (i.status === 'payment_pending' || LOCKED_INVOICES.has(i.id))
-        ? `${workSummary}${taxRows(i)}<div class="pay-locked">⏳ Payment received — being confirmed. No further payment is needed.</div>`
-        : `${workSummary}${taxRows(i)}<button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>`;
+        ? `${workSummary}${taxRows(i)}<div class="pay-locked">⏳ Payment received — being confirmed. No further payment is needed.</div>
+           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+             <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
+           </div>`
+        : `${workSummary}${taxRows(i)}<div style="display:flex;gap:10px;flex-wrap:wrap;">
+             <button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
+             <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
+           </div>`;
 
     return `<div class="q-card">
       <div class="q-hdr">
@@ -638,7 +655,7 @@ async function loadPayments() {
       ${r.status === 'pending' && r.method === 'ach'
         ? `<p style="color:#f0a500;font-size:.86rem;margin-top:4px;">Bank payment processing — this usually clears in a few business days.</p>`
         : r.status === 'succeeded'
-          ? `<button class="approve-btn" style="padding:8px 16px;font-size:.76rem;" onclick="printReceipt('${xss(r.id)}')">Print Receipt</button>` : ''}
+          ? `<button class="approve-btn" style="padding:8px 16px;font-size:.76rem;" onclick="printPaymentReceipt('${xss(r.id)}')">Print Receipt</button>` : ''}
     </div>`).join('') + '</div>';
 }
 function methodName(m) {
@@ -646,30 +663,163 @@ function methodName(m) {
 }
 
 // Receipt is rendered from the stored ledger row, fetched fresh at print time.
-async function printReceipt(paymentId) {
-  const { data: r } = await sb.from('payments').select('*').eq('id', paymentId).eq('customer_id', USER.id).single();
-  if (!r) return;
-  const w = window.open('', '_blank', 'width=680,height=800');
-  w.document.write(`<!doctype html><html><head><title>Receipt ${r.invoice_id}</title>
-    <style>body{font-family:Arial,sans-serif;padding:40px;color:#111;max-width:640px}
-    h1{font-size:20px;letter-spacing:.06em;text-transform:uppercase;margin:0}
-    .r{border-top:3px solid #cc0000;padding-top:18px;margin-top:14px}
-    table{width:100%;border-collapse:collapse;font-size:14px;margin-top:18px}
-    td{padding:9px 0;border-bottom:1px solid #eee}td:last-child{text-align:right;font-weight:700}
-    .tot{font-size:19px;font-weight:700}.f{margin-top:26px;font-size:12px;color:#666;line-height:1.7}</style></head><body>
-    <h1>Apex <span style="color:#cc0000">Lift Solutions</span></h1>
-    <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#888;">Payment Receipt</div>
-    <div class="r"><table>
-      <tr><td>Invoice</td><td>${r.invoice_id}</td></tr>
-      <tr><td>Payment date</td><td>${new Date(r.settled_at || r.approved_at || r.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</td></tr>
-      <tr><td>Method</td><td>${r.method_display || methodName(r.method)}</td></tr>
-      ${r.provider_transaction_id ? `<tr><td>Reference</td><td>${r.provider_transaction_id}</td></tr>` : ''}
-      <tr><td class="tot">Amount paid</td><td class="tot">$${(r.amount_cents/100).toFixed(2)}</td></tr>
-    </table>
-    <p class="f">Apex Lift Solutions · (516) 644-7187 · service@apexliftsolutionsusa.com<br>
-    Nassau &amp; Suffolk County, NY · apexliftsolutionsusa.com</p></div>
-    <script>window.print()<\/script></body></html>`);
+
+
+// ── PRINTABLE DOCUMENTS ───────────────────────
+// Three distinctly named functions. There used to be two both called
+// printReceipt() — one taking a payment id, one an invoice id — and the later
+// declaration silently overrode the earlier, so the Payments page passed a
+// payment id into the invoice printer.
+//
+// Every fetch is scoped to customer_id = USER.id, so a customer cannot type
+// another company's id and pull their document. RLS enforces it independently.
+
+const PRINT_CSS = `
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:0 auto;padding:40px 32px;}
+  .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #cc0000;padding-bottom:14px;}
+  h1{font-size:22px;letter-spacing:.04em;text-transform:uppercase;margin:0;}
+  .sub{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#888;margin-top:3px;}
+  .doc{text-align:right;font-size:12px;color:#555;line-height:1.7;}
+  .stamp{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.1em;padding:5px 12px;border:2px solid;margin-top:6px;}
+  .paid{color:#2e7d32;border-color:#2e7d32;} .due{color:#cc0000;border-color:#cc0000;}
+  .pend{color:#b26a00;border-color:#b26a00;} .info{color:#555;border-color:#999;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:20px;}
+  th{text-align:left;border-bottom:2px solid #cc0000;padding:7px 0;font-size:11px;letter-spacing:.08em;color:#666;}
+  td{padding:7px 0;border-bottom:1px solid #eee;}
+  .r{text-align:right;} .tot{font-size:17px;font-weight:700;}
+  .meta{margin-top:18px;font-size:13px;line-height:1.8;}
+  .ft{margin-top:30px;padding-top:14px;border-top:1px solid #eee;font-size:11px;color:#666;line-height:1.7;}
+  @media print{.noprint{display:none;}}
+  .noprint{margin-top:22px;padding:10px 22px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;}
+`;
+
+function printDoc(title, bodyHtml) {
+  const w = window.open('', '_blank', 'width=780,height=900');
+  if (!w) { alert('Please allow pop-ups to print this document.'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+    <style>${PRINT_CSS}</style></head><body>
+    <div class="hd"><div><h1>Apex <span style="color:#cc0000">Lift Solutions</span></h1>
+      <div class="sub">Forklift Repair &amp; Preventive Maintenance</div></div>
+      <div class="doc">${title}</div></div>
+    ${bodyHtml}
+    <div class="ft">Apex Lift Solutions &middot; (516) 644-7187 &middot; service@apexliftsolutionsusa.com<br>
+      Nassau &amp; Suffolk County, NY &middot; apexliftsolutionsusa.com</div>
+    <button class="noprint" onclick="window.print()">Print / Save as PDF</button>
+    </body></html>`);
   w.document.close();
+}
+
+const money = (cents) => '$' + (Number(cents || 0) / 100).toFixed(2);
+const dollars = (n) => '$' + Number(n || 0).toFixed(2);
+
+function itemsTable(items) {
+  if (!Array.isArray(items) || !items.length) return '';
+  const rows = items.map(it => {
+    const qty = Number(it.qty ?? 1), unit = Number(it.unit_price ?? it.amount ?? 0);
+    return `<tr><td>${esc(it.desc || '')}</td><td class="r">${qty}</td><td class="r">${dollars(qty * unit)}</td></tr>`;
+  }).join('');
+  return `<table><tr><th>Description</th><th class="r">Qty</th><th class="r">Amount</th></tr>${rows}</table>`;
+}
+
+function totalsTable(subCents, taxCents, rateMilli, exempt, totalDollars, label) {
+  const hasTax = Number(taxCents) > 0 || exempt;
+  return `<table style="margin-top:14px;">
+    ${hasTax ? `
+      <tr><td>Subtotal</td><td class="r">${money(subCents)}</td></tr>
+      <tr><td>${exempt ? 'Sales Tax (exempt)' : `Sales Tax (${(Number(rateMilli || 0) / 1000).toFixed(3)}%)`}</td><td class="r">${money(taxCents)}</td></tr>` : ''}
+    <tr><td class="tot">${label}</td><td class="r tot">${dollars(totalDollars)}</td></tr></table>`;
+}
+
+// Escape for a plain-HTML document window (portal xss() targets the portal DOM).
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, ch =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+async function printQuote(quoteId) {
+  const { data: q, error } = await sb.from('quotes').select('*')
+    .eq('id', quoteId).eq('customer_id', USER.id).maybeSingle();
+  if (error || !q) { console.error('[Apex] printQuote failed', error); alert('Could not load that quote.'); return; }
+  const stamp = q.status === 'approved' ? '<div class="stamp paid">Approved</div>'
+              : q.status === 'declined' ? '<div class="stamp due">Declined</div>'
+              : '<div class="stamp info">Pending</div>';
+  printDoc(`Quote ${esc(q.id)}`, `
+    <div class="meta">
+      <strong>${esc(q.company || q.customer_name || '')}</strong><br>
+      ${esc(q.customer_name || '')}<br>${esc(q.customer_email || '')}<br>
+      Quote date: ${new Date(q.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}
+      ${q.responded_at ? `<br>Responded: ${new Date(q.responded_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}` : ''}
+      ${q.equipment ? `<br>Equipment: ${esc(q.equipment)}` : ''}
+      ${q.invoiced ? '<br>Status: Invoiced' : ''}
+      <div>${stamp}</div>
+    </div>
+    ${q.description ? `<p style="margin-top:16px;font-size:13px;">${esc(q.description)}</p>` : ''}
+    ${itemsTable(q.items)}
+    ${totalsTable(q.subtotal_cents, q.tax_cents, q.tax_rate_milli_pct, q.tax_exempt, q.amount, 'Quote Total')}
+    ${Array.isArray(q.attachments) && q.attachments.length ? `<p style="font-size:12px;color:#666;margin-top:14px;">${q.attachments.length} photo(s) attached — view them in your client portal.</p>` : ''}
+    <p style="font-size:11px;color:#666;margin-top:14px;">This is a quote, not a bill. No payment is due against this document.</p>`);
+}
+
+async function printInvoice(invoiceId) {
+  const { data: i, error } = await sb.from('invoices').select('*')
+    .eq('id', invoiceId).eq('customer_id', USER.id).maybeSingle();
+  if (error || !i) { console.error('[Apex] printInvoice failed', error); alert('Could not load that invoice.'); return; }
+  const stamp = i.status === 'paid' ? '<div class="stamp paid">Paid</div>'
+              : i.status === 'payment_pending' ? '<div class="stamp pend">Payment Pending</div>'
+              : i.status === 'refunded' || i.status === 'partially_refunded' ? '<div class="stamp info">Refunded</div>'
+              : '<div class="stamp due">Amount Due</div>';
+  printDoc(`Invoice ${esc(i.id)}`, `
+    <div class="meta">
+      <strong>${esc(i.company || i.customer_name || '')}</strong><br>
+      ${esc(i.customer_name || '')}<br>${esc(i.customer_email || '')}<br>
+      Invoice date: ${new Date(i.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}
+      ${i.due ? `<br>Due: ${new Date(i.due).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}` : ''}
+      ${i.paid_at ? `<br>Paid: ${new Date(i.paid_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}` : ''}
+      ${i.quote_id ? `<br>From quote: ${esc(i.quote_id)}` : ''}
+      <div>${stamp}</div>
+    </div>
+    ${i.description ? `<p style="margin-top:16px;font-size:13px;">${esc(i.description)}</p>` : ''}
+    ${itemsTable(i.items)}
+    ${totalsTable(i.subtotal_cents, i.tax_cents, i.tax_rate_milli_pct, i.tax_exempt, i.amount,
+        i.status === 'paid' ? 'Total Paid' : 'Amount Due')}`);
+}
+
+async function printPaymentReceipt(paymentId) {
+  const { data: p, error } = await sb.from('payments').select('*')
+    .eq('id', paymentId).eq('customer_id', USER.id).maybeSingle();
+  if (error || !p) { console.error('[Apex] printPaymentReceipt failed', error); alert('Could not load that receipt.'); return; }
+  if (p.status !== 'succeeded') {
+    alert(p.status === 'pending'
+      ? 'This bank payment is still processing. A receipt will be available once it clears.'
+      : 'A receipt is only available for a completed payment.');
+    return;
+  }
+  // Tax breakdown comes from the linked invoice, not from the payment row.
+  const { data: inv } = await sb.from('invoices')
+    .select('subtotal_cents, tax_cents, tax_rate_milli_pct, tax_exempt, company, customer_name, quote_id')
+    .eq('id', p.invoice_id).eq('customer_id', USER.id).maybeSingle();
+
+  const isCard = p.method === 'card';
+  const fee = Number(p.fee_cents || 0);
+  printDoc('Payment Receipt', `
+    <div class="meta">
+      <strong>${esc(inv?.company || inv?.customer_name || '')}</strong><br>
+      Invoice: ${esc(p.invoice_id)}<br>
+      Payment date: ${new Date(p.settled_at || p.approved_at || p.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}<br>
+      Payment method: ${esc(p.method_display || (isCard ? 'Credit / Debit Card' : p.method === 'ach' ? 'Bank transfer (ACH)' : p.method || 'Payment'))}
+      ${p.provider_transaction_id ? `<br>Transaction: ${esc(p.provider_transaction_id)}` : ''}
+      ${p.reference ? `<br>Reference: ${esc(p.reference)}` : ''}
+      <div class="stamp paid">Paid</div>
+    </div>
+    <table style="margin-top:18px;">
+      ${inv && (Number(inv.tax_cents) > 0 || inv.tax_exempt) ? `
+        <tr><td>Subtotal</td><td class="r">${money(inv.subtotal_cents)}</td></tr>
+        <tr><td>${inv.tax_exempt ? 'Sales Tax (exempt)' : `Sales Tax (${(Number(inv.tax_rate_milli_pct || 0) / 1000).toFixed(3)}%)`}</td><td class="r">${money(inv.tax_cents)}</td></tr>` : ''}
+      <tr><td>Invoice total</td><td class="r">${money(p.amount_cents)}</td></tr>
+      ${fee > 0 ? `<tr><td>Card convenience fee</td><td class="r">${money(fee)}</td></tr>` : ''}
+      <tr><td class="tot">Total charged</td><td class="r tot">${money(p.total_charged_cents ?? p.amount_cents)}</td></tr>
+    </table>
+    ${fee > 0 ? '<p style="font-size:11px;color:#666;margin-top:12px;">The convenience fee is collected by the payment processor. Paying by bank transfer (ACH) avoids it.</p>' : ''}`);
 }
 
 // ── SERVICE REQUEST ───────────────────────────
@@ -919,43 +1069,3 @@ async function changePassword() {
 }
 
 // ── PRINT RECEIPT ─────────────────────────────
-async function printReceipt(invoiceId) {
-  const { data: invArr } = await sb.from('invoices').select('*').eq('id', invoiceId).eq('customer_id', USER.id);
-  const inv = invArr?.[0];
-  if (!inv) return;
-
-  const itemRows = inv.items?.map(i => {
-    const qty  = parseFloat(i.qty)  || 1;
-    const unit = parseFloat(i.unit_price || i.amount || 0);
-    return `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;">${xss(i.desc||'Service')}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${qty}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">$${(qty*unit).toFixed(2)}</td></tr>`;
-  }).join('') || '<tr><td colspan="3" style="padding:8px 12px;color:#666;">See invoice for details</td></tr>';
-
-  const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Receipt — ${xss(inv.id)}</title>
-  <style>body{font-family:Arial,sans-serif;color:#111;max-width:680px;margin:40px auto;padding:0 20px;}
-  h1{font-size:2rem;margin-bottom:4px;}
-  .red{color:#cc0000;} .grey{color:#666;font-size:.9rem;}
-  table{width:100%;border-collapse:collapse;margin:24px 0;}
-  th{background:#f5f5f5;padding:10px 12px;text-align:left;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;}
-  .total{text-align:right;font-size:1.3rem;font-weight:700;margin-top:8px;}
-  .paid-stamp{display:inline-block;border:3px solid #4caf50;color:#4caf50;padding:6px 18px;font-size:1.1rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;transform:rotate(-3deg);margin-bottom:16px;}
-  @media print{button{display:none;}}</style></head><body>
-  <h1>Apex Lift <span class="red">Solutions</span></h1>
-  <p class="grey">(516) 644-7187 · info@apexliftsolutionsusa.com · apexliftsolutionsusa.com</p>
-  <p class="grey">Nassau &amp; Suffolk County, Long Island, NY</p>
-  <hr style="margin:20px 0;border:none;border-top:2px solid #cc0000;"/>
-  <div class="paid-stamp">✓ PAID</div>
-  <table style="margin-bottom:8px;"><tr><td><strong>Invoice #</strong></td><td>${xss(inv.id)}</td></tr>
-  <tr><td><strong>Customer</strong></td><td>${xss(inv.customer_name||USER.name)}</td></tr>
-  <tr><td><strong>Company</strong></td><td>${xss(inv.company||USER.company||'—')}</td></tr>
-  <tr><td><strong>Paid On</strong></td><td>${new Date(inv.paid_at||inv.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</td></tr>
-  ${inv.quote_id ? `<tr><td><strong>Quote Ref</strong></td><td>${xss(inv.quote_id)}</td></tr>` : ''}
-  </table>
-  <table><thead><tr><th>Description</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Amount</th></tr></thead>
-  <tbody>${itemRows}</tbody></table>
-  <div class="total">Total Paid: $${parseFloat(inv.amount).toFixed(2)}</div>
-  <p class="grey" style="margin-top:32px;">Thank you for your business. For questions, call (516) 644-7187 or email service@apexliftsolutionsusa.com.</p>
-  <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:1rem;cursor:pointer;">Print / Save as PDF</button>
-  </body></html>`);
-  win.document.close();
-}
