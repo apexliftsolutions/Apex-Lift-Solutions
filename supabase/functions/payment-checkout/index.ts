@@ -82,19 +82,30 @@ Deno.serve(async (req) => {
   // can qualify commercial-card transactions for lower interchange. It is
   // informational to the processor; it does NOT change what is charged.
   const taxDollars = Number(((Number(inv.tax_cents) || 0) / 100).toFixed(2));
-  // invoiceNumber is what lets the webhook and the reconcile job find this
-  // transaction later. Without it, a payment whose browser died is unrecoverable.
-  // Helcim: "If the invoiceNumber exists in your Helcim account, the payment will
-  // be linked to that Invoice. If it does not exist, the Invoice object created
-  // by the transaction event will be assigned that invoiceNumber." So passing an
-  // id Helcim has never seen is safe.
+  // ── Deliberately NOT sending invoiceNumber or invoiceRequest ───────────────
+  // Helcim's docs are specific about both, and neither is safe here:
+  //
+  //   invoiceNumber   links an invoice that ALREADY EXISTS in Helcim (created
+  //                   via the Invoice API). Passing an id Helcim has never seen
+  //                   is not documented behaviour.
+  //
+  //   invoiceRequest  creates a new Helcim invoice, but: "the payment amount and
+  //                   the total of your invoice line items must be the same."
+  //                   That is exactly what broke checkout before -- the old code
+  //                   sent invoiceRequest with no line items, so the line total
+  //                   (0) did not match the amount and Helcim rejected the call.
+  //                   It also interacts with Fee Saver and with Apex's own tax,
+  //                   which is not worth risking on a working checkout.
+  //
+  // When neither is passed, Helcim creates its own invoice record and returns
+  // that invoiceNumber in the response. Recovery therefore matches on the
+  // transaction itself (date window + amount) -- see payment-reconcile.
   const body: Record<string, unknown> = {
     paymentType:       "purchase",
     amount:            Number((baseCents / 100).toFixed(2)),
     currency:          "USD",
     paymentMethod:     "cc-ach",
     hasConvenienceFee: 1,
-    invoiceNumber:     inv.id,
   };
   if (taxDollars > 0) body.taxAmount = taxDollars;
 
@@ -145,7 +156,7 @@ Deno.serve(async (req) => {
   await sb.from("payment_events").insert({
     payment_id: pay.id, invoice_id: inv.id, event: "checkout_created", source: "browser_validate",
     detail: { amount_cents: baseCents, tax_cents: Number(inv.tax_cents) || 0,
-              fee_saver: true, payment_method: "cc-ach", invoice_number: inv.id },
+              fee_saver: true, payment_method: "cc-ach" },
   });
   await sb.from("activity_log").insert({
     actor_id: user.id, action: "payment_checkout_created",

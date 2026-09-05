@@ -24,7 +24,10 @@ Deno.serve(async (req) => {
 
   let recovered = 0, voided = 0;
   for (const p of stale ?? []) {
-    const found = await findHelcimTxn(String(p.invoice_id));
+    const found = await findHelcimTxn({
+      amount_cents: Number(p.amount_cents), currency: String(p.currency),
+      initiated_at: String(p.initiated_at),
+    });
 
     if (found && /APPROV/i.test(String(found.status ?? ""))) {
       // Money moved. Reconcile it instead of throwing it away.
@@ -74,7 +77,13 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // Helcim has no transaction for this invoice. Nothing was charged.
+    // No single unambiguous approved transaction. Before voiding, make sure we
+    // are not throwing away a charge we simply could not identify: only void
+    // attempts old enough that a real payment would certainly have appeared.
+    if (Date.now() - new Date(String(p.initiated_at)).getTime() < 6 * 60 * 60_000) {
+      continue;   // too recent to be sure — leave it and re-check next run
+    }
+    // Helcim shows no matching transaction. Nothing was charged.
     // Only now is it safe to void, freeing the in-flight index for a retry.
     await sb.from("payments").update({ status: "voided", failure_category: "abandoned",
       completed_at: now }).eq("id", p.id).eq("status", "initiated");
@@ -114,23 +123,56 @@ Deno.serve(async (req) => {
   return Response.json({ stale_checked: stale?.length ?? 0, recovered, voided, ach_checked: pend?.length ?? 0, settled, declined });
 });
 
-// Ask Helcim whether a transaction exists for this invoice number.
-// Documented: "The Get card transactions endpoint can be used to pull transaction
-// details with the invoiceNumber provided as a query parameter."
-async function findHelcimTxn(invoiceNumber: string): Promise<Record<string, string> | null> {
+// Ask Helcim whether a transaction exists for this attempt.
+//
+// We do NOT send an invoiceNumber at checkout (see payment-checkout for why), so
+// matching is done on the transaction itself. Documented approach: "calling the
+// Collect Card Transaction endpoint with relevant query parameters to filter
+// returned transactions down to the correct one. This could include a
+// combination of values returned by Helcim.js, such as the date ... and amount."
+//
+// This is deliberately conservative. It returns a transaction ONLY when exactly
+// one approved candidate matches the amount inside the window. Two candidates,
+// or none, means a human decides -- we never guess which charge belongs to which
+// invoice.
+async function findHelcimTxn(
+  attempt: { amount_cents: number; currency: string; initiated_at: string },
+): Promise<Record<string, string> | null> {
   const token = Deno.env.get("HELCIM_ADMIN_API_TOKEN")!;
+  const started = new Date(attempt.initiated_at).getTime();
+  // Checkout tokens live 60 minutes; allow a little either side.
+  const dateStart = new Date(started - 10 * 60_000).toISOString().slice(0, 10);
+  const dateEnd   = new Date(started + 75 * 60_000).toISOString().slice(0, 10);
+
+  const base = Number(attempt.amount_cents);
+  const ceiling = Math.max(Math.ceil(base * 0.10), 200);   // room for Fee Saver
+
+  const hits: Record<string, string>[] = [];
   for (const seg of ["card-transactions", "bank-transactions"]) {
     try {
       const r = await fetch(
-        `${HELCIM_API}/${seg}?invoiceNumber=${encodeURIComponent(invoiceNumber)}`,
+        `${HELCIM_API}/${seg}?dateStart=${dateStart}&dateEnd=${dateEnd}`,
         { headers: { "api-token": token, accept: "application/json" } });
       if (!r.ok) continue;
       const body = await r.json().catch(() => null);
       const list = Array.isArray(body) ? body : (body ? [body] : []);
-      // Prefer an approved one; a declined attempt must not settle an invoice.
-      const hit = list.find((t: Record<string, string>) => /APPROV/i.test(String(t?.status ?? "")));
-      if (hit) return hit;
+      for (const t of list) {
+        if (!/APPROV/i.test(String(t?.status ?? ""))) continue;
+        if (String(t?.currency ?? "").toUpperCase() !== String(attempt.currency).toUpperCase()) continue;
+        const cents = Math.round(Number(t?.amount ?? 0) * 100);
+        if (cents < base || cents - base > ceiling) continue;
+        // Must fall inside the actual checkout window, not just the same day.
+        const when = new Date(String(t?.dateCreated ?? "").replace(" ", "T")).getTime();
+        if (!Number.isFinite(when) || when < started - 10 * 60_000 || when > started + 75 * 60_000) continue;
+        hits.push(t);
+      }
     } catch { /* try the other rail */ }
+  }
+
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1) {
+    console.warn("[payment-reconcile] ambiguous match — leaving for manual review",
+      { candidates: hits.length, base_cents: base });
   }
   return null;
 }
