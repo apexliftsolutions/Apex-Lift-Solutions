@@ -237,7 +237,11 @@
         <select id="invoices-status-filter" class="filter-select" onchange="renderInvoices()">
           <option value="">All Statuses</option>
           <option value="unpaid">Unpaid</option>
+          <option value="payment_pending">Payment Pending</option>
           <option value="paid">Paid</option>
+          <option value="partially_refunded">Partially Refunded</option>
+          <option value="refunded">Refunded</option>
+          <option value="void">Void / Canceled</option>
           <option value="hidden">Hidden</option>
         </select>
         <input type="date" id="invoices-date-from" class="date-input" title="From date" onchange="renderInvoices()"/>

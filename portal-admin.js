@@ -41,9 +41,17 @@ function badge(s) {
   const map = {
     pending: 'badge-pending', approved: 'badge-approved',
     declined: 'badge-declined', paid: 'badge-paid',
-    unpaid: 'badge-unpaid', active: 'badge-active', hidden: 'badge-hidden'
+    unpaid: 'badge-unpaid', payment_pending: 'badge-pending',
+    partially_refunded: 'badge-pending', refunded: 'badge-declined',
+    void: 'badge-hidden', active: 'badge-active', hidden: 'badge-hidden'
   };
-  return `<span class="badge ${map[s] || ''}">${s}</span>`;
+  const label = {
+    payment_pending: 'payment pending',
+    partially_refunded: 'partially refunded',
+    refunded: 'refunded',
+    void: 'void'
+  }[s] || s;
+  return `<span class="badge ${map[s] || ''}">${esc(label)}</span>`;
 }
 
 function fmtDate(d) {
@@ -196,19 +204,57 @@ async function renderInvoices() {
       (i.company || '').toLowerCase().includes(search));
   }
 
-  // Which invoices already have a live Helcim attempt? An admin must not be
-  // invited to hand-record a payment the processor is still confirming.
+  // Load payment state once for the visible invoice list. Besides protecting
+  // against duplicate offline entries, this drives the Refund / Void action.
   const _live = {};
+  const _paymentSummary = {};
   try {
-    const { data: lp } = await _sb.from('payments')
-      .select('invoice_id, status')
-      .eq('provider', 'helcim').in('status', ['initiated', 'pending', 'unknown', 'succeeded']);
+    const invoiceIds = invoices.map(i => i.id);
+    let rows = [];
+    if (invoiceIds.length) {
+      const { data, error } = await _sb.from('payments')
+        .select('id,invoice_id,status,kind,provider,method,amount_cents,refund_of,provider_transaction_id,created_at')
+        .in('invoice_id', invoiceIds)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      rows = data || [];
+    }
+
     const rank = { succeeded: 4, pending: 3, unknown: 2, initiated: 1 };
-    (lp || []).forEach(p => {
-      const cur = _live[p.invoice_id];
-      if (!cur || rank[p.status] > rank[cur.status]) _live[p.invoice_id] = p;
+    rows.filter(p => p.provider === 'helcim' && p.kind === 'payment' &&
+      ['initiated','pending','unknown','succeeded'].includes(p.status))
+      .forEach(p => {
+        const cur = _live[p.invoice_id];
+        if (!cur || rank[p.status] > rank[cur.status]) _live[p.invoice_id] = p;
+      });
+
+    const byInvoice = {};
+    rows.forEach(p => { (byInvoice[p.invoice_id] ||= []).push(p); });
+    Object.entries(byInvoice).forEach(([invoiceId, prs]) => {
+      const originals = prs.filter(p => p.kind === 'payment' && p.provider === 'helcim' &&
+        p.status === 'succeeded' && p.provider_transaction_id);
+      const original = originals.length ? originals[originals.length - 1] : null;
+      if (!original) return;
+
+      const corrections = prs.filter(p => p.refund_of === original.id &&
+        (p.kind === 'refund' || p.kind === 'reversal'));
+      const returnedCents = corrections
+        .filter(p => p.status === 'succeeded')
+        .reduce((sum, p) => sum + Number(p.amount_cents || 0), 0);
+      const remainingCents = Math.max(0, Number(original.amount_cents || 0) - returnedCents);
+      const correctionPending = corrections.some(p => ['initiated','pending','unknown'].includes(p.status));
+
+      _paymentSummary[invoiceId] = {
+        original,
+        corrections,
+        returnedCents,
+        remainingCents,
+        correctionPending
+      };
     });
-  } catch (e) { console.warn('[Apex] could not load live payment attempts', e); }
+  } catch (e) {
+    console.warn('[Apex] could not load payment/refund state', e);
+  }
 
   document.getElementById('invoices-table').innerHTML = !invoices.length
     ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No invoices match your filters.</td></tr>'
@@ -221,7 +267,8 @@ async function renderInvoices() {
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
       <td>
-        ${i.status === 'unpaid' ? `${payActionHtml(i, _live[i.id])}` : ''}
+        ${(i.status === 'unpaid' || i.status === 'payment_pending') ? `${payActionHtml(i, _live[i.id])}` : ''}
+        ${refundActionHtml(i, _paymentSummary[i.id])}
         <button class="action-btn" onclick="printInvoicePDF('${i.id}')">🖨 PDF</button>
         ${i.status !== 'hidden' ? `<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`
           : `<button class="action-btn green" onclick="unhideInvoice('${i.id}')">Unhide</button>`}
@@ -319,6 +366,28 @@ function payActionHtml(inv, live) {
   return `<button class="action-btn green" onclick="markPaid('${esc(inv.id)}')">Record Offline Payment</button>`;
 }
 
+function refundActionHtml(inv, summary) {
+  if (!summary?.original) return '';
+
+  if (summary.correctionPending) {
+    return `<span class="badge badge-pending">Refund / reversal pending</span>`;
+  }
+
+  if (summary.remainingCents <= 0) {
+    return `<span class="badge badge-declined">Fully refunded / reversed</span>`;
+  }
+
+  if (!['paid', 'partially_refunded'].includes(inv.status)) return '';
+
+  const label = summary.remainingCents === Number(summary.original.amount_cents)
+    ? '↩ Refund / Void'
+    : '↩ Refund Remaining';
+
+  return `<button class="action-btn danger"
+            title="Full card cancellations are voided when the batch is still open; otherwise Helcim processes a refund."
+            onclick="refundPayment('${esc(summary.original.id)}','${esc(inv.id)}',${summary.remainingCents})">${label}</button>`;
+}
+
 // Shows the admin what the processor actually has, and offers the verified
 // reconcile path — never a manual duplicate.
 async function reviewOnlinePayment(invoiceId) {
@@ -412,19 +481,52 @@ async function submitManualPayment() {
   } finally { _mpBusy = false; btn.disabled = false; btn.textContent = 'Record Payment'; }
 }
 
-// Admin refund — uses the privileged server path. Customers cannot reach this.
+// Admin refund / void — uses the privileged server path. Customers cannot
+// reach this. For a FULL card cancellation the server first tries Helcim's
+// reverse/void endpoint; if the batch is already closed it falls back to a
+// refund. Partial amounts go straight to refund.
 async function refundPayment(paymentId, invoiceId, maxAmount) {
-  const amt = prompt(`Refund amount for ${invoiceId} (max $${(maxAmount/100).toFixed(2)}):`, (maxAmount/100).toFixed(2));
-  if (amt == null) return;
-  if (!confirm(`Refund $${parseFloat(amt).toFixed(2)} on ${invoiceId}? This sends money back to the customer and cannot be undone.`)) return;
+  const suggested = (maxAmount / 100).toFixed(2);
+  const amtRaw = prompt(
+    `Refund / void amount for ${invoiceId} (max $${suggested}):\n\n` +
+    `A full card amount will be VOIDED if the Helcim batch is still open; ` +
+    `otherwise it will be REFUNDED. Partial amounts are refunds.`,
+    suggested
+  );
+  if (amtRaw == null) return;
+
+  const amount = Number(amtRaw);
+  const cents = Math.round(amount * 100);
+  if (!Number.isFinite(amount) || amount <= 0 || cents > Number(maxAmount)) {
+    alert(`Enter an amount greater than $0.00 and no more than $${suggested}.`);
+    return;
+  }
+
+  const reason = prompt('Optional reason / note for the refund or void:', '') ?? '';
+  if (!confirm(
+    `Return $${amount.toFixed(2)} on ${invoiceId}?\n\n` +
+    `This calls Helcim first and only updates Apex accounting after the provider confirms it.`
+  )) return;
+
   const { data: { session } } = await _sb.auth.getSession();
+  if (!session) { alert('Your admin session expired. Please sign in again.'); return; }
+
   const r = await fetch(`${SUPABASE_URL}/functions/v1/payment-refund`, {
-    method: 'POST', headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ payment_id: paymentId, amount: parseFloat(amt) }),
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payment_id: paymentId, amount, reason }),
   });
-  const out = await r.json();
-  showToast(r.ok ? `✓ Refund issued on ${invoiceId}` : `Refund failed: ${out.error || 'unknown'}`);
-  renderInvoices();
+  const out = await r.json().catch(() => ({}));
+
+  if (!r.ok) {
+    console.error('[Apex] payment-refund failed', out);
+    alert(`Refund / void failed: ${out.message || out.error || 'unknown provider error'}`);
+    return;
+  }
+
+  const verb = out.action === 'reverse' ? 'Payment voided' : 'Refund issued';
+  showToast(`✓ ${verb} on ${invoiceId} — $${(Number(out.amount_cents || cents)/100).toFixed(2)}`);
+  await renderInvoices();
 }
 
 

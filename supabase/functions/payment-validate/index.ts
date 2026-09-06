@@ -1,317 +1,503 @@
-// POST /payment-validate   body: { checkoutToken, rawDataResponse, hash }
+// POST /payment-validate
+// body: { checkoutToken, eventMessage?, rawDataResponse?, hash?, clientVersion? }
 //
-// Two independent gates before any financial write:
+// Credit cards:
+//   HelcimPay SUCCESS -> server verifies the response hash with the checkout's
+//   secretToken, validates amount/currency/type, and marks the payment succeeded
+//   immediately. A secondary V2 transaction GET is attempted for reconciliation,
+//   but a temporary 404 does not strand a cryptographically verified APPROVED card.
 //
-//   GATE 1 — INTEGRITY.  Per Helcim's HelcimPay.js validation spec, the hash is
-//            sha256( JSON.stringify(response.data) + secretToken ). The
-//            secretToken never leaves this server, so a browser that tampered
-//            with the response cannot produce a matching hash.
-//
-//   GATE 2 — AUTHORITY.  A matching hash only proves the payload wasn't edited
-//            in transit. It does NOT prove a transaction exists, was approved,
-//            or was for the right amount. So we re-fetch the transaction
-//            server-to-server from Helcim and decide from THAT, ignoring every
-//            status/amount field the browser sent.
-//
-// The browser event never marks an invoice paid. It only asks the server to go
-// and check. Invoice state is then derived from the ledger by recalc_invoice_status().
+// ACH:
+//   HelcimPay SUCCESS only means the ACH transaction was created. It remains
+//   pending until Helcim reports clearing/settlement.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { reconcileAmount, looksACH } from "../_shared/feesaver.ts";
 import { normalizeHelcimPayResponse } from "../_shared/helcimpay.ts";
 
-// Bumped on every change. It lands in payment_events so a stale Edge Function
-// deploy is visible in the data instead of being guessed at.
-const FN_VERSION = "2026-09-05.v18";
-
+const FN_VERSION = "2026-09-06.v21";
 const HELCIM_API = "https://api.helcim.com/v2";
+
+type Row = Record<string, any>;
 
 Deno.serve(async (req) => {
   const cors = {
-    "Access-Control-Allow-Origin":  Deno.env.get("PUBLIC_SITE_URL") ?? "https://apexliftsolutionsusa.com",
+    "Access-Control-Allow-Origin": Deno.env.get("PUBLIC_SITE_URL") ?? "https://apexliftsolutionsusa.com",
     "Access-Control-Allow-Headers": "authorization, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (req.method !== "POST") return j({ error: "method_not_allowed" }, 405, cors);
+
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   const jwt = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
   const { data: { user } } = await sb.auth.getUser(jwt);
   if (!user) return j({ error: "unauthorized" }, 401, cors);
 
-  const { checkoutToken, eventMessage, rawDataResponse, hash, clientVersion } = await req.json().catch(() => ({}));
-  if (!checkoutToken) {
-    console.error("[payment-validate] bad request: no checkoutToken");
-    return j({ error: "bad_request" }, 400, cors);
-  }
+  const body = await req.json().catch(() => ({}));
+  const { checkoutToken, eventMessage, rawDataResponse, hash, clientVersion } = body ?? {};
+  if (!checkoutToken) return j({ error: "bad_request" }, 400, cors);
 
-  // Read through a service-role-only SECURITY DEFINER function. The `private`
-  // schema is not in the Data API's exposed schemas, so there is no browser path
-  // to secret_token at all.
-  const { data: sess, error: sessErr } = await sb.rpc("read_checkout_session",
-    { p_checkout_token: checkoutToken }).maybeSingle();
+  // The secret token is read only through a SECURITY DEFINER RPC. It never goes
+  // to the browser and is unique to this checkout session.
+  const { data: sess, error: sessErr } = await sb
+    .rpc("read_checkout_session", { p_checkout_token: checkoutToken })
+    .maybeSingle();
+
   if (!sess) {
-    // Leave a trail even here. Previously this exit was silent, which meant a
-    // failed validation was indistinguishable from validation never running.
-    console.error("[payment-validate] unknown checkout session", { checkoutToken, sessErr });
-    await sb.from("payment_events").insert({ event: "validation_failed", source: "browser_validate",
-      detail: { reason: "unknown_checkout_session", checkout_token: checkoutToken,
-                db_error: sessErr?.message ?? null } });
-    return j({ error: "unknown_session" }, 404, cors);
+    console.error("[payment-validate] unknown checkout session", sessErr?.message ?? "");
+    await safeInsertEvent(sb, {
+      event: "validation_failed",
+      source: "browser_validate",
+      detail: { reason: "unknown_checkout_session", db_error: sessErr?.message ?? null },
+    });
+    return j({ error: "unknown_session", fn_version: FN_VERSION }, 404, cors);
   }
 
-  const { data: pay } = await sb.from("payments").select("*").eq("id", sess.attempt_id).single();
+  const { data: pay, error: payReadErr } = await sb.from("payments").select("*").eq("id", sess.attempt_id).maybeSingle();
   if (!pay) {
-    await sb.from("payment_events").insert({ event: "validation_failed", source: "browser_validate",
-      detail: { reason: "attempt_row_missing", attempt_id: sess.attempt_id } });
-    return j({ error: "unknown_session" }, 404, cors);
+    await safeInsertEvent(sb, {
+      event: "validation_failed",
+      source: "browser_validate",
+      detail: { reason: "attempt_row_missing", attempt_id: sess.attempt_id, db_error: payReadErr?.message ?? null },
+    });
+    return j({ error: "unknown_session", fn_version: FN_VERSION }, 404, cors);
   }
   if (pay.customer_id !== user.id) {
-    await ev(sb, pay, "validation_failed", "browser_validate", { reason: "ownership_mismatch" });
-    return j({ error: "forbidden" }, 403, cors);
+    await ev(sb, pay, "validation_failed", { reason: "ownership_mismatch" });
+    return j({ error: "forbidden", fn_version: FN_VERSION }, 403, cors);
   }
 
-  // First thing we can attribute to this payment: proof validation actually ran.
-  // Normalize server-side. The browser's own extraction is advisory only --
-  // depending on it is what produced "no_transaction_id" on a real payment.
-  const hp = normalizeHelcimPayResponse(eventMessage ?? rawDataResponse);
-  await ev(sb, pay, "validation_started", "browser_validate", {
+  // Already-final rows are idempotent. Unknown is deliberately re-processable.
+  if (!["initiated", "pending", "unknown"].includes(String(pay.status))) {
+    return j(view(pay), 200, cors);
+  }
+
+  const raw = eventMessage ?? rawDataResponse;
+  const hp = normalizeHelcimPayResponse(raw);
+  const inner = parseInner(raw);
+  const payloadIsAch = looksACH(inner) || /ach|bank|withdraw/i.test(String(hp.type ?? ""));
+
+  await ev(sb, pay, "validation_started", {
     fn_version: FN_VERSION,
     client_version: typeof clientVersion === "string" ? clientVersion : null,
     ...hp.shape,
     browser_sent_hash: !!hash,
     browser_sent_raw: !!rawDataResponse,
     server_found_txn_id: !!hp.transactionId,
+    rail_hint: payloadIsAch ? "ach" : "card",
   });
 
-  // Replay guard — a settled attempt is reported back, never re-processed.
-  if (!["initiated", "pending"].includes(pay.status)) {
-    return j(view(pay), 200, cors);
-  }
-
-  // ── GATE 1: integrity (ADVISORY) ───────────────────────────────────────────
-  // The hash proves the browser did not edit Helcim's payload. It is useful but
-  // it is NOT the security control -- GATE 2 re-fetches the transaction from
-  // Helcim with our own admin token, which is strictly stronger evidence.
-  //
-  // Helcim's eventMessage shape varies (object vs JSON string, hash at the top
-  // level vs nested), so a failed hash extraction must NEVER be reported to the
-  // customer as a declined payment. We record it and let GATE 2 decide.
-  // Helcim hashes JSON.stringify(<the node beside the hash>) + secretToken.
-  // Which node that is depends on the wrapper, so try each candidate rather
-  // than guessing one nesting level.
+  // Validate the HelcimPay response integrity using the checkout's secretToken.
   const presentedHash = hp.hash ?? (typeof hash === "string" ? hash : null);
   let hashOk = false;
   if (presentedHash) {
-    for (const cand of hp.hashCandidates) {
-      const expected = await sha256Hex(cand + sess.secret_token);
-      if (timingSafeEqual(presentedHash, expected)) { hashOk = true; break; }
+    for (const candidate of hp.hashCandidates) {
+      const expected = await sha256Hex(candidate + sess.secret_token);
+      if (timingSafeEqual(presentedHash, expected)) {
+        hashOk = true;
+        break;
+      }
     }
   }
 
-  // Server-normalized id first; the old recursive walk stays as a last resort.
-  const txnId = hp.transactionId ?? extractTxnId(eventMessage ?? rawDataResponse);
-  if (!txnId) {
-    // Helcim said SUCCESS but we cannot identify the transaction. Do not fail
-    // the payment -- park it for the webhook / reconcile job.
-    await sb.from("payments").update({ status: "unknown", failure_category: "no_transaction_id" }).eq("id", pay.id);
-    await ev(sb, pay, "verify_deferred", "browser_validate",
-      { hash_ok: hashOk, reason: "no_transaction_id", ...hp.shape });
-    return j({ status: "unknown", invoice_id: pay.invoice_id }, 202, cors);
-  }
-  const inner = parseInner(eventMessage ?? rawDataResponse);
-  if (!hashOk) {
-    await ev(sb, pay, "hash_unverified", "browser_validate",
-      { txn_id: txnId, wrapper: hp.shape.wrapper, candidates_tried: hp.hashCandidates.length,
-        note: "proceeding to authoritative provider lookup" });
-  }
-  await ev(sb, pay, "transaction_response_normalized", "browser_validate",
-    { txn_id: txnId, wrapper: hp.shape.wrapper, hash_ok: hashOk,
-      provider_status: hp.status, provider_type: hp.type });
-
-
-  // ── GATE 2: authority — ask Helcim directly ────────────────────────────────
-  // payment-checkout no longer fixes the rail (Helcim's modal chooses), so we
-  // try the likely endpoint and fall back to the other rather than guessing.
-  const order = (looksACH(inner) || pay.method === "ach")
-    ? ["ach/transactions", "card-transactions"]
-    : ["card-transactions", "ach/transactions"];
-
-  await ev(sb, pay, "provider_lookup_started", "browser_validate",
-    { txn_id: txnId, order: order.join(",") });
-
-  let txn: Record<string, unknown> | null = null;
-  let lastStatus = 0;
-  for (const seg of order) {
-    const r = await fetch(`${HELCIM_API}/${seg}/${txnId}`, {
-      headers: { "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!, "accept": "application/json" },
+  if (hashOk) {
+    await ev(sb, pay, "helcimpay_hash_verified", {
+      wrapper: hp.shape.wrapper,
+      candidates_tried: hp.hashCandidates.length,
     });
-    lastStatus = r.status;
-    if (r.ok) { txn = await r.json().catch(() => null); if (txn) break; }
+  } else {
+    await ev(sb, pay, "hash_unverified", {
+      wrapper: hp.shape.wrapper,
+      candidates_tried: hp.hashCandidates.length,
+    });
   }
+
+  const txnId = hp.transactionId ?? extractTxnId(raw);
+  if (!txnId) {
+    const { error } = await sb.from("payments")
+      .update({ status: "unknown", failure_category: "no_transaction_id" })
+      .eq("id", pay.id);
+    if (error) console.error("[payment-validate] no-id state write failed", error);
+    await ev(sb, pay, "verify_deferred", { reason: "no_transaction_id", hash_ok: hashOk });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, fn_version: FN_VERSION }, 202, cors);
+  }
+
+  await ev(sb, pay, "transaction_response_normalized", {
+    txn_id: txnId,
+    wrapper: hp.shape.wrapper,
+    hash_ok: hashOk,
+    provider_status: hp.status,
+    provider_type: hp.type,
+  });
+
+  // Prevent one Helcim transaction from being attached to two Apex payments.
+  const { data: dupTxn } = await sb.from("payments")
+    .select("id,invoice_id,status")
+    .eq("provider", "helcim")
+    .eq("provider_transaction_id", txnId)
+    .neq("id", pay.id)
+    .limit(1)
+    .maybeSingle();
+  if (dupTxn) {
+    await ev(sb, pay, "validation_failed", {
+      reason: "transaction_already_used",
+      txn_id: txnId,
+      other_payment_id: dupTxn.id,
+      other_invoice_id: dupTxn.invoice_id,
+    });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, reason: "transaction_already_used", fn_version: FN_VERSION }, 409, cors);
+  }
+
+  // First try the provider's transaction API. For cards Helcim documents
+  // /v2/card-transactions/{id}; for ACH it is /v2/ach/transactions/{id}.
+  const lookupPath = payloadIsAch
+    ? `ach/transactions/${encodeURIComponent(txnId)}`
+    : `card-transactions/${encodeURIComponent(txnId)}`;
+
+  await ev(sb, pay, "provider_lookup_started", { txn_id: txnId, path: lookupPath });
+
+  let providerTxn: Row | null = null;
+  let providerHttp = 0;
+  let providerError: string | null = null;
+  try {
+    const r = await fetch(`${HELCIM_API}/${lookupPath}`, {
+      headers: {
+        "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!,
+        "accept": "application/json",
+      },
+    });
+    providerHttp = r.status;
+    if (r.ok) {
+      providerTxn = unwrapTxn(await r.json().catch(() => null));
+    } else {
+      providerError = await safeProviderError(r);
+    }
+  } catch (e) {
+    providerError = e instanceof Error ? e.message : String(e);
+  }
+
+  if (providerTxn) {
+    await ev(sb, pay, "provider_lookup_succeeded", {
+      txn_id: txnId,
+      http: providerHttp,
+      provider_status: providerStatusLabel(providerTxn, payloadIsAch),
+      provider_type: providerTxn.type ?? providerTxn.transactionType ?? null,
+    });
+  } else {
+    await ev(sb, pay, "provider_lookup_deferred", {
+      txn_id: txnId,
+      http: providerHttp,
+      path: lookupPath,
+      hash_ok: hashOk,
+      provider_error: providerError,
+    });
+    if (providerHttp === 401 || providerHttp === 403) {
+      await ev(sb, pay, "provider_auth_failed", {
+        txn_id: txnId,
+        http: providerHttp,
+        path: lookupPath,
+        note: "HELCIM_ADMIN_API_TOKEN was not accepted for the provider lookup; hash-verified card flow may still complete, but webhook/reconcile credentials must be fixed",
+      });
+    }
+  }
+
+  // If the secondary V2 GET is unavailable, Helcim's documented hash validation
+  // still gives us a server-verifiable HelcimPay response tied to this checkout.
+  // For CARD only, APPROVED + valid hash + correct amount/currency/type is enough
+  // to mark the Apex invoice paid immediately. ACH remains pending until clearing.
+  let txn: Row | null = providerTxn;
+  let verificationSource = providerTxn ? "provider_api" : "helcimpay_hash";
 
   if (!txn) {
-    // Cannot confirm right now. Helcim already told the customer SUCCESS, so
-    // this is NOT a failure -- park it and let the webhook / reconcile settle.
-    await sb.from("payments").update({ status: "unknown", failure_category: "verify_unavailable",
-      provider_transaction_id: txnId }).eq("id", pay.id);
-    await ev(sb, pay, "verify_deferred", "browser_validate",
-      { http: lastStatus, txn_id: txnId, hash_ok: hashOk });
-    return j({ status: "unknown", invoice_id: pay.invoice_id }, 202, cors);
+    if (!hashOk) {
+      await parkUnknown(sb, pay, txnId, "verify_unavailable");
+      await ev(sb, pay, "verify_deferred", {
+        reason: "provider_unavailable_and_hash_unverified",
+        http: providerHttp,
+        txn_id: txnId,
+      });
+      return j({ status: "unknown", invoice_id: pay.invoice_id, fn_version: FN_VERSION }, 202, cors);
+    }
+
+    // Use the parsed HelcimPay transaction object only after the server has
+    // recomputed and matched the hash with the secretToken.
+    txn = { ...inner };
+    if (!txn.transactionId) txn.transactionId = txnId;
+    if (!txn.amount && hp.amount != null) txn.amount = hp.amount;
+    if (!txn.currency && hp.currency != null) txn.currency = hp.currency;
+    if (!txn.status && hp.status != null) txn.status = hp.status;
+    if (!txn.type && hp.type != null) txn.type = hp.type;
+
+    await ev(sb, pay, "helcimpay_response_authoritative", {
+      txn_id: txnId,
+      rail: payloadIsAch ? "ach" : "card",
+      note: payloadIsAch
+        ? "hash verified; ACH transaction accepted as pending until clearing"
+        : "hash verified; approved card may settle Apex invoice immediately",
+    });
   }
 
-  await ev(sb, pay, "provider_lookup_succeeded", "browser_validate",
-    { txn_id: txnId, provider_status: txn.status ?? null, provider_type: txn.type ?? null });
+  const achTxn = payloadIsAch || looksACH(txn);
+  const txnCurrency = normalizeCurrency(txn.currency ?? hp.currency);
+  const txnCents = Math.round(Number(txn.amount ?? hp.amount ?? 0) * 100);
 
-  const status   = String(txn.status ?? "").toUpperCase();
-  const approved = status === "APPROVED" || status === "APPROVAL";
-  if (approved) {
-    // Card APPROVED is final for our purposes. Settlement/deposit happens later
-    // in Helcim's batch and is NOT a precondition for the invoice being paid.
-    await ev(sb, pay, "provider_approved", "browser_validate",
-      { txn_id: txnId, rail: achTxn ? "ach" : "card",
-        note: achTxn ? "ACH stays pending until the bank clears"
-                     : "card approved — invoice settles now, bank deposit is separate" });
-  }
-  const txnCents = Math.round(Number(txn.amount ?? 0) * 100);   // TOTAL charged (incl. Fee Saver)
-  const currency = String(txn.currency ?? "").toUpperCase();
-  const invNum   = String(txn.invoiceNumber ?? "");
-  const achTxn   = looksACH(txn);
-
-  // Invoice linkage, when Helcim returns it, must match ours.
-  if (invNum && invNum !== pay.invoice_id) {
-    await sb.from("payments").update({ status: "unknown", failure_category: "invoice_mismatch",
-      provider_transaction_id: txnId, completed_at: new Date().toISOString() }).eq("id", pay.id);
-    await ev(sb, pay, "amount_mismatch", "browser_validate",
-      { expected_invoice: pay.invoice_id, got_invoice: invNum });
-    return j({ error: "verification_failed" }, 409, cors);
+  // IMPORTANT: Apex does NOT currently send its invoice id as Helcim's
+  // invoiceNumber during checkout. Helcim may therefore return its own internal
+  // invoice number (for example INV001005). That value is NOT an Apex linkage
+  // and must not be compared to pay.invoice_id. The binding for this browser
+  // validation path is the server-owned checkout session -> attempt_id, plus the
+  // secretToken-verified HelcimPay response.
+  const providerInvoiceNumber = String(txn.invoiceNumber ?? "");
+  if (providerInvoiceNumber) {
+    await ev(sb, pay, "provider_invoice_observed", {
+      txn_id: txnId,
+      provider_invoice_number: providerInvoiceNumber,
+      note: "informational only; Apex checkout does not currently link an Apex invoiceNumber to Helcim",
+    });
   }
 
-  // Fee Saver: the charged total legitimately exceeds the base on card payments.
-  // We split it, and refuse to auto-settle anything outside the configured bound.
+  // Security: a transaction id supplied through the browser is not enough by
+  // itself to claim a provider transaction. For this immediate validation path
+  // require either the HelcimPay response hash to verify against this checkout's
+  // private secretToken, or the transaction to have already been bound to this
+  // payment by a trusted backend path (webhook/reconcile).
+  const alreadyBound = String(pay.provider_transaction_id ?? "") === txnId;
+  if (!hashOk && !alreadyBound) {
+    await parkUnknown(sb, pay, txnId, "hash_unverified", txnCents || null);
+    await ev(sb, pay, "verify_deferred", {
+      reason: "hash_unverified_no_trusted_binding",
+      txn_id: txnId,
+      verification_source: verificationSource,
+    });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, reason: "hash_unverified", fn_version: FN_VERSION }, 202, cors);
+  }
+
   const rec = await reconcileAmount(sb, {
-    baseCents: Number(pay.amount_cents), chargedCents: txnCents,
-    currency, expectedCurrency: pay.currency, isACH: achTxn,
+    baseCents: Number(pay.amount_cents),
+    chargedCents: txnCents,
+    currency: txnCurrency,
+    expectedCurrency: pay.currency,
+    isACH: achTxn,
   });
+
   if (!rec.ok) {
-    const { error: mmErr } = await sb.from("payments").update({ status: "unknown", failure_category: `amount_${rec.reason}`,
-      provider_transaction_id: txnId, total_charged_cents: txnCents,
-      completed_at: new Date().toISOString() }).eq("id", pay.id);
-    if (mmErr) console.error("[payment-validate] mismatch write failed", mmErr);
-    await ev(sb, pay, "amount_mismatch", "browser_validate",
-      { reason: rec.reason, base_cents: rec.baseCents, charged_cents: rec.totalCents,
-        implied_fee_cents: rec.impliedFeeCents, currency, ach: achTxn });
-    return j({ error: "verification_failed" }, 409, cors);
+    await parkUnknown(sb, pay, txnId, `amount_${rec.reason}`, txnCents);
+    await ev(sb, pay, "amount_mismatch", {
+      reason: rec.reason,
+      txn_id: txnId,
+      base_cents: rec.baseCents,
+      charged_cents: rec.totalCents,
+      implied_fee_cents: rec.impliedFeeCents,
+      currency: txnCurrency,
+      ach: achTxn,
+      verification_source: verificationSource,
+    });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, reason: "amount_mismatch", fn_version: FN_VERSION }, 409, cors);
   }
 
-  // Card APPROVED is final. ACH APPROVED at initiation is NOT settlement —
-  // it stays pending until the bank clears (webhook or reconcile job).
-  const achSettled = achTxn && /settl|clear|complet/i.test(String(txn.bankStatus ?? txn.settlementStatus ?? ""));
-  const newStatus  = !approved ? "failed" : (achTxn && !achSettled) ? "pending" : "succeeded";
   const now = new Date().toISOString();
+  let newStatus: "succeeded" | "pending" | "failed" | "unknown";
 
-  // ── PERSIST ────────────────────────────────────────────────────────────────
-  // Every write below is error-checked. The browser must NEVER be told the
-  // payment persisted when it did not -- that is what produced "success, then
-  // the invoice is unpaid again after a refresh".
-  const { error: payErr } = await sb.from("payments").update({
+  if (achTxn) {
+    if (achFailed(txn)) newStatus = "failed";
+    else if (achCleared(txn)) newStatus = "succeeded";
+    else newStatus = "pending";
+  } else {
+    const status = String(txn.status ?? hp.status ?? "").toUpperCase();
+    const type = String(txn.type ?? hp.type ?? "").toLowerCase();
+    const approved = status === "APPROVED" || status === "APPROVAL";
+    const purchaseType = !type || /purchase|payment|sale/.test(type);
+
+    // If the V2 API explicitly says declined, that is authoritative. If we are
+    // using the hash-verified HelcimPay fallback, require APPROVED + purchase.
+    if (approved && purchaseType) newStatus = "succeeded";
+    else if (providerTxn && /DECLIN|FAIL|CANCEL|VOID/.test(status)) newStatus = "failed";
+    else newStatus = "unknown";
+  }
+
+  if (newStatus === "unknown") {
+    await parkUnknown(sb, pay, txnId, "provider_status_unrecognized", txnCents);
+    await ev(sb, pay, "verify_deferred", {
+      reason: "provider_status_unrecognized",
+      txn_id: txnId,
+      provider_status: providerStatusLabel(txn, achTxn),
+      verification_source: verificationSource,
+    });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, fn_version: FN_VERSION }, 202, cors);
+  }
+
+  if (newStatus === "succeeded" && !achTxn) {
+    await ev(sb, pay, "card_approved", {
+      txn_id: txnId,
+      verification_source: verificationSource,
+      note: "card approved — Apex marks invoice paid now; bank deposit is separate",
+    });
+  }
+
+  const update: Row = {
     status: newStatus,
     provider_transaction_id: txnId,
     method: achTxn ? "ach" : "card",
     method_display: mask(txn),
-    fee_cents: rec.feeCents,                 // 0 for ACH; inferred fee for card
-    total_charged_cents: rec.totalCents,     // what the customer actually paid
-    failure_category: approved ? null : "declined",
-    approved_at: approved ? (pay.approved_at ?? now) : null,
-    settled_at:  newStatus === "succeeded" ? now : null,
-    declined_at: approved ? null : now,
+    fee_cents: rec.feeCents,
+    total_charged_cents: rec.totalCents,
+    failure_category: newStatus === "failed" ? (achTxn ? "ach_failed" : "declined") : null,
+    approved_at: newStatus !== "failed" ? (pay.approved_at ?? now) : pay.approved_at,
+    // Do not pretend a card has reached bank settlement merely because it was approved.
+    // For ACH, settled_at is populated only after clearing.
+    settled_at: achTxn && newStatus === "succeeded" ? now : pay.settled_at ?? null,
+    declined_at: newStatus === "failed" ? now : null,
     completed_at: newStatus === "pending" ? null : now,
-  }).eq("id", pay.id);
+  };
 
-  if (!payErr) {
-    await ev(sb, pay, "payment_persisted", "browser_validate",
-      { new_status: newStatus, txn_id: txnId, fee_cents: rec.feeCents, charged_cents: rec.totalCents });
-  }
+  const { error: payErr } = await sb.from("payments").update(update).eq("id", pay.id);
   if (payErr) {
-    // The money moved but we could not record it. Do not claim success --
-    // the webhook and reconcile job are still authoritative and will retry.
-    console.error("[payment-validate] payments UPDATE failed", payErr);
-    await ev(sb, pay, "persist_failed", "browser_validate",
-      { step: "payments_update", txn_id: txnId, db_error: payErr.message, code: payErr.code });
-    return j({ status: "unknown", invoice_id: pay.invoice_id, amount_cents: pay.amount_cents }, 202, cors);
+    console.error("[payment-validate] payment write failed", payErr);
+    await ev(sb, pay, "persist_failed", {
+      step: "payments_update",
+      txn_id: txnId,
+      db_error: payErr.message,
+      code: payErr.code,
+    });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, fn_version: FN_VERSION }, 202, cors);
   }
 
-  await ev(sb, pay, newStatus === "succeeded" ? "approved" : newStatus === "pending" ? "pending" : "declined",
-           "browser_validate", { txn_id: txnId, ach: achTxn, provider_status: status, hash_ok: hashOk,
-             base_cents: rec.baseCents, fee_cents: rec.feeCents, charged_cents: rec.totalCents });
+  await ev(sb, pay, "payment_persisted", {
+    txn_id: txnId,
+    new_status: newStatus,
+    fee_cents: rec.feeCents,
+    charged_cents: rec.totalCents,
+    verification_source: verificationSource,
+  });
 
-  // Invoice state is DERIVED from the ledger — never assigned here.
+  // Derive invoice state from the ledger. This transition is what drives the
+  // existing payment notification trigger/outbox.
   const { error: recalcErr } = await sb.rpc("recalc_invoice_status", { p_invoice_id: pay.invoice_id });
   if (recalcErr) {
     console.error("[payment-validate] recalc_invoice_status failed", recalcErr);
-    await ev(sb, pay, "persist_failed", "browser_validate",
-      { step: "recalc_invoice_status", invoice_id: pay.invoice_id,
-        db_error: recalcErr.message, code: recalcErr.code, hint: recalcErr.hint });
-    // The payment row IS correct. Only the derived invoice status is behind, so
-    // report "confirming" rather than success or failure.
-    return j({ status: "confirming", invoice_id: pay.invoice_id, amount_cents: pay.amount_cents,
-               reason: "invoice_recalc_pending" }, 202, cors);
+    await ev(sb, pay, "persist_failed", {
+      step: "recalc_invoice_status",
+      txn_id: txnId,
+      db_error: recalcErr.message,
+      code: recalcErr.code,
+      hint: recalcErr.hint,
+    });
+    return j({ status: "confirming", invoice_id: pay.invoice_id, reason: "invoice_recalc_pending", fn_version: FN_VERSION }, 202, cors);
   }
 
   if (newStatus === "succeeded") {
     const { error: linkErr } = await sb.from("invoices")
-      .update({ paid_via: "helcim", payment_id: pay.id }).eq("id", pay.invoice_id);
-    if (linkErr) console.error("[payment-validate] invoice link update failed", linkErr);
+      .update({ paid_via: "helcim", payment_id: pay.id })
+      .eq("id", pay.invoice_id);
+    if (linkErr) {
+      console.error("[payment-validate] invoice link update failed", linkErr);
+      await ev(sb, pay, "persist_failed", {
+        step: "invoice_link",
+        txn_id: txnId,
+        db_error: linkErr.message,
+        code: linkErr.code,
+      });
+    }
   }
 
-  // ── VERIFY THE WRITE ACTUALLY LANDED ───────────────────────────────────────
-  // Triggers (guard_tax_totals, guard_payment) can raise and silently leave the
-  // invoice behind. Read it back before telling the customer anything.
   const { data: invAfter, error: invErr } = await sb.from("invoices")
-    .select("status, paid_at").eq("id", pay.invoice_id).maybeSingle();
+    .select("status,paid_at,payment_id,paid_via")
+    .eq("id", pay.invoice_id)
+    .maybeSingle();
 
   if (invErr) console.error("[payment-validate] invoice read-back failed", invErr);
 
   const expected = newStatus === "succeeded" ? "paid"
-                 : newStatus === "pending"   ? "payment_pending" : null;
+    : newStatus === "pending" ? "payment_pending"
+    : null;
 
-  if (expected && invAfter && invAfter.status !== expected) {
-    // Payment recorded, invoice did not follow. This is an internal
-    // inconsistency, not a customer-facing failure.
-    console.error("[payment-validate] INCONSISTENCY: payment=%s but invoice=%s",
-      newStatus, invAfter.status);
-    await ev(sb, pay, "invoice_status_inconsistent", "browser_validate",
-      { payment_status: newStatus, invoice_status: invAfter.status, expected });
-    return j({ status: "confirming", invoice_id: pay.invoice_id, amount_cents: pay.amount_cents,
-               reason: "invoice_status_lagging" }, 202, cors);
+  if (expected && (!invAfter || invAfter.status !== expected)) {
+    await ev(sb, pay, "invoice_status_inconsistent", {
+      payment_status: newStatus,
+      invoice_status: invAfter?.status ?? null,
+      expected,
+    });
+    return j({ status: "confirming", invoice_id: pay.invoice_id, reason: "invoice_status_lagging", fn_version: FN_VERSION }, 202, cors);
   }
 
-  await ev(sb, pay, newStatus === "succeeded" ? "invoice_paid" : "invoice_recalculated",
-    "browser_validate", { invoice_status: invAfter?.status ?? null, payment_status: newStatus });
+  await ev(sb, pay, newStatus === "succeeded" ? "invoice_paid" : "invoice_recalculated", {
+    invoice_status: invAfter?.status ?? null,
+    payment_status: newStatus,
+  });
 
-  const { data: fresh } = await sb.from("payments").select("*").eq("id", pay.id).single();
-  return j(view(fresh ?? pay), 200, cors);
+  const { data: fresh } = await sb.from("payments").select("*").eq("id", pay.id).maybeSingle();
+  return j(view(fresh ?? { ...pay, ...update }), 200, cors);
 });
 
-function view(p: Record<string, unknown>) {
-  return { status: p.status, invoice_id: p.invoice_id, amount_cents: p.amount_cents,
-           fee_cents: p.fee_cents, total_charged_cents: p.total_charged_cents,
-           method_display: p.method_display, reference: p.provider_transaction_id,
-           fn_version: FN_VERSION };
+async function parkUnknown(sb: ReturnType<typeof createClient>, pay: Row, txnId: string, reason: string, totalCents?: number | null) {
+  const patch: Row = {
+    status: "unknown",
+    failure_category: reason,
+    provider_transaction_id: txnId,
+  };
+  if (typeof totalCents === "number") patch.total_charged_cents = totalCents;
+  const { error } = await sb.from("payments").update(patch).eq("id", pay.id);
+  if (error) console.error("[payment-validate] parkUnknown failed", error);
 }
-async function ev(sb: ReturnType<typeof createClient>, pay: Record<string, unknown>,
-                  event: string, source: string, detail: unknown) {
-  await sb.from("payment_events").insert({ payment_id: pay.id, invoice_id: pay.invoice_id, event, source, detail });
+
+function providerStatusLabel(txn: Row, isAch: boolean): string | null {
+  if (isAch) return String(txn.statusClearing ?? txn.statusAuth ?? txn.status ?? "") || null;
+  return String(txn.status ?? "") || null;
 }
-// Helcim's eventMessage arrives in more than one shape depending on version and
-// platform. Dig for the transaction id rather than assuming one path.
-function parseInner(raw: unknown): Record<string, unknown> {
+
+function achCleared(txn: Row): boolean {
+  const clearing = String(txn.statusClearing ?? txn.settlementStatus ?? txn.bankStatus ?? "").toUpperCase();
+  const auth = String(txn.statusAuth ?? txn.status ?? "").toUpperCase();
+  return ["1", "CLEARED", "SETTLED", "COMPLETED", "COMPLETE"].includes(clearing)
+    && !["2", "4", "DECLINED", "CANCELLED", "FAILED"].includes(auth);
+}
+
+function achFailed(txn: Row): boolean {
+  const clearing = String(txn.statusClearing ?? txn.settlementStatus ?? txn.bankStatus ?? "").toUpperCase();
+  const auth = String(txn.statusAuth ?? txn.status ?? "").toUpperCase();
+  return ["2", "4", "DECLINED", "CANCELLED", "FAILED"].includes(auth)
+    || ["4", "REJECTED", "RETURNED", "CONTESTED", "DECLINED", "FAILED"].includes(clearing);
+}
+
+function normalizeCurrency(v: unknown): string {
+  const s = String(v ?? "").toUpperCase();
+  if (s === "1") return "CAD";
+  if (s === "2") return "USD";
+  return s;
+}
+
+function unwrapTxn(raw: unknown): Row | null {
+  if (!raw || typeof raw !== "object") return null;
+  const root = raw as Row;
+  if (root.transaction && typeof root.transaction === "object") return root.transaction as Row;
+  if (root.data && typeof root.data === "object") {
+    const d = root.data as Row;
+    if (d.transaction && typeof d.transaction === "object") return d.transaction as Row;
+    if (d.data && typeof d.data === "object") return d.data as Row;
+    return d;
+  }
+  return root;
+}
+
+async function safeProviderError(r: Response): Promise<string | null> {
+  try {
+    const text = await r.text();
+    if (!text) return null;
+    return text.replace(/\s+/g, " ").slice(0, 240);
+  } catch {
+    return null;
+  }
+}
+
+function parseInner(raw: unknown): Row {
   let v: unknown = raw;
   for (let i = 0; i < 3 && typeof v === "string"; i++) {
     try { v = JSON.parse(v); } catch { break; }
   }
-  const o = (v ?? {}) as Record<string, unknown>;
-  const d1 = (o.data ?? o) as Record<string, unknown>;
-  const d2 = (d1.data ?? d1) as Record<string, unknown>;
+  const o = (v && typeof v === "object" ? v : {}) as Row;
+  const d1 = (o.data && typeof o.data === "object" ? o.data : o) as Row;
+  const d2 = (d1.data && typeof d1.data === "object" ? d1.data : d1) as Row;
   return d2;
 }
 
@@ -324,7 +510,7 @@ function extractTxnId(raw: unknown): string {
     }
     if (typeof v !== "object") return "";
     seen.add(v);
-    const o = v as Record<string, unknown>;
+    const o = v as Row;
     for (const k of ["transactionId", "cardTransactionId", "bankTransactionId", "id"]) {
       const c = o[k];
       if (typeof c === "number" && Number.isFinite(c)) return String(c);
@@ -339,20 +525,57 @@ function extractTxnId(raw: unknown): string {
   return walk(raw, 0);
 }
 
+function mask(t: Row): string | null {
+  if (t.cardNumber) return `${t.cardType ?? "Card"} ····${String(t.cardNumber).slice(-4)}`;
+  if (t.bankAccountNumber) return `Bank ····${String(t.bankAccountNumber).slice(-4)}`;
+  if (t.bankAccountL4L4) return `Bank ····${String(t.bankAccountL4L4).slice(-4)}`;
+  return null;
+}
+
+function view(p: Row) {
+  return {
+    status: p.status,
+    invoice_id: p.invoice_id,
+    amount_cents: p.amount_cents,
+    fee_cents: p.fee_cents,
+    total_charged_cents: p.total_charged_cents,
+    method_display: p.method_display,
+    reference: p.provider_transaction_id,
+    fn_version: FN_VERSION,
+  };
+}
+
+async function ev(sb: ReturnType<typeof createClient>, pay: Row, event: string, detail: unknown) {
+  const { error } = await sb.from("payment_events").insert({
+    payment_id: pay.id,
+    invoice_id: pay.invoice_id,
+    event,
+    source: "browser_validate",
+    detail,
+  });
+  if (error) console.warn("[payment-validate] payment_events insert failed", event, error.message);
+}
+
+async function safeInsertEvent(sb: ReturnType<typeof createClient>, row: Row) {
+  const { error } = await sb.from("payment_events").insert(row);
+  if (error) console.warn("[payment-validate] diagnostic insert failed", error.message);
+}
+
 async function sha256Hex(s: string) {
   const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join("");
 }
+
 function timingSafeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;
-  let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return r === 0;
 }
-function mask(t: Record<string, string>) {
-  if (t.cardNumber)        return `${t.cardType ?? "Card"} ····${String(t.cardNumber).slice(-4)}`;
-  if (t.bankAccountNumber) return `Bank ····${String(t.bankAccountNumber).slice(-4)}`;
-  return null;
-}
-function j(b: unknown, s: number, c: Record<string,string>) {
-  return new Response(JSON.stringify(b), { status: s, headers: { ...c, "Content-Type": "application/json" } });
+
+function j(body: unknown, status: number, cors: Record<string, string>) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
 }

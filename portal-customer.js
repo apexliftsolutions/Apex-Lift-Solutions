@@ -374,7 +374,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-05.v18";
+const APEX_CLIENT_VERSION = "2026-09-06.v21";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;

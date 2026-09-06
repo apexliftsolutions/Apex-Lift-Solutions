@@ -1,116 +1,320 @@
-// POST /payment-refund   body: { payment_id, amount?, reason? }   — ADMIN ONLY
-// Uses the separate HELCIM_ADMIN_API_TOKEN (Transaction Processing: Admin).
-// The checkout token deliberately cannot do this.
+// POST /payment-refund   body: { payment_id, amount?, reason? } — ADMIN ONLY
+//
+// One endpoint for Apex admin refunds/voids:
+// - Card full amount: try POST /v2/payment/reverse first (open batch), then
+//   POST /v2/payment/refund if the batch is already closed.
+// - Card partial amount: refund only.
+// - ACH: fetch the authoritative ACH transaction first. Open+approved can be
+//   voided only for the full remaining amount; closed+approved is refunded via
+//   the ACH refund endpoint. ACH refunds remain pending until clearing.
+//
+// Apex writes an initiated correction row before contacting Helcim for
+// idempotency/audit, but it only counts financially after Helcim accepts it.
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { helcimCall, paymentIdempotencyKey, PATH_REFUND, PATH_REVERSE } from "../_shared/helcim-api.ts";
+
+const HELCIM_API = "https://api.helcim.com/v2";
+type Row = Record<string, any>;
+
+type ProviderResult = {
+  ok: boolean;
+  httpStatus: number;
+  category: "ok" | "auth" | "permission" | "declined" | "network" | "bad_json";
+  body: Row | null;
+  text: string | null;
+};
 
 Deno.serve(async (req) => {
-  const cors = { "Access-Control-Allow-Origin": Deno.env.get("PUBLIC_SITE_URL") ?? "https://apexliftsolutionsusa.com",
-                 "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+  const cors = {
+    "Access-Control-Allow-Origin": Deno.env.get("PUBLIC_SITE_URL") ?? "https://apexliftsolutionsusa.com",
+    "Access-Control-Allow-Headers": "authorization, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  if (req.method !== "POST") return j({ error: "method_not_allowed" }, 405, cors);
 
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const jwt = (req.headers.get("Authorization") ?? "").replace("Bearer ", "");
   const { data: { user } } = await sb.auth.getUser(jwt);
   if (!user || user.email !== "admin@apexliftsolutionsusa.com") return j({ error: "forbidden" }, 403, cors);
 
-  const { payment_id, amount, reason } = await req.json();
+  const { payment_id, amount, reason } = await req.json().catch(() => ({}));
   if (!payment_id) return j({ error: "bad_request" }, 400, cors);
 
-  // The original must be OUR record — never accept an arbitrary provider txn id.
-  const { data: orig } = await sb.from("payments").select("*").eq("id", payment_id).eq("kind", "payment").maybeSingle();
+  const { data: orig, error: origErr } = await sb.from("payments")
+    .select("*").eq("id", payment_id).eq("kind", "payment").maybeSingle();
+  if (origErr) return j({ error: "ledger_read_failed", detail: origErr.message }, 500, cors);
   if (!orig) return j({ error: "not_found" }, 404, cors);
   if (orig.status !== "succeeded" || orig.provider !== "helcim" || !orig.provider_transaction_id) {
     return j({ error: "not_refundable" }, 409, cors);
   }
 
-  // Refundable = original minus prior succeeded refunds.
-  const { data: prior } = await sb.from("payments").select("amount_cents").eq("refund_of", orig.id).eq("status", "succeeded");
-  const refunded = (prior ?? []).reduce((s, r) => s + Number(r.amount_cents), 0);
-  // Helcim's ACH docs allow a refund "equal to or less than the original
-  // amount", so partial ACH refunds are supported. The only ceiling we enforce
-  // is the un-refunded remainder; Helcim itself is the final authority.
-  const want = amount != null ? Math.round(Number(amount) * 100) : Number(orig.amount_cents) - refunded;
-  if (!(want > 0) || want > Number(orig.amount_cents) - refunded) return j({ error: "amount_exceeds_refundable" }, 400, cors);
+  const { data: prior, error: priorErr } = await sb.from("payments")
+    .select("amount_cents,status,kind")
+    .eq("refund_of", orig.id)
+    .in("kind", ["refund", "reversal"]);
+  if (priorErr) return j({ error: "ledger_read_failed", detail: priorErr.message }, 500, cors);
 
-  // Payment API accepts 25-36 chars including hyphens; Helcim recommends UUID.
-  // A Refund/Reverse must still use a NEW key, never the purchase's key.
-  const idem = paymentIdempotencyKey();
-  const { data: ref, error: insErr } = await sb.from("payments").insert({
-    invoice_id: orig.invoice_id, customer_id: orig.customer_id, provider: "helcim", kind: "refund",
-    method: orig.method, amount_cents: want, currency: orig.currency, status: "initiated",
-    idempotency_key: idem, refund_of: orig.id, notes: reason ?? null, recorded_by: user.id,
+  const returned = (prior ?? [])
+    .filter((r: Row) => r.status === "succeeded")
+    .reduce((sum: number, r: Row) => sum + Number(r.amount_cents || 0), 0);
+  const inFlight = (prior ?? []).some((r: Row) => ["initiated", "pending", "unknown"].includes(String(r.status)));
+  if (inFlight) return j({ error: "refund_already_processing" }, 409, cors);
+
+  const refundable = Math.max(0, Number(orig.amount_cents) - returned);
+  const want = amount != null ? Math.round(Number(amount) * 100) : refundable;
+  if (!(want > 0) || want > refundable) {
+    return j({ error: "amount_exceeds_refundable", refundable_cents: refundable }, 400, cors);
+  }
+
+  const idem = crypto.randomUUID();
+  const { data: correction, error: insErr } = await sb.from("payments").insert({
+    invoice_id: orig.invoice_id,
+    customer_id: orig.customer_id,
+    provider: "helcim",
+    kind: "refund",
+    method: orig.method,
+    amount_cents: want,
+    fee_cents: 0,
+    total_charged_cents: null,
+    currency: orig.currency,
+    status: "initiated",
+    idempotency_key: idem,
+    refund_of: orig.id,
+    notes: reason ?? null,
+    recorded_by: user.id,
   }).select().single();
-  if (insErr) return j({ error: "ledger_error" }, 500, cors);
+  if (insErr || !correction) return j({ error: "ledger_error", detail: insErr?.message ?? null }, 500, cors);
 
-  const isBank = orig.method === "ach";
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "0.0.0.0";
-  const fullAmount = want === Number(orig.amount_cents) - refunded;
-
-  // Reverse cancels a transaction while its card batch is still OPEN, and only
-  // for the FULL amount. Refund works once the batch has CLOSED and supports
-  // partials. We cannot see the batch state, so try reverse for a full-amount
-  // cancellation and fall back to refund.
-  let r;
-  let action: "reverse" | "refund" = "refund";
-
-  if (!isBank && fullAmount) {
-    r = await helcimCall(PATH_REVERSE, Deno.env.get("HELCIM_ADMIN_API_TOKEN")!, {
-      method: "POST", idem,
-      body: { cardTransactionId: Number(orig.provider_transaction_id), ipAddress: ip },
-    });
-    if (r.ok) action = "reverse";
-  }
-
-  if (!r || !r.ok) {
-    // A fresh key: Helcim returns 409 if the same key is reused with a
-    // different payload.
-    r = await helcimCall(PATH_REFUND, Deno.env.get("HELCIM_ADMIN_API_TOKEN")!, {
-      method: "POST", idem: paymentIdempotencyKey(),
-      body: {
-        originalTransactionId: Number(orig.provider_transaction_id),
-        amount: Number((want / 100).toFixed(2)),
-        ipAddress: ip,
-      },
-    });
-    action = "refund";
-  }
-
-  const out = (r.body ?? {}) as Record<string, string>;
-  const ok = r.ok && /APPROV/i.test(String(out?.status ?? ""));
+  const token = Deno.env.get("HELCIM_ADMIN_API_TOKEN")!;
+  const isAch = orig.method === "ach";
+  const fullRemaining = want === refundable;
   const now = new Date().toISOString();
+  let action: "reverse" | "refund" = "refund";
+  let provider: ProviderResult;
+  let correctionStatus: "succeeded" | "pending" | "failed" = "failed";
 
-  // An auth failure is a configuration problem, not a declined refund.
-  if (!ok && (r.category === "auth" || r.category === "permission")) {
-    await sb.from("payments").update({ status: "failed",
-      failure_category: `helcim_${r.category}`, completed_at: now }).eq("id", ref.id);
-    await sb.from("payment_events").insert({ payment_id: ref.id, invoice_id: orig.invoice_id,
-      event: "declined", source: "admin",
-      detail: { action, http: r.httpStatus, category: r.category,
-                note: "HELCIM_ADMIN_API_TOKEN is missing or lacks permission — this is a configuration issue, not a declined refund" } });
-    return j({ error: "provider_auth_failed",
-      message: "Helcim rejected the request as unauthorized. The admin API token is missing or lacks Transaction Processing permission." }, 502, cors);
+  if (isAch) {
+    // ACH actions depend on the authoritative batch/auth state.
+    const lookup = await helcim(`${HELCIM_API}/ach/transactions/${encodeURIComponent(String(orig.provider_transaction_id))}`,
+      token, { method: "GET" });
+    if (!lookup.ok) {
+      await failCorrection(sb, correction, orig, "ach_lookup_failed", lookup, now);
+      return providerErrorResponse(lookup, cors);
+    }
+
+    const ach = unwrapTxn(lookup.body) ?? {};
+    const statusBatch = Number(ach.statusBatch ?? 0);
+    const statusAuth = Number(ach.statusAuth ?? 0);
+
+    if (statusAuth === 2 || statusAuth === 4) {
+      await failCorrection(sb, correction, orig, "ach_not_refundable", lookup, now);
+      return j({ error: "ach_not_refundable", status_auth: statusAuth, status_batch: statusBatch }, 409, cors);
+    }
+
+    if (statusBatch === 1 && statusAuth === 1) {
+      if (!fullRemaining) {
+        await failCorrection(sb, correction, orig, "ach_open_batch_partial", lookup, now);
+        return j({ error: "ach_open_batch_partial_not_supported",
+          message: "This ACH payment is still in an open batch. Helcim only allows a full void while open; wait for the batch to close before issuing a partial refund." }, 409, cors);
+      }
+      action = "reverse";
+      provider = await helcim(`${HELCIM_API}/ach/transactions/${encodeURIComponent(String(orig.provider_transaction_id))}/void`,
+        token, { method: "PUT", idem: crypto.randomUUID() });
+      correctionStatus = provider.ok ? "succeeded" : "failed";
+    } else if (statusBatch === 2 && statusAuth === 1) {
+      action = "refund";
+      provider = await helcim(`${HELCIM_API}/ach/transactions/${encodeURIComponent(String(orig.provider_transaction_id))}/refund`,
+        token, { method: "PUT", idem: crypto.randomUUID(), body: { amount: Number((want / 100).toFixed(2)) } });
+      // ACH refund creation is not settlement; keep it pending until reconcile sees
+      // the refund transaction clear.
+      correctionStatus = provider.ok ? "pending" : "failed";
+    } else {
+      await failCorrection(sb, correction, orig, "ach_state_not_actionable", lookup, now);
+      return j({ error: "ach_state_not_actionable", status_auth: statusAuth, status_batch: statusBatch }, 409, cors);
+    }
+  } else {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "0.0.0.0";
+    provider = { ok: false, httpStatus: 0, category: "declined", body: null, text: null };
+
+    if (fullRemaining) {
+      const reverse = await helcim(`${HELCIM_API}/payment/reverse`, token, {
+        method: "POST",
+        idem: crypto.randomUUID(),
+        body: { cardTransactionId: Number(orig.provider_transaction_id), ipAddress: ip },
+      });
+      if (providerApproved(reverse)) {
+        provider = reverse;
+        action = "reverse";
+      }
+    }
+
+    if (!providerApproved(provider)) {
+      provider = await helcim(`${HELCIM_API}/payment/refund`, token, {
+        method: "POST",
+        idem: crypto.randomUUID(),
+        body: {
+          originalTransactionId: Number(orig.provider_transaction_id),
+          amount: Number((want / 100).toFixed(2)),
+          ipAddress: ip,
+        },
+      });
+      action = "refund";
+    }
+    correctionStatus = providerApproved(provider) ? "succeeded" : "failed";
   }
 
-  await sb.from("payments").update({
-    status: ok ? "succeeded" : "failed",
-    kind: action === "reverse" ? "reversal" : "refund",
-    provider_transaction_id: out?.transactionId ?? null,
-    failure_category: ok ? null : `${action}_declined`,
-    approved_at: ok ? now : null, settled_at: ok ? now : null, completed_at: now,
-  }).eq("id", ref.id);
-  await sb.from("payment_events").insert({ payment_id: ref.id, invoice_id: orig.invoice_id, source: "admin",
-    event: ok ? (action === "reverse" ? "reversed" : "refunded") : "declined",
-    detail: { action, refund_of: orig.id, amount_cents: want, http: r.httpStatus,
-              category: r.category, provider_status: out?.status ?? null } });
-  if (ok) await sb.rpc("recalc_invoice_status", { p_invoice_id: orig.invoice_id });
-  await sb.from("activity_log").insert({ actor_id: user.id,
-    action: ok ? `payment_${action}ed` : `${action}_failed`,
-    detail: `${orig.invoice_id} $${(want/100).toFixed(2)}` });
+  if (provider.category === "auth" || provider.category === "permission") {
+    await failCorrection(sb, correction, orig, `helcim_${provider.category}`, provider, now);
+    return providerErrorResponse(provider, cors);
+  }
 
-  return j(ok ? { ok: true, action, refund_id: ref.id, amount_cents: want }
-              : { error: `${action}_declined`, http: r.httpStatus }, ok ? 200 : 502, cors);
+  const out = unwrapTxn(provider.body) ?? provider.body ?? {};
+  const providerId = String(out.transactionId ?? out.id ?? out.cardTransactionId ?? "") || null;
+  const success = correctionStatus !== "failed";
+
+  const { error: updateErr } = await sb.from("payments").update({
+    status: correctionStatus,
+    kind: action === "reverse" ? "reversal" : "refund",
+    provider_transaction_id: providerId,
+    failure_category: success ? null : `${action}_declined`,
+    approved_at: success ? now : null,
+    settled_at: correctionStatus === "succeeded" ? now : null,
+    completed_at: correctionStatus === "pending" ? null : now,
+    fee_cents: 0,
+    total_charged_cents: want,
+  }).eq("id", correction.id);
+
+  if (updateErr) {
+    console.error("[payment-refund] correction ledger update failed", updateErr);
+    return j({ error: "ledger_update_failed", provider_action_succeeded: success }, 500, cors);
+  }
+
+  await sb.from("payment_events").insert({
+    payment_id: correction.id,
+    invoice_id: orig.invoice_id,
+    source: "admin",
+    event: success
+      ? (action === "reverse" ? "reversed" : correctionStatus === "pending" ? "refund_pending" : "refunded")
+      : "declined",
+    detail: {
+      action,
+      refund_of: orig.id,
+      amount_cents: want,
+      http: provider.httpStatus,
+      category: provider.category,
+      provider_transaction_id: providerId,
+    },
+  });
+
+  // Only succeeded corrections affect net collected now. A pending ACH refund
+  // will be applied when payment-reconcile marks the correction succeeded.
+  if (success && correctionStatus === "succeeded") {
+    const { error: recalcErr } = await sb.rpc("recalc_invoice_status", { p_invoice_id: orig.invoice_id });
+    if (recalcErr) console.error("[payment-refund] recalc failed", recalcErr);
+  }
+
+  await sb.from("activity_log").insert({
+    actor_id: user.id,
+    action: success ? `payment_${action}ed` : `${action}_failed`,
+    detail: `${orig.invoice_id} $${(want / 100).toFixed(2)}`,
+  });
+
+  if (!success) {
+    return j({ error: `${action}_declined`, http: provider.httpStatus,
+      provider_message: provider.text }, 502, cors);
+  }
+
+  return j({
+    ok: true,
+    action,
+    refund_id: correction.id,
+    amount_cents: want,
+    status: correctionStatus,
+    provider_transaction_id: providerId,
+  }, 200, cors);
 });
-function j(b: unknown, s: number, c: Record<string,string>) {
-  return new Response(JSON.stringify(b), { status: s, headers: { ...c, "Content-Type": "application/json" } });
+
+async function failCorrection(
+  sb: ReturnType<typeof createClient>, correction: Row, orig: Row,
+  failure: string, provider: ProviderResult, now: string,
+) {
+  await sb.from("payments").update({
+    status: "failed",
+    failure_category: failure,
+    completed_at: now,
+  }).eq("id", correction.id);
+  await sb.from("payment_events").insert({
+    payment_id: correction.id,
+    invoice_id: orig.invoice_id,
+    source: "admin",
+    event: "declined",
+    detail: { failure, http: provider.httpStatus, category: provider.category },
+  });
+}
+
+function providerErrorResponse(r: ProviderResult, cors: Record<string, string>) {
+  if (r.category === "auth" || r.category === "permission") {
+    return j({ error: "provider_auth_failed",
+      message: "Helcim rejected the admin API request. Check HELCIM_ADMIN_API_TOKEN and API Access permissions." }, 502, cors);
+  }
+  return j({ error: "provider_request_failed", http: r.httpStatus, provider_message: r.text }, 502, cors);
+}
+
+function providerApproved(r: ProviderResult): boolean {
+  if (!r.ok) return false;
+  const t = unwrapTxn(r.body) ?? r.body ?? {};
+  const status = String(t.status ?? "").toUpperCase();
+  // Current card refund/reverse responses report APPROVED. Keep an HTTP-only
+  // fallback only when the response has no status field at all.
+  return !status || status === "APPROVED" || status === "APPROVAL";
+}
+
+async function helcim(
+  url: string,
+  token: string,
+  opts: { method: "GET" | "POST" | "PUT"; idem?: string; body?: Row },
+): Promise<ProviderResult> {
+  try {
+    const headers: Record<string, string> = { "api-token": token, "accept": "application/json" };
+    if (opts.body) headers["content-type"] = "application/json";
+    if (opts.idem) headers["idempotency-key"] = opts.idem;
+    const res = await fetch(url, {
+      method: opts.method,
+      headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const text = await res.text();
+    let body: Row | null = null;
+    if (text) {
+      try { body = JSON.parse(text); } catch { /* retain text below */ }
+    }
+    const category: ProviderResult["category"] = res.ok ? "ok"
+      : res.status === 401 ? "auth"
+      : res.status === 403 ? "permission"
+      : "declined";
+    return { ok: res.ok, httpStatus: res.status, category, body, text: text ? text.slice(0, 300) : null };
+  } catch (e) {
+    return { ok: false, httpStatus: 0, category: "network", body: null,
+      text: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function unwrapTxn(raw: unknown): Row | null {
+  if (!raw || typeof raw !== "object") return null;
+  const root = raw as Row;
+  if (root.transaction && typeof root.transaction === "object") return root.transaction as Row;
+  if (root.data && typeof root.data === "object") {
+    const d = root.data as Row;
+    if (d.transaction && typeof d.transaction === "object") return d.transaction as Row;
+    if (d.data && typeof d.data === "object") return d.data as Row;
+    return d;
+  }
+  return root;
+}
+
+function j(body: unknown, status: number, cors: Record<string, string>) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
 }
