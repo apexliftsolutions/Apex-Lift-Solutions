@@ -196,6 +196,20 @@ async function renderInvoices() {
       (i.company || '').toLowerCase().includes(search));
   }
 
+  // Which invoices already have a live Helcim attempt? An admin must not be
+  // invited to hand-record a payment the processor is still confirming.
+  const _live = {};
+  try {
+    const { data: lp } = await _sb.from('payments')
+      .select('invoice_id, status')
+      .eq('provider', 'helcim').in('status', ['initiated', 'pending', 'unknown', 'succeeded']);
+    const rank = { succeeded: 4, pending: 3, unknown: 2, initiated: 1 };
+    (lp || []).forEach(p => {
+      const cur = _live[p.invoice_id];
+      if (!cur || rank[p.status] > rank[cur.status]) _live[p.invoice_id] = p;
+    });
+  } catch (e) { console.warn('[Apex] could not load live payment attempts', e); }
+
   document.getElementById('invoices-table').innerHTML = !invoices.length
     ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No invoices match your filters.</td></tr>'
     : invoices.map(i => `
@@ -207,7 +221,7 @@ async function renderInvoices() {
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
       <td>
-        ${i.status === 'unpaid' ? `<button class="action-btn green" onclick="markPaid('${i.id}')">Record Payment</button>` : ''}
+        ${i.status === 'unpaid' ? `${payActionHtml(i, _live[i.id])}` : ''}
         <button class="action-btn" onclick="printInvoicePDF('${i.id}')">🖨 PDF</button>
         ${i.status !== 'hidden' ? `<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`
           : `<button class="action-btn green" onclick="unhideInvoice('${i.id}')">Unhide</button>`}
@@ -277,6 +291,66 @@ async function deleteCustomer(id, name) {
   } else alert('Delete failed — customer may have associated records.');
 }
 
+
+// What the admin may do about payment on this invoice.
+// The manual form is for money that arrived OUTSIDE the portal only. If Helcim
+// already has a live attempt, offering "record payment" invites a duplicate
+// record for the same money.
+function payActionHtml(inv, live) {
+  if (inv.status === 'paid') {
+    const how = inv.paid_via === 'helcim' ? 'Online' : 'Offline';
+    return `<span class="badge badge-paid">Paid</span>
+            <div style="font-size:.66rem;color:var(--grey);margin-top:3px;">${esc(how)}</div>`;
+  }
+  if (inv.status === 'payment_pending' || (live && live.status === 'pending')) {
+    return `<span class="badge badge-pending">Payment Pending</span>
+            <div style="font-size:.66rem;color:var(--grey);margin-top:3px;">Bank payment clearing</div>`;
+  }
+  if (live && live.status === 'succeeded') {
+    // Payment recorded but the invoice has not caught up — a finalization bug,
+    // not something to paper over with a manual entry.
+    return `<span class="badge badge-pending">Confirming</span>
+            <div style="font-size:.66rem;color:#f0a500;margin-top:3px;">Payment recorded — invoice not finalized</div>`;
+  }
+  if (live && (live.status === 'initiated' || live.status === 'unknown')) {
+    return `<span class="badge badge-pending">Online payment being confirmed</span>
+            <button class="action-btn" style="margin-top:5px;font-size:.66rem;" onclick="reviewOnlinePayment('${esc(inv.id)}')">Review</button>`;
+  }
+  return `<button class="action-btn green" onclick="markPaid('${esc(inv.id)}')">Record Offline Payment</button>`;
+}
+
+// Shows the admin what the processor actually has, and offers the verified
+// reconcile path — never a manual duplicate.
+async function reviewOnlinePayment(invoiceId) {
+  const { data: rows } = await _sb.from('payments').select('*')
+    .eq('invoice_id', invoiceId).order('created_at', { ascending: false });
+  const p = (rows || [])[0];
+  if (!p) { alert('No payment attempt found for ' + invoiceId); return; }
+  const msg =
+    `Invoice ${invoiceId}\n\n` +
+    `Attempt status : ${p.status}\n` +
+    `Method         : ${p.method || '(not yet known)'}\n` +
+    `Amount         : $${(p.amount_cents/100).toFixed(2)}\n` +
+    `Transaction id : ${p.provider_transaction_id || '(none recorded)'}\n` +
+    `Started        : ${new Date(p.initiated_at || p.created_at).toLocaleString()}\n\n` +
+    `A customer began paying this invoice online. Do NOT record an offline\n` +
+    `payment for it — that would create a second record for the same money.\n\n` +
+    `If Helcim shows this as APPROVED, paste its Transaction ID to reconcile.\n` +
+    `Leave blank to cancel.`;
+  const txn = prompt(msg, p.provider_transaction_id || '');
+  if (!txn) return;
+  const { data: { session } } = await _sb.auth.getSession();
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/admin-action`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'reconcile-payment', paymentId: p.id, helcimTransactionId: txn.trim() }),
+  });
+  const out = await r.json();
+  if (!r.ok) { console.error('[Apex] reconcile-payment failed', out); alert(out.error || 'Could not reconcile.'); return; }
+  showToast(`✓ ${invoiceId} reconciled — invoice is now ${out.invoice_status}`);
+  renderInvoices();
+}
+
 // ── INVOICE ACTIONS ───────────────────────────
 // "Record Manual Payment" — for money received outside the portal (check, cash,
 // wire, terminal). Writes a payments ledger row via admin-action; the invoice
@@ -286,6 +360,17 @@ async function markPaid(id) {
   const invs = await DB.getAllInvoices();
   _manualInvoice = invs.find(i => i.id === id);
   if (!_manualInvoice) return;
+  // Last line of defence: refuse to open the offline form when the processor
+  // already has something for this invoice.
+  const { data: existing } = await _sb.from('payments').select('status')
+    .eq('invoice_id', id).eq('provider', 'helcim')
+    .in('status', ['initiated', 'pending', 'unknown', 'succeeded']);
+  if ((existing || []).length) {
+    alert(`Invoice ${id} already has an online payment attempt (status: ${existing[0].status}).\n\n` +
+          `Recording an offline payment would create a second record for the same money.\n\n` +
+          `Use Review instead to reconcile it against Helcim.`);
+    return;
+  }
   document.getElementById('mp-inv-id').textContent  = id;
   document.getElementById('mp-inv-amt').textContent = '$' + parseFloat(_manualInvoice.amount).toFixed(2);
   document.getElementById('mp-amount').value = parseFloat(_manualInvoice.amount).toFixed(2);

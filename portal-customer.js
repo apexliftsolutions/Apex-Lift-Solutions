@@ -404,6 +404,48 @@ function taxRows(r) {
     </div>`;
 }
 
+
+// Mirror of supabase/functions/_shared/helcimpay.ts. Kept deliberately small:
+// the SERVER normalizes authoritatively, this only produces useful diagnostics
+// and a best-effort payload. Returns no card or bank fields.
+function normalizeHelcimPay(input) {
+  let cur = input, depth = 0, parsedOk = true;
+  while (typeof cur === 'string' && depth < 3) {
+    const t = cur.trim();
+    if (!t) break;
+    try { const nx = JSON.parse(t); cur = nx; depth++; if (typeof nx !== 'string' && typeof nx !== 'object') break; }
+    catch { parsedOk = false; break; }
+  }
+  const root  = (cur && typeof cur === 'object') ? cur : {};
+  const dataN = (root.data && typeof root.data === 'object') ? root.data : null;
+  const innerN = (dataN && dataN.data && typeof dataN.data === 'object') ? dataN.data : null;
+  const hasId = o => !!o && ('transactionId' in o || 'cardTransactionId' in o || 'bankTransactionId' in o);
+
+  let txn = null, wrapper = 'unknown';
+  if (hasId(innerN))      { txn = innerN; wrapper = 'data.data'; }
+  else if (hasId(dataN))  { txn = dataN;  wrapper = 'data'; }
+  else if (hasId(root))   { txn = root;   wrapper = 'root'; }
+  else if (innerN)        { txn = innerN; wrapper = 'data.data(no-id)'; }
+  else if (dataN)         { txn = dataN;  wrapper = 'data(no-id)'; }
+
+  const hash = (typeof root.hash === 'string' && root.hash) ? root.hash
+             : (dataN && typeof dataN.hash === 'string' && dataN.hash) ? dataN.hash : null;
+
+  let id = null;
+  if (txn) for (const k of ['transactionId','cardTransactionId','bankTransactionId','id']) {
+    const v = txn[k];
+    if (typeof v === 'number' && isFinite(v)) { id = String(v); break; }
+    if (typeof v === 'string' && /^\d+$/.test(v.trim())) { id = v.trim(); break; }
+  }
+
+  let txnJson = null;
+  try { if (txn) txnJson = JSON.stringify(txn); } catch (e) { /* ignore */ }
+
+  return { transactionId: id, hash, txnJson,
+    shape: { inputType: typeof input, parsedOk, depth, wrapper,
+             transactionIdFound: !!id, hashFound: !!hash } };
+}
+
 // ── PAY INVOICE (HelcimPay.js + Fee Saver) ────
 // Fee Saver requires Helcim's modal to offer BOTH card and ACH so the customer
 // can avoid the card fee. We therefore do not present our own method chooser --
@@ -473,26 +515,50 @@ async function startPay() {
     let settled = false;   // guards against SUCCESS followed by a HIDE event
 
     PAY_LISTENER = async (ev) => {
-      // Log every Helcim-shaped message, even non-matching ones, so a mismatched
-      // event name is visible instead of silently doing nothing.
-      if (ev.data && typeof ev.data === 'object' && 'eventName' in ev.data) {
-        console.info('[Apex] Helcim event received:', ev.data.eventName, ev.data.eventStatus,
-          ev.data.eventName === `helcim-pay-js-${checkoutToken}` ? '(matches our checkout)' : '(different checkout — ignored)');
-      }
-      if (!ev.data || ev.data.eventName !== `helcim-pay-js-${checkoutToken}`) return;
-      const status = ev.data.eventStatus;
-      console.info('[Apex] Helcim event status:', status);
+      // DEFECT 1 this fixes: ev.data may arrive as a JSON *string* rather than an
+      // object depending on Helcim version/platform. The previous guard read
+      // ev.data.eventName directly, so a string payload returned silently and the
+      // SUCCESS branch never ran — producing exactly "checkout_created, then
+      // nothing" with no console output at all.
+      let d = ev.data;
+      if (typeof d === 'string') { try { d = JSON.parse(d); } catch { /* not ours */ } }
+      if (!d || typeof d !== 'object') return;
 
+      // Log EVERY message that carries an eventName, matching or not.
+      if ('eventName' in d) {
+        console.info('[Apex] Helcim message received:', d.eventName, '| status:', d.eventStatus,
+          '| raw type:', typeof ev.data,
+          d.eventName === `helcim-pay-js-${checkoutToken}` ? '| TOKEN MATCHED' : '| different checkout, ignored');
+      }
+      if (d.eventName !== `helcim-pay-js-${checkoutToken}`) return;
+
+      const status = String(d.eventStatus ?? '').toUpperCase();
+      console.info('[Apex] checkout token matched — event status =', status);
+
+      // DEFECT 2 this fixes: HIDE used to tear the listener down immediately.
+      // If Helcim emits HIDE before (or racing) SUCCESS, the listener was gone
+      // and SUCCESS could never be handled. HIDE now only closes the visuals and
+      // starts a grace window; the listener stays alive for a late SUCCESS.
       if (status === 'ABORTED' || status === 'HIDE') {
         if (settled) return;                 // success already handled; ignore
-        cleanupHelcim();
-        closePayModal();                     // customer backed out — no charge
+        try { removeHelcimPayIframe(); } catch (e) { /* not rendered */ }
+        document.body.classList.remove('helcim-active');
+        document.getElementById('pay-modal').className = 'modal-overlay';
+        PAY_BUSY = false;
+
+        // The window closed without a SUCCESS reaching us. Helcim may still have
+        // charged the card and told the server via webhook, so ask the server
+        // rather than assuming nothing happened.
+        setTimeout(() => { if (!settled) confirmFromServer(id, 0); }, 4000);
         return;
       }
       if (status !== 'SUCCESS') return;
 
       settled = true;
-      console.info('[Apex] SUCCESS — invoking payment-validate for', PAY_ID);
+      const hp = normalizeHelcimPay(d.eventMessage);
+      console.info('[Apex] SUCCESS — response shape:', JSON.stringify(hp.shape));
+      console.info('[Apex] invoking payment-validate for', PAY_ID,
+        '| transactionId:', hp.transactionId ?? '(none found)');
       cleanupHelcim();
 
       // Re-open our modal to show the verifying/result state.
@@ -503,11 +569,16 @@ async function startPay() {
         const vr = await fetch(`${FN_BASE}/payment-validate`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-          // Helcim hashes JSON.stringify(eventMessage.data) + secretToken.
+          // Send eventMessage EXACTLY as Helcim delivered it. Helcim documents
+          // it as "a JSON.stringify version of the transaction response", so
+          // reading .data/.hash off it directly returns undefined when it is a
+          // string — which is precisely what silently broke this before.
+          // The server normalizes; the browser only forwards.
           body: JSON.stringify({
             checkoutToken,
-            rawDataResponse: JSON.stringify(ev.data.eventMessage?.data ?? {}),
-            hash: ev.data.eventMessage?.hash,
+            eventMessage: d.eventMessage,                 // verbatim
+            rawDataResponse: hp.txnJson,                  // best-effort, advisory
+            hash: hp.hash,
           }),
         });
         const out = await vr.json();
@@ -544,6 +615,26 @@ async function startPay() {
     showPayState('error', 'Connection problem. Please try again or call (516) 644-7187.');
     PAY_BUSY = false;
   }
+}
+
+
+// After the Helcim window closes without a SUCCESS event reaching us, the server
+// may still learn about the payment through the webhook. Poll a few times so the
+// customer sees the real state instead of a stale Pay button. Read-only — this
+// can never mark anything paid; it only reflects what the database already says.
+async function confirmFromServer(invoiceId, attempt) {
+  if (attempt > 5) return;
+  try {
+    const { data: inv } = await sb.from('invoices')
+      .select('status').eq('id', invoiceId).eq('customer_id', USER.id).maybeSingle();
+    if (inv && inv.status !== 'unpaid') {
+      console.info('[Apex] server reports invoice', invoiceId, 'is now', inv.status);
+      LOCKED_INVOICES.add(invoiceId);
+      await loadInvoices();
+      return;
+    }
+  } catch (e) { console.warn('[Apex] confirmFromServer failed', e); }
+  setTimeout(() => confirmFromServer(invoiceId, attempt + 1), 5000);
 }
 
 function cleanupHelcim() {

@@ -198,6 +198,88 @@ Deno.serve(async (req) => {
       // Recover a payment Helcim took but Apex never recorded. The admin reads
       // the transaction id off the Helcim dashboard; the SERVER then verifies it
       // against Helcim before touching anything. This never charges a card.
+      // Resolve a Helcim attempt left in 'unknown' AFTER an offline payment was
+      // already recorded to compensate. The invoice must end up representing the
+      // money exactly ONCE.
+      //
+      // Design constraint: guard_payment() forbids reopening a succeeded payment
+      // ("a succeeded payment cannot be reopened"). And netting the manual row
+      // out with a reversal would push recalc_invoice_status to
+      // 'partially_refunded', which is wrong. So the compensating manual row is
+      // left as the settled record, and the Helcim attempt is closed as
+      // 'voided' with the real transaction id preserved in payment_events.
+      // One succeeded payment, full audit trail, no duplicate email.
+      case 'resolve-orphan-attempt': {
+        const { paymentId, helcimTransactionId } = body;
+        if (!paymentId) return json({ error: 'paymentId required' }, 400);
+
+        const { data: payArr } = await admin.from('payments').select('*').eq('id', paymentId);
+        const pay = payArr?.[0];
+        if (!pay) return json({ error: 'Payment attempt not found' }, 404);
+        if (pay.provider !== 'helcim') return json({ error: 'Only a Helcim attempt can be resolved here.' }, 400);
+        if (pay.status === 'succeeded') return json({ error: 'That attempt already succeeded.' }, 409);
+
+        // Is the invoice already settled by something else?
+        const { data: others } = await admin.from('payments')
+          .select('id, provider, method, amount_cents')
+          .eq('invoice_id', pay.invoice_id).eq('kind', 'payment')
+          .eq('status', 'succeeded').neq('id', paymentId);
+        const alreadySettled = (others ?? []).length > 0;
+
+        // If a transaction id was supplied, verify it before recording anything.
+        let txn = null;
+        if (helcimTransactionId) {
+          for (const seg of ['card-transactions', 'bank-transactions']) {
+            const r = await fetch(`https://api.helcim.com/v2/${seg}/${encodeURIComponent(helcimTransactionId)}`,
+              { headers: { 'api-token': Deno.env.get('HELCIM_ADMIN_API_TOKEN'), accept: 'application/json' } });
+            if (r.ok) { txn = await r.json().catch(() => null); if (txn) break; }
+          }
+          if (!txn) return json({ error: `Helcim has no transaction ${helcimTransactionId}. Check the id.` }, 404);
+          if (!/APPROV/i.test(String(txn.status ?? ''))) {
+            return json({ error: `That transaction is ${txn.status}, not approved.` }, 409);
+          }
+        }
+
+        if (alreadySettled) {
+          // Close the Helcim attempt WITHOUT adding money. unknown -> voided is
+          // not a succeeded transition, so notify_on_payment sends nothing and
+          // the customer gets no second receipt.
+          const { error: vErr } = await admin.from('payments').update({
+            status: 'voided',
+            failure_category: txn ? 'superseded_by_manual_record' : 'no_provider_transaction',
+            provider_transaction_id: txn ? String(txn.transactionId ?? txn.id ?? helcimTransactionId) : null,
+            completed_at: new Date().toISOString(),
+          }).eq('id', paymentId);
+          if (vErr) return json({ error: vErr.message }, 500);
+
+          await admin.from('payment_events').insert({
+            payment_id: paymentId, invoice_id: pay.invoice_id,
+            event: 'orphan_attempt_resolved', source: 'admin',
+            detail: {
+              outcome: 'voided_attempt_manual_record_kept',
+              helcim_transaction_id: txn ? String(txn.transactionId ?? txn.id ?? helcimTransactionId) : null,
+              helcim_charged: !!txn,
+              settled_by_payment_ids: (others ?? []).map((o) => o.id),
+              note: txn
+                ? 'Helcim DID charge this. The offline record entered earlier is kept as the single settled payment so the invoice is not counted twice; the real Helcim transaction id is preserved here.'
+                : 'Helcim shows no approved transaction. The offline record stands as the correct payment.',
+            },
+          });
+          await admin.rpc('recalc_invoice_status', { p_invoice_id: pay.invoice_id });
+          await logAction(admin, user.id, 'orphan_attempt_resolved',
+            `${pay.invoice_id}: Helcim attempt voided, existing settled payment kept${txn ? ` (Helcim txn ${helcimTransactionId})` : ''}`);
+          return json({ ok: true, outcome: 'voided_attempt_manual_record_kept',
+            helcim_charged: !!txn,
+            message: txn
+              ? 'Helcim did charge this card. Because an offline payment was already recorded for the same money, the Helcim attempt has been closed and the transaction id stored in the audit trail. The invoice remains paid exactly once.'
+              : 'Helcim shows no approved transaction, so nothing was charged there. The offline payment record stands. The stale attempt is closed.' });
+        }
+
+        // Nothing else settled the invoice — promote the real Helcim charge.
+        if (!txn) return json({ error: 'Supply the Helcim transaction id to settle this invoice from the real charge.' }, 400);
+        return json({ error: 'Invoice is not already settled — use reconcile-payment instead.' }, 409);
+      }
+
       case 'reconcile-payment': {
         const { paymentId, helcimTransactionId } = body;
         if (!paymentId || !helcimTransactionId) {

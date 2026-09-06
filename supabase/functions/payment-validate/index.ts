@@ -17,6 +17,7 @@
 // and check. Invoice state is then derived from the ledger by recalc_invoice_status().
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { reconcileAmount, looksACH } from "../_shared/feesaver.ts";
+import { normalizeHelcimPayResponse } from "../_shared/helcimpay.ts";
 
 const HELCIM_API = "https://api.helcim.com/v2";
 
@@ -33,7 +34,7 @@ Deno.serve(async (req) => {
   const { data: { user } } = await sb.auth.getUser(jwt);
   if (!user) return j({ error: "unauthorized" }, 401, cors);
 
-  const { checkoutToken, rawDataResponse, hash } = await req.json().catch(() => ({}));
+  const { checkoutToken, eventMessage, rawDataResponse, hash } = await req.json().catch(() => ({}));
   if (!checkoutToken) {
     console.error("[payment-validate] bad request: no checkoutToken");
     return j({ error: "bad_request" }, 400, cors);
@@ -66,8 +67,15 @@ Deno.serve(async (req) => {
   }
 
   // First thing we can attribute to this payment: proof validation actually ran.
-  await ev(sb, pay, "validation_started", "browser_validate",
-    { has_hash: !!hash, has_raw: !!rawDataResponse });
+  // Normalize server-side. The browser's own extraction is advisory only --
+  // depending on it is what produced "no_transaction_id" on a real payment.
+  const hp = normalizeHelcimPayResponse(eventMessage ?? rawDataResponse);
+  await ev(sb, pay, "validation_started", "browser_validate", {
+    ...hp.shape,
+    browser_sent_hash: !!hash,
+    browser_sent_raw: !!rawDataResponse,
+    server_found_txn_id: !!hp.transactionId,
+  });
 
   // Replay guard — a settled attempt is reported back, never re-processed.
   if (!["initiated", "pending"].includes(pay.status)) {
@@ -82,26 +90,37 @@ Deno.serve(async (req) => {
   // Helcim's eventMessage shape varies (object vs JSON string, hash at the top
   // level vs nested), so a failed hash extraction must NEVER be reported to the
   // customer as a declined payment. We record it and let GATE 2 decide.
+  // Helcim hashes JSON.stringify(<the node beside the hash>) + secretToken.
+  // Which node that is depends on the wrapper, so try each candidate rather
+  // than guessing one nesting level.
+  const presentedHash = hp.hash ?? (typeof hash === "string" ? hash : null);
   let hashOk = false;
-  if (hash) {
-    const expected = await sha256Hex(String(rawDataResponse ?? "") + sess.secret_token);
-    hashOk = timingSafeEqual(String(hash), expected);
+  if (presentedHash) {
+    for (const cand of hp.hashCandidates) {
+      const expected = await sha256Hex(cand + sess.secret_token);
+      if (timingSafeEqual(presentedHash, expected)) { hashOk = true; break; }
+    }
   }
 
-  // Pull the transaction id out of whatever shape arrived.
-  const txnId = extractTxnId(rawDataResponse);
+  // Server-normalized id first; the old recursive walk stays as a last resort.
+  const txnId = hp.transactionId ?? extractTxnId(eventMessage ?? rawDataResponse);
   if (!txnId) {
     // Helcim said SUCCESS but we cannot identify the transaction. Do not fail
     // the payment -- park it for the webhook / reconcile job.
     await sb.from("payments").update({ status: "unknown", failure_category: "no_transaction_id" }).eq("id", pay.id);
-    await ev(sb, pay, "verify_deferred", "browser_validate", { hash_ok: hashOk, reason: "no_transaction_id" });
+    await ev(sb, pay, "verify_deferred", "browser_validate",
+      { hash_ok: hashOk, reason: "no_transaction_id", ...hp.shape });
     return j({ status: "unknown", invoice_id: pay.invoice_id }, 202, cors);
   }
-  const inner = parseInner(rawDataResponse);
+  const inner = parseInner(eventMessage ?? rawDataResponse);
   if (!hashOk) {
     await ev(sb, pay, "hash_unverified", "browser_validate",
-      { txn_id: txnId, note: "proceeding to authoritative provider lookup" });
+      { txn_id: txnId, wrapper: hp.shape.wrapper, candidates_tried: hp.hashCandidates.length,
+        note: "proceeding to authoritative provider lookup" });
   }
+  await ev(sb, pay, "transaction_response_normalized", "browser_validate",
+    { txn_id: txnId, wrapper: hp.shape.wrapper, hash_ok: hashOk,
+      provider_status: hp.status, provider_type: hp.type });
 
 
   // ── GATE 2: authority — ask Helcim directly ────────────────────────────────

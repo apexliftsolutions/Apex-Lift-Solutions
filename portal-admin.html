@@ -427,10 +427,10 @@
 <!-- RECORD MANUAL PAYMENT (admin only) -->
 <div class="modal-overlay" id="manual-pay-modal">
   <div class="modal" style="max-width:520px;">
-    <h3>Record Manual Payment <span id="mp-inv-id" style="color:var(--red)"></span></h3>
+    <h3>Record Offline Payment <span id="mp-inv-id" style="color:var(--red)"></span></h3>
     <p style="color:var(--grey-light);font-size:.9rem;margin:6px 0 18px;line-height:1.6;">
       Invoice total <strong id="mp-inv-amt" style="color:var(--white)"></strong>.
-      Use this only for money received <em>outside</em> the portal — check, cash, wire, or the card terminal.
+      For money received <strong>outside</strong> the portal only — check, cash, wire, or the card terminal.
       Online card and bank payments are recorded automatically by the payment provider.
     </p>
     <div style="margin-bottom:12px;">
@@ -454,7 +454,7 @@
     </div>
     <div id="mp-err" role="alert" style="display:none;color:#ff4444;font-family:var(--font-head);font-size:.8rem;font-weight:700;padding:10px;border:1px solid #ff4444;text-align:center;margin-bottom:12px;"></div>
     <div style="display:flex;gap:10px;">
-      <button class="btn-primary" id="mp-submit" onclick="submitManualPayment()">Record Payment</button>
+      <button class="btn-primary" id="mp-submit" onclick="submitManualPayment()">Record Offline Payment</button>
       <button class="action-btn" onclick="closeManualPay()">Cancel</button>
     </div>
   </div>
