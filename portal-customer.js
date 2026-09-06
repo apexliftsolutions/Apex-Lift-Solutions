@@ -380,6 +380,9 @@ function respondQuote(id, response) {
 // can change what gets charged.
 
 const FN_BASE = `${SB_URL}/functions/v1`;
+// Bumped with each payment-path change; sent to the server so a stale frontend
+// or a stale Edge Function shows up in payment_events instead of guesswork.
+const APEX_CLIENT_VERSION = "2026-09-05.v18";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -556,7 +559,7 @@ async function startPay() {
 
       settled = true;
       const hp = normalizeHelcimPay(d.eventMessage);
-      console.info('[Apex] SUCCESS — response shape:', JSON.stringify(hp.shape));
+      console.info('[Apex] client', APEX_CLIENT_VERSION, '— SUCCESS response shape:', JSON.stringify(hp.shape));
       console.info('[Apex] invoking payment-validate for', PAY_ID,
         '| transactionId:', hp.transactionId ?? '(none found)');
       cleanupHelcim();
@@ -579,11 +582,13 @@ async function startPay() {
             eventMessage: d.eventMessage,                 // verbatim
             rawDataResponse: hp.txnJson,                  // best-effort, advisory
             hash: hp.hash,
+            clientVersion: APEX_CLIENT_VERSION,
           }),
         });
         const out = await vr.json();
         // Status + resulting state only. Never the transaction payload.
-        console.info('[Apex] payment-validate HTTP', vr.status, '→ status:', out?.status ?? out?.error);
+        console.info('[Apex] payment-validate HTTP', vr.status, '→ status:', out?.status ?? out?.error,
+          '| server fn version:', out?.fn_version ?? '(not reported — Edge Function may be stale)');
 
         // Helcim already told the customer the card was approved. From here on
         // the ONLY safe outcomes are "paid", "processing" or "confirming".

@@ -19,6 +19,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { reconcileAmount, looksACH } from "../_shared/feesaver.ts";
 import { normalizeHelcimPayResponse } from "../_shared/helcimpay.ts";
 
+// Bumped on every change. It lands in payment_events so a stale Edge Function
+// deploy is visible in the data instead of being guessed at.
+const FN_VERSION = "2026-09-05.v18";
+
 const HELCIM_API = "https://api.helcim.com/v2";
 
 Deno.serve(async (req) => {
@@ -34,7 +38,7 @@ Deno.serve(async (req) => {
   const { data: { user } } = await sb.auth.getUser(jwt);
   if (!user) return j({ error: "unauthorized" }, 401, cors);
 
-  const { checkoutToken, eventMessage, rawDataResponse, hash } = await req.json().catch(() => ({}));
+  const { checkoutToken, eventMessage, rawDataResponse, hash, clientVersion } = await req.json().catch(() => ({}));
   if (!checkoutToken) {
     console.error("[payment-validate] bad request: no checkoutToken");
     return j({ error: "bad_request" }, 400, cors);
@@ -71,6 +75,8 @@ Deno.serve(async (req) => {
   // depending on it is what produced "no_transaction_id" on a real payment.
   const hp = normalizeHelcimPayResponse(eventMessage ?? rawDataResponse);
   await ev(sb, pay, "validation_started", "browser_validate", {
+    fn_version: FN_VERSION,
+    client_version: typeof clientVersion === "string" ? clientVersion : null,
     ...hp.shape,
     browser_sent_hash: !!hash,
     browser_sent_raw: !!rawDataResponse,
@@ -130,6 +136,9 @@ Deno.serve(async (req) => {
     ? ["bank-transactions", "card-transactions"]
     : ["card-transactions", "bank-transactions"];
 
+  await ev(sb, pay, "provider_lookup_started", "browser_validate",
+    { txn_id: txnId, order: order.join(",") });
+
   let txn: Record<string, unknown> | null = null;
   let lastStatus = 0;
   for (const seg of order) {
@@ -150,8 +159,19 @@ Deno.serve(async (req) => {
     return j({ status: "unknown", invoice_id: pay.invoice_id }, 202, cors);
   }
 
+  await ev(sb, pay, "provider_lookup_succeeded", "browser_validate",
+    { txn_id: txnId, provider_status: txn.status ?? null, provider_type: txn.type ?? null });
+
   const status   = String(txn.status ?? "").toUpperCase();
   const approved = status === "APPROVED" || status === "APPROVAL";
+  if (approved) {
+    // Card APPROVED is final for our purposes. Settlement/deposit happens later
+    // in Helcim's batch and is NOT a precondition for the invoice being paid.
+    await ev(sb, pay, "provider_approved", "browser_validate",
+      { txn_id: txnId, rail: achTxn ? "ach" : "card",
+        note: achTxn ? "ACH stays pending until the bank clears"
+                     : "card approved — invoice settles now, bank deposit is separate" });
+  }
   const txnCents = Math.round(Number(txn.amount ?? 0) * 100);   // TOTAL charged (incl. Fee Saver)
   const currency = String(txn.currency ?? "").toUpperCase();
   const invNum   = String(txn.invoiceNumber ?? "");
@@ -207,6 +227,10 @@ Deno.serve(async (req) => {
     completed_at: newStatus === "pending" ? null : now,
   }).eq("id", pay.id);
 
+  if (!payErr) {
+    await ev(sb, pay, "payment_persisted", "browser_validate",
+      { new_status: newStatus, txn_id: txnId, fee_cents: rec.feeCents, charged_cents: rec.totalCents });
+  }
   if (payErr) {
     // The money moved but we could not record it. Do not claim success --
     // the webhook and reconcile job are still authoritative and will retry.
@@ -261,13 +285,18 @@ Deno.serve(async (req) => {
                reason: "invoice_status_lagging" }, 202, cors);
   }
 
+  await ev(sb, pay, newStatus === "succeeded" ? "invoice_paid" : "invoice_recalculated",
+    "browser_validate", { invoice_status: invAfter?.status ?? null, payment_status: newStatus });
+
   const { data: fresh } = await sb.from("payments").select("*").eq("id", pay.id).single();
   return j(view(fresh ?? pay), 200, cors);
 });
 
 function view(p: Record<string, unknown>) {
   return { status: p.status, invoice_id: p.invoice_id, amount_cents: p.amount_cents,
-           method_display: p.method_display, reference: p.provider_transaction_id };
+           fee_cents: p.fee_cents, total_charged_cents: p.total_charged_cents,
+           method_display: p.method_display, reference: p.provider_transaction_id,
+           fn_version: FN_VERSION };
 }
 async function ev(sb: ReturnType<typeof createClient>, pay: Record<string, unknown>,
                   event: string, source: string, detail: unknown) {
