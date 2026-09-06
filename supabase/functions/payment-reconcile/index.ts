@@ -1,501 +1,178 @@
-// Scheduled reconciliation safety net.
-//
-// Responsibilities:
-// 1. Recover initiated/unknown Helcim attempts by checking Helcim before doing
-//    anything destructive.
-// 2. Never auto-void an UNKNOWN payment: UNKNOWN means the browser/provider told
-//    us something happened but we could not finish verification.
-// 3. Only void an INITIATED attempt after it is old enough and Helcim shows no
-//    unambiguous matching transaction.
-// 4. Poll pending ACH transactions until they clear or fail.
+// Scheduled. Re-checks every ACH payment stuck in 'pending' against the
+// provider's authoritative transaction record. Webhooks may not carry a final
+// settlement event; this is the safety net. Also expires stale 'initiated'
+// checkouts that were never completed (token lifetime is 60 min).
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { reconcileAmount } from "../_shared/feesaver.ts";
-
 const HELCIM_API = "https://api.helcim.com/v2";
-type Row = Record<string, any>;
 
 Deno.serve(async (req) => {
-  if (req.headers.get("x-worker-key") !== Deno.env.get("RECONCILE_WORKER_KEY")) {
-    return new Response("Forbidden", { status: 403 });
-  }
-
+  if (req.headers.get("x-worker-key") !== Deno.env.get("RECONCILE_WORKER_KEY")) return new Response("Forbidden", { status: 403 });
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const now = new Date().toISOString();
+
+  // ── 1. Stale 'initiated' attempts ──────────────────────────────────────────
+  // These are NOT automatically abandoned. Helcim may have taken the money and
+  // the browser may simply have died before payment-validate ran. Voiding one
+  // blindly discards a real charge, so we ask Helcim first and only void when
+  // the provider confirms nothing happened.
   const cutoff = new Date(Date.now() - 20 * 60_000).toISOString();
+  const { data: stale } = await sb.from("payments")
+    .select("id, invoice_id, amount_cents, currency, customer_id, initiated_at")
+    .eq("status", "initiated").eq("provider", "helcim").eq("kind", "payment")
+    .lt("initiated_at", cutoff).limit(50);
 
-  // Revisit both INITIATED and UNKNOWN attempts. UNKNOWN is important: the old
-  // worker ignored it, which made a failed immediate verification a dead-end.
-  const { data: attempts, error: attemptsErr } = await sb.from("payments")
-  .select("*")
-  .eq("provider", "helcim")
-  .eq("kind", "payment")
-  .in("status", ["initiated", "unknown"])
-  .lt("initiated_at", cutoff)
-  .order("initiated_at", { ascending: true })
-  .limit(50);
-
-  if (attemptsErr) {
-    console.error("[payment-reconcile] attempt query failed", attemptsErr);
-    return Response.json({ error: "attempt_query_failed" }, { status: 500 });
-  }
-
-  let recovered = 0;
-  let voided = 0;
-  let leftForReview = 0;
-
-  for (const p of attempts ?? []) {
-    const found = await findHelcimTxn(p);
-
-    if (found) {
-      const applied = await applyFoundTransaction(sb, p, found, now);
-      if (applied === "recovered") recovered++;
-      else leftForReview++;
-      continue;
-    }
-
-    // UNKNOWN is never auto-voided. There may be a real charged transaction we
-    // still cannot identify; keep the duplicate-payment lock and require review.
-    if (String(p.status) === "unknown") {
-      leftForReview++;
-      continue;
-    }
-
-    // INITIATED attempts younger than 6h are not safe to classify as abandoned.
-    if (Date.now() - new Date(String(p.initiated_at)).getTime() < 6 * 60 * 60_000) {
-      continue;
-    }
-
-    // Only an old INITIATED attempt with no matching provider transaction can be
-    // voided. This update is conditional so a concurrent validator cannot race it.
-    const { error: voidErr } = await sb.from("payments")
-    .update({ status: "voided", failure_category: "abandoned", completed_at: now })
-    .eq("id", p.id)
-    .eq("status", "initiated");
-
-    if (voidErr) {
-      console.error("[payment-reconcile] void failed", p.id, voidErr);
-      continue;
-    }
-
-    const { error: recalcErr } = await sb.rpc("recalc_invoice_status", { p_invoice_id: p.invoice_id });
-    if (recalcErr) console.error("[payment-reconcile] recalc after void failed", p.invoice_id, recalcErr);
-
-    await addEvent(sb, p, "voided", {
-      reason: "no_provider_transaction",
-      checked_helcim: true,
-      note: "only old initiated attempts may be auto-voided; unknown attempts are never auto-voided",
+  let recovered = 0, voided = 0;
+  for (const p of stale ?? []) {
+    const found = await findHelcimTxn({
+      amount_cents: Number(p.amount_cents), currency: String(p.currency),
+      initiated_at: String(p.initiated_at),
     });
+
+    if (found && /APPROV/i.test(String(found.status ?? ""))) {
+      // Money moved. Reconcile it instead of throwing it away.
+      const isBank = /ach|bank/i.test(String(found.type ?? "")) || !!found.bankAccountNumber;
+      const chargedCents = Math.round(Number(found.amount ?? 0) * 100);
+      const rec = await reconcileAmount(sb, {
+        baseCents: Number(p.amount_cents), chargedCents,
+        currency: String(found.currency ?? "").toUpperCase(),
+        expectedCurrency: String(p.currency), isACH: isBank,
+      });
+
+      if (!rec.ok) {
+        // Real transaction, but it does not match. A human must look.
+        await sb.from("payments").update({ status: "unknown",
+          failure_category: `amount_${rec.reason}`,
+          provider_transaction_id: String(found.transactionId ?? found.id ?? ""),
+          total_charged_cents: chargedCents, completed_at: now }).eq("id", p.id);
+        await sb.from("payment_events").insert({ payment_id: p.id, invoice_id: p.invoice_id,
+          event: "amount_mismatch", source: "reconcile",
+          detail: { reason: rec.reason, base_cents: rec.baseCents, charged_cents: chargedCents } });
+        continue;
+      }
+
+      const settledNow = !isBank ||
+        /settl|clear|complet/i.test(String(found.bankStatus ?? found.settlementStatus ?? ""));
+      await sb.from("payments").update({
+        status: settledNow ? "succeeded" : "pending",
+        provider_transaction_id: String(found.transactionId ?? found.id ?? ""),
+        method: isBank ? "ach" : "card",
+        method_display: found.cardNumber
+          ? `${found.cardType ?? "Card"} ····${String(found.cardNumber).slice(-4)}`
+          : found.bankAccountNumber ? `Bank ····${String(found.bankAccountNumber).slice(-4)}` : null,
+        fee_cents: rec.feeCents, total_charged_cents: rec.totalCents,
+        approved_at: now, settled_at: settledNow ? now : null,
+        completed_at: settledNow ? now : null, failure_category: null,
+      }).eq("id", p.id);
+      await sb.from("payment_events").insert({ payment_id: p.id, invoice_id: p.invoice_id,
+        event: settledNow ? "recovered_settled" : "recovered_pending", source: "reconcile",
+        detail: { txn_id: found.transactionId ?? found.id, ach: isBank,
+                  base_cents: rec.baseCents, fee_cents: rec.feeCents, charged_cents: rec.totalCents,
+                  note: "browser never completed validation; recovered from provider" } });
+      await sb.rpc("recalc_invoice_status", { p_invoice_id: p.invoice_id });
+      if (settledNow) {
+        await sb.from("invoices").update({ paid_via: "helcim", payment_id: p.id }).eq("id", p.invoice_id);
+      }
+      recovered++;
+      continue;
+    }
+
+    // No single unambiguous approved transaction. Before voiding, make sure we
+    // are not throwing away a charge we simply could not identify: only void
+    // attempts old enough that a real payment would certainly have appeared.
+    if (Date.now() - new Date(String(p.initiated_at)).getTime() < 6 * 60 * 60_000) {
+      continue;   // too recent to be sure — leave it and re-check next run
+    }
+    // Helcim shows no matching transaction. Nothing was charged.
+    // Only now is it safe to void, freeing the in-flight index for a retry.
+    await sb.from("payments").update({ status: "voided", failure_category: "abandoned",
+      completed_at: now }).eq("id", p.id).eq("status", "initiated");
+    await sb.rpc("recalc_invoice_status", { p_invoice_id: p.invoice_id });
+    await sb.from("payment_events").insert({ payment_id: p.id, invoice_id: p.invoice_id,
+      event: "voided", source: "reconcile",
+      detail: { reason: "no_provider_transaction", checked_helcim: true } });
     voided++;
   }
 
-  // Pending ACH -> poll the documented ACH endpoint.
-  const { data: pendingAch, error: achQueryErr } = await sb.from("payments")
-  .select("*")
-  .eq("provider", "helcim")
-  .eq("method", "ach")
-  .eq("status", "pending")
-  .not("provider_transaction_id", "is", null)
-  .limit(50);
+  // 2. Pending ACH → ask the provider.
+  const { data: pend } = await sb.from("payments").select("*")
+    .eq("provider", "helcim").eq("method", "ach").eq("status", "pending").not("provider_transaction_id", "is", null).limit(50);
 
-  if (achQueryErr) console.error("[payment-reconcile] ACH query failed", achQueryErr);
-
-  let achSettled = 0;
-  let achFailed = 0;
-
-  for (const p of pendingAch ?? []) {
-    const got = await fetchTxnById(String(p.provider_transaction_id), "ach");
-    if (!got.txn) continue;
-
-    const txn = got.txn;
-    let next: "succeeded" | "failed" | null = null;
-    if (isAchCleared(txn)) next = "succeeded";
-    else if (isAchFailed(txn)) next = "failed";
+  let settled = 0, declined = 0;
+  for (const p of pend ?? []) {
+    const r = await fetch(`${HELCIM_API}/ach/transactions/${p.provider_transaction_id}`, {
+      headers: { "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!, "accept": "application/json" } });
+    if (!r.ok) continue;
+    const t = await r.json();
+    const st = String(t.bankStatus ?? t.settlementStatus ?? t.status ?? "").toUpperCase();
+    let next: string | null = null;
+    if (/SETTL|CLEAR|COMPLET/.test(st)) next = "succeeded";
+    else if (/DECLIN|RETURN|REJECT|FAIL/.test(st)) next = "failed";
     if (!next) continue;
 
-    const now2 = new Date().toISOString();
-    const { error: updateErr } = await sb.from("payments").update({
-      status: next,
-      settled_at: next === "succeeded" ? now2 : null,
-      declined_at: next === "failed" ? now2 : null,
-      completed_at: now2,
-      fee_cents: 0,
-      total_charged_cents: p.amount_cents,
-      failure_category: next === "failed" ? "ach_returned" : null,
-    }).eq("id", p.id);
-
-    if (updateErr) {
-      console.error("[payment-reconcile] ACH state update failed", p.id, updateErr);
-      continue;
-    }
-
-    await addEvent(sb, p, next === "succeeded" ? "settled" : "declined", {
-      provider_status_auth: txn.statusAuth ?? null,
-      provider_status_clearing: txn.statusClearing ?? null,
-    });
-
-    const { error: recalcErr } = await sb.rpc("recalc_invoice_status", { p_invoice_id: p.invoice_id });
-    if (recalcErr) {
-      console.error("[payment-reconcile] ACH recalc failed", p.invoice_id, recalcErr);
-      continue;
-    }
-
-    if (next === "succeeded") {
-      const { error: linkErr } = await sb.from("invoices")
-      .update({ paid_via: "helcim", payment_id: p.id })
-      .eq("id", p.invoice_id);
-      if (linkErr) console.error("[payment-reconcile] ACH invoice link failed", p.invoice_id, linkErr);
-      achSettled++;
-    } else {
-      achFailed++;
-    }
+    // ACH carries no convenience fee, so charged == base by definition here.
+    await sb.from("payments").update({ status: next, settled_at: next === "succeeded" ? now : null,
+      declined_at: next === "failed" ? now : null, completed_at: now,
+      fee_cents: 0, total_charged_cents: p.amount_cents,
+      failure_category: next === "failed" ? "ach_returned" : null }).eq("id", p.id);
+    await sb.from("payment_events").insert({ payment_id: p.id, invoice_id: p.invoice_id, source: "reconcile",
+      event: next === "succeeded" ? "settled" : "declined", detail: { provider_status: st } });
+    await sb.rpc("recalc_invoice_status", { p_invoice_id: p.invoice_id });
+    if (next === "succeeded") { await sb.from("invoices").update({ paid_via: "helcim", payment_id: p.id }).eq("id", p.invoice_id); settled++; } else declined++;
   }
-
-  return Response.json({
-    attempts_checked: attempts?.length ?? 0,
-    recovered,
-    voided,
-    left_for_review: leftForReview,
-    ach_checked: pendingAch?.length ?? 0,
-    ach_settled: achSettled,
-    ach_failed: achFailed,
-  });
+  return Response.json({ stale_checked: stale?.length ?? 0, recovered, voided, ach_checked: pend?.length ?? 0, settled, declined });
 });
 
-async function applyFoundTransaction(
-  sb: ReturnType<typeof createClient>,
-  pay: Row,
-  found: { txn: Row; rail: "card" | "ach"; source: string },
-  now: string,
-): Promise<"recovered" | "review"> {
-  const { txn, rail, source } = found;
-  const chargedCents = Math.round(Number(txn.amount ?? 0) * 100);
-  const currency = normalizeCurrency(txn.currency);
-  const isAch = rail === "ach";
+// Ask Helcim whether a transaction exists for this attempt.
+//
+// We do NOT send an invoiceNumber at checkout (see payment-checkout for why), so
+// matching is done on the transaction itself. Documented approach: "calling the
+// Collect Card Transaction endpoint with relevant query parameters to filter
+// returned transactions down to the correct one. This could include a
+// combination of values returned by Helcim.js, such as the date ... and amount."
+//
+// This is deliberately conservative. It returns a transaction ONLY when exactly
+// one approved candidate matches the amount inside the window. Two candidates,
+// or none, means a human decides -- we never guess which charge belongs to which
+// invoice.
+async function findHelcimTxn(
+  attempt: { amount_cents: number; currency: string; initiated_at: string },
+): Promise<Record<string, string> | null> {
+  const token = Deno.env.get("HELCIM_ADMIN_API_TOKEN")!;
+  const started = new Date(attempt.initiated_at).getTime();
+  // Checkout tokens live 60 minutes; allow a little either side.
+  const dateStart = new Date(started - 10 * 60_000).toISOString().slice(0, 10);
+  const dateEnd   = new Date(started + 75 * 60_000).toISOString().slice(0, 10);
 
-  const rec = await reconcileAmount(sb, {
-    baseCents: Number(pay.amount_cents),
-                                    chargedCents,
-                                    currency,
-                                    expectedCurrency: pay.currency,
-                                    isACH: isAch,
-  });
+  const base = Number(attempt.amount_cents);
+  const ceiling = Math.max(Math.ceil(base * 0.10), 200);   // room for Fee Saver
 
-  const txnId = String(txn.transactionId ?? txn.id ?? pay.provider_transaction_id ?? "");
-
-  if (!rec.ok) {
-    const { error } = await sb.from("payments").update({
-      status: "unknown",
-      failure_category: `amount_${rec.reason}`,
-      provider_transaction_id: txnId || null,
-      total_charged_cents: chargedCents || null,
-    }).eq("id", pay.id);
-    if (error) console.error("[payment-reconcile] mismatch write failed", pay.id, error);
-    await addEvent(sb, pay, "amount_mismatch", {
-      reason: rec.reason,
-      txn_id: txnId,
-      base_cents: rec.baseCents,
-      charged_cents: rec.totalCents,
-      source,
-    });
-    return "review";
-  }
-
-  let next: "succeeded" | "pending" | "failed" | null = null;
-  if (isAch) {
-    if (isAchCleared(txn)) next = "succeeded";
-    else if (isAchFailed(txn)) next = "failed";
-    else next = "pending";
-  } else {
-    const status = String(txn.status ?? "").toUpperCase();
-    if (status === "APPROVED" || status === "APPROVAL") next = "succeeded";
-    else if (/DECLIN|FAIL|CANCEL|VOID/.test(status)) next = "failed";
-  }
-
-  if (!next) {
-    await addEvent(sb, pay, "reconcile_unrecognized_status", {
-      txn_id: txnId,
-      rail,
-      source,
-      provider_status: providerStatus(txn, isAch),
-    });
-    return "review";
-  }
-
-  const { data: duplicate } = await sb.from("payments")
-  .select("id,invoice_id")
-  .eq("provider", "helcim")
-  .eq("provider_transaction_id", txnId)
-  .neq("id", pay.id)
-  .limit(1)
-  .maybeSingle();
-  if (duplicate) {
-    await addEvent(sb, pay, "reconcile_duplicate_transaction", {
-      txn_id: txnId,
-      other_payment_id: duplicate.id,
-      other_invoice_id: duplicate.invoice_id,
-    });
-    return "review";
-  }
-
-  const { error: updateErr } = await sb.from("payments").update({
-    status: next,
-    provider_transaction_id: txnId || null,
-    method: isAch ? "ach" : "card",
-    method_display: mask(txn),
-                                                                fee_cents: rec.feeCents,
-                                                                total_charged_cents: rec.totalCents,
-                                                                approved_at: next !== "failed" ? (pay.approved_at ?? now) : pay.approved_at,
-                                                                settled_at: isAch && next === "succeeded" ? now : pay.settled_at ?? null,
-                                                                declined_at: next === "failed" ? now : null,
-                                                                completed_at: next === "pending" ? null : now,
-                                                                failure_category: next === "failed" ? (isAch ? "ach_failed" : "declined") : null,
-  }).eq("id", pay.id);
-
-  if (updateErr) {
-    console.error("[payment-reconcile] recovery update failed", pay.id, updateErr);
-    await addEvent(sb, pay, "persist_failed", {
-      step: "reconcile_payment_update",
-      db_error: updateErr.message,
-      code: updateErr.code,
-    });
-    return "review";
-  }
-
-  await addEvent(sb, pay,
-                 next === "succeeded" ? "recovered_succeeded" : next === "pending" ? "recovered_pending" : "recovered_failed",
-                 {
-                   txn_id: txnId,
-                   rail,
-                   source,
-                   base_cents: rec.baseCents,
-                   fee_cents: rec.feeCents,
-                   charged_cents: rec.totalCents,
-                 });
-
-  const { error: recalcErr } = await sb.rpc("recalc_invoice_status", { p_invoice_id: pay.invoice_id });
-  if (recalcErr) {
-    console.error("[payment-reconcile] recovery recalc failed", pay.invoice_id, recalcErr);
-    await addEvent(sb, pay, "persist_failed", {
-      step: "reconcile_invoice_recalc",
-      db_error: recalcErr.message,
-      code: recalcErr.code,
-    });
-    return "review";
-  }
-
-  if (next === "succeeded") {
-    const { error: linkErr } = await sb.from("invoices")
-    .update({ paid_via: "helcim", payment_id: pay.id })
-    .eq("id", pay.invoice_id);
-    if (linkErr) console.error("[payment-reconcile] recovery invoice link failed", pay.invoice_id, linkErr);
-  }
-
-  return "recovered";
-}
-
-// Try the exact transaction id first. If Helcim's single-record endpoint is not
-// immediately available, fall back to conservative collection matching.
-async function findHelcimTxn(pay: Row): Promise<{ txn: Row; rail: "card" | "ach"; source: string } | null> {
-  const knownId = String(pay.provider_transaction_id ?? "");
-  const method = String(pay.method ?? "").toLowerCase();
-
-  if (knownId) {
-    const rails: Array<"card" | "ach"> = method === "ach"
-    ? ["ach", "card"]
-    : method === "card"
-    ? ["card", "ach"]
-    : ["card", "ach"];
-
-    for (const rail of rails) {
-      const got = await fetchTxnById(knownId, rail);
-      if (got.txn) return { txn: got.txn, rail, source: `direct_${rail}` };
-    }
-  }
-
-  const started = new Date(String(pay.initiated_at)).getTime();
-  if (!Number.isFinite(started)) return null;
-  // Helcim card date filters are documented in Mountain Time while our DB timestamps
-  // are UTC. Query a wider date envelope; the amount/currency + uniqueness checks
-  // below prevent a broad date query from being treated as an automatic match.
-  const dateFrom = new Date(started - 12 * 60 * 60_000).toISOString().slice(0, 10);
-  const dateTo = new Date(started + 12 * 60 * 60_000).toISOString().slice(0, 10);
-  const base = Number(pay.amount_cents);
-  const ceiling = Math.max(Math.ceil(base * 0.10), 200);
-  const minAmount = Math.max(0, base) / 100;
-  const maxAmount = (base + ceiling) / 100;
-
-  const hits: Array<{ txn: Row; rail: "card" | "ach"; source: string }> = [];
-
-  // Card collection: documented dateFrom/dateTo parameters.
-  try {
-    const url = `${HELCIM_API}/card-transactions?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}&limit=1000`;
-    const r = await helcimFetch(url);
-    if (r.ok) {
+  const hits: Record<string, string>[] = [];
+  for (const seg of ["card-transactions", "ach/transactions"]) {
+    try {
+      const r = await fetch(
+        `${HELCIM_API}/${seg}?dateStart=${dateStart}&dateEnd=${dateEnd}`,
+        { headers: { "api-token": token, accept: "application/json" } });
+      if (!r.ok) continue;
       const body = await r.json().catch(() => null);
-      for (const raw of asList(body)) {
-        const txn = unwrapTxn(raw);
-        if (!txn) continue;
-        if (!isApprovedCard(txn)) continue;
-        if (!candidateMatches(txn, pay, started, base, ceiling)) continue;
-        hits.push({ txn, rail: "card", source: "card_collection" });
+      const list = Array.isArray(body) ? body : (body ? [body] : []);
+      for (const t of list) {
+        if (!/APPROV/i.test(String(t?.status ?? ""))) continue;
+        if (String(t?.currency ?? "").toUpperCase() !== String(attempt.currency).toUpperCase()) continue;
+        const cents = Math.round(Number(t?.amount ?? 0) * 100);
+        if (cents < base || cents - base > ceiling) continue;
+        // Must fall inside the actual checkout window, not just the same day.
+        const when = new Date(String(t?.dateCreated ?? "").replace(" ", "T")).getTime();
+        if (!Number.isFinite(when) || when < started - 10 * 60_000 || when > started + 75 * 60_000) continue;
+        hits.push(t);
       }
-    }
-  } catch (e) {
-    console.warn("[payment-reconcile] card collection lookup failed", e);
+    } catch { /* try the other rail */ }
   }
 
-  // ACH collection: documented startDate/endDate and amountMin/amountMax.
-  try {
-    const url = `${HELCIM_API}/ach/transactions?startDate=${encodeURIComponent(dateFrom)}&endDate=${encodeURIComponent(dateTo)}`
-    + `&amountMin=${encodeURIComponent(String(minAmount))}&amountMax=${encodeURIComponent(String(maxAmount))}&limit=125`;
-    const r = await helcimFetch(url);
-    if (r.ok) {
-      const body = await r.json().catch(() => null);
-      for (const raw of asList(body)) {
-        const txn = unwrapTxn(raw);
-        if (!txn) continue;
-        if (isAchFailed(txn)) continue;
-        if (!candidateMatches(txn, pay, started, base, ceiling)) continue;
-        hits.push({ txn, rail: "ach", source: "ach_collection" });
-      }
-    }
-  } catch (e) {
-    console.warn("[payment-reconcile] ACH collection lookup failed", e);
-  }
-
-  // Deduplicate the same transaction if it appeared more than once.
-  const unique = new Map<string, { txn: Row; rail: "card" | "ach"; source: string }>();
-  for (const h of hits) {
-    const id = String(h.txn.transactionId ?? h.txn.id ?? `${h.rail}:${h.txn.dateCreated}:${h.txn.amount}`);
-    unique.set(`${h.rail}:${id}`, h);
-  }
-
-  if (unique.size === 1) return [...unique.values()][0];
-  if (unique.size > 1) {
-    console.warn("[payment-reconcile] ambiguous provider match — leaving for review", {
-      payment_id: pay.id,
-      invoice_id: pay.invoice_id,
-      candidates: unique.size,
-    });
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1) {
+    console.warn("[payment-reconcile] ambiguous match — leaving for manual review",
+      { candidates: hits.length, base_cents: base });
   }
   return null;
-}
-
-function candidateMatches(txn: Row, pay: Row, started: number, base: number, ceiling: number): boolean {
-  const currency = normalizeCurrency(txn.currency);
-  if (currency && currency !== normalizeCurrency(pay.currency)) return false;
-
-  const cents = Math.round(Number(txn.amount ?? 0) * 100);
-  if (cents < base || cents - base > ceiling) return false;
-
-  const when = parseHelcimDate(txn.dateCreated ?? txn.createdAt ?? txn.date);
-  if (!Number.isFinite(when)) return false;
-  // Helcim dateCreated strings are timezone-naive. Allow the UTC/Mountain offset
-  // here; if more than one candidate survives, we refuse to auto-link.
-  if (Math.abs(when - started) > 12 * 60 * 60_000) return false;
-
-  return true;
-}
-
-async function fetchTxnById(id: string, rail: "card" | "ach"): Promise<{ txn: Row | null; http: number }> {
-  const path = rail === "ach"
-  ? `ach/transactions/${encodeURIComponent(id)}`
-  : `card-transactions/${encodeURIComponent(id)}`;
-  try {
-    const r = await helcimFetch(`${HELCIM_API}/${path}`);
-    if (!r.ok) return { txn: null, http: r.status };
-    return { txn: unwrapTxn(await r.json().catch(() => null)), http: r.status };
-  } catch {
-    return { txn: null, http: 0 };
-  }
-}
-
-function helcimFetch(url: string) {
-  return fetch(url, {
-    headers: {
-      "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!,
-               "accept": "application/json",
-    },
-  });
-}
-
-function asList(body: unknown): unknown[] {
-  if (Array.isArray(body)) return body;
-  if (!body || typeof body !== "object") return [];
-  const o = body as Row;
-  for (const k of ["data", "transactions", "items", "results"]) {
-    if (Array.isArray(o[k])) return o[k];
-  }
-  return [body];
-}
-
-function unwrapTxn(raw: unknown): Row | null {
-  if (!raw || typeof raw !== "object") return null;
-  const root = raw as Row;
-  if (root.transaction && typeof root.transaction === "object") return root.transaction as Row;
-  if (root.data && typeof root.data === "object") {
-    const d = root.data as Row;
-    if (d.transaction && typeof d.transaction === "object") return d.transaction as Row;
-    if (d.data && typeof d.data === "object") return d.data as Row;
-    return d;
-  }
-  return root;
-}
-
-function isApprovedCard(txn: Row): boolean {
-  const s = String(txn.status ?? "").toUpperCase();
-  return s === "APPROVED" || s === "APPROVAL";
-}
-
-function isAchCleared(txn: Row): boolean {
-  const clearing = String(txn.statusClearing ?? txn.settlementStatus ?? txn.bankStatus ?? "").toUpperCase();
-  const auth = String(txn.statusAuth ?? txn.status ?? "").toUpperCase();
-  return ["1", "CLEARED", "SETTLED", "COMPLETED", "COMPLETE"].includes(clearing)
-  && !["2", "4", "DECLINED", "CANCELLED", "FAILED"].includes(auth);
-}
-
-function isAchFailed(txn: Row): boolean {
-  const clearing = String(txn.statusClearing ?? txn.settlementStatus ?? txn.bankStatus ?? "").toUpperCase();
-  const auth = String(txn.statusAuth ?? txn.status ?? "").toUpperCase();
-  return ["2", "4", "DECLINED", "CANCELLED", "FAILED"].includes(auth)
-  || ["4", "REJECTED", "RETURNED", "CONTESTED", "DECLINED", "FAILED"].includes(clearing);
-}
-
-function providerStatus(txn: Row, isAch: boolean): string | null {
-  return isAch
-  ? String(txn.statusClearing ?? txn.statusAuth ?? txn.status ?? "") || null
-  : String(txn.status ?? "") || null;
-}
-
-function normalizeCurrency(v: unknown): string {
-  const s = String(v ?? "").toUpperCase();
-  if (s === "1") return "CAD";
-  if (s === "2") return "USD";
-  return s;
-}
-
-function parseHelcimDate(v: unknown): number {
-  const s = String(v ?? "").trim();
-  if (!s) return NaN;
-  // Helcim commonly returns YYYY-MM-DD HH:mm:ss. Treat it as a parseable local-ish
-  // timestamp only for a broad 85-minute correlation window.
-  return new Date(s.includes("T") ? s : s.replace(" ", "T")).getTime();
-}
-
-function mask(t: Row): string | null {
-  if (t.cardNumber) return `${t.cardType ?? "Card"} ····${String(t.cardNumber).slice(-4)}`;
-  if (t.bankAccountNumber) return `Bank ····${String(t.bankAccountNumber).slice(-4)}`;
-  if (t.bankAccountL4L4) return `Bank ····${String(t.bankAccountL4L4).slice(-4)}`;
-  return null;
-}
-
-async function addEvent(sb: ReturnType<typeof createClient>, pay: Row, event: string, detail: unknown) {
-  const { error } = await sb.from("payment_events").insert({
-    payment_id: pay.id,
-    invoice_id: pay.invoice_id,
-    event,
-    source: "reconcile",
-    detail,
-  });
-  if (error) console.warn("[payment-reconcile] event insert failed", event, error.message);
 }

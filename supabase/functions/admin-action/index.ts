@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
         // If a transaction id was supplied, verify it before recording anything.
         let txn = null;
         if (helcimTransactionId) {
-          for (const seg of ['card-transactions', 'bank-transactions']) {
+          for (const seg of ['card-transactions', 'ach/transactions']) {
             const r = await fetch(`https://api.helcim.com/v2/${seg}/${encodeURIComponent(helcimTransactionId)}`,
               { headers: { 'api-token': Deno.env.get('HELCIM_ADMIN_API_TOKEN'), accept: 'application/json' } });
             if (r.ok) { txn = await r.json().catch(() => null); if (txn) break; }
@@ -280,6 +280,37 @@ Deno.serve(async (req) => {
         return json({ error: 'Invoice is not already settled — use reconcile-payment instead.' }, 409);
       }
 
+      // Diagnoses HELCIM_ADMIN_API_TOKEN without ever printing it. Uses Helcim's
+      // documented connectivity-test endpoint plus one real read, so 401/403
+      // (bad token / missing permission) is distinguished from 404 (no such
+      // transaction). Those were previously conflated as "verify_unavailable".
+      case 'helcim-connection-test': {
+        const token = Deno.env.get('HELCIM_ADMIN_API_TOKEN');
+        if (!token) {
+          return json({ ok: false, stage: 'config',
+            message: 'HELCIM_ADMIN_API_TOKEN is not set on this Edge Function. Run: supabase secrets set HELCIM_ADMIN_API_TOKEN=...' }, 200);
+        }
+        const results = [];
+        for (const [label, path] of [
+          ['connection-test', 'connection-test'],
+          ['read a card transaction collection', 'card-transactions?dateStart=' + new Date(Date.now()-86400000).toISOString().slice(0,10)],
+        ]) {
+          const r = await fetch(`https://api.helcim.com/v2/${path}`, {
+            headers: { 'api-token': token, accept: 'application/json' },
+          });
+          results.push({ check: label, http: r.status,
+            meaning: r.status === 401 ? 'TOKEN INVALID — wrong value, or it is the CHECKOUT token rather than the ADMIN token'
+                   : r.status === 403 ? 'TOKEN VALID but lacks permission — enable Transaction Processing on this API Access Configuration'
+                   : r.status === 404 ? 'endpoint reachable, resource not found'
+                   : r.ok             ? 'OK'
+                   : 'unexpected' });
+        }
+        const allOk = results.every((x) => x.http >= 200 && x.http < 300);
+        return json({ ok: allOk, token_length: token.length, results,
+          next_step: allOk ? 'Provider API access is working.'
+            : 'Helcim dashboard → All Tools → Integrations → API Access. The ADMIN configuration needs Transaction Processing = Admin. Regenerate if needed, then: supabase secrets set HELCIM_ADMIN_API_TOKEN=...' }, 200);
+      }
+
       case 'reconcile-payment': {
         const { paymentId, helcimTransactionId } = body;
         if (!paymentId || !helcimTransactionId) {
@@ -294,7 +325,7 @@ Deno.serve(async (req) => {
 
         // Verify with Helcim. The admin's word is not enough to move money state.
         let txn = null, lastStatus = 0;
-        for (const seg of ['card-transactions', 'bank-transactions']) {
+        for (const seg of ['card-transactions', 'ach/transactions']) {
           const r = await fetch(`https://api.helcim.com/v2/${seg}/${encodeURIComponent(helcimTransactionId)}`, {
             headers: { 'api-token': Deno.env.get('HELCIM_ADMIN_API_TOKEN'), accept: 'application/json' },
           });

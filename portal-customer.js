@@ -279,15 +279,7 @@ async function loadInvoices() {
           </div>
           <p style="color:var(--grey);font-size:.8rem;">Questions? Call (516) 644-7187.</p>
          </div>`
-      : (i.status === 'payment_pending' || LOCKED_INVOICES.has(i.id))
-        ? `${workSummary}${taxRows(i)}<div class="pay-locked">⏳ Payment received — being confirmed. No further payment is needed.</div>
-           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
-             <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
-           </div>`
-        : `${workSummary}${taxRows(i)}<div style="display:flex;gap:10px;flex-wrap:wrap;">
-             <button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
-             <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
-           </div>`;
+      : invoiceActionHtml(i, workSummary);
 
     return `<div class="q-card">
       <div class="q-hdr">
@@ -382,7 +374,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-05.v19";
+const APEX_CLIENT_VERSION = "2026-09-05.v18";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -447,6 +439,57 @@ function normalizeHelcimPay(input) {
   return { transactionId: id, hash, txnJson,
     shape: { inputType: typeof input, parsedOk, depth, wrapper,
              transactionIdFound: !!id, hashFound: !!hash } };
+}
+
+
+// Explicit state renderer. The old chain was
+//   paid ? ... : pending ? ... : Pay Securely
+// so refunded / partially_refunded / void fell through to a Pay button on an
+// invoice that must never be paid again.
+function invoiceActionHtml(i, workSummary) {
+  const docs = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+      <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
+      ${i.payment_id ? `<button class="print-btn" onclick="printPaymentReceipt('${xss(i.payment_id)}')">🧾 Payment Receipt</button>` : ''}
+      ${i.quote_id ? `<button class="print-btn" onclick="printQuote('${xss(i.quote_id)}')">📄 Original Quote</button>` : ''}
+    </div>`;
+
+  switch (i.status) {
+    case 'paid':
+      return `${workSummary}${taxRows(i)}
+        <div class="pay-ok">✓ Payment confirmed${i.paid_at ? ` on ${bdate(i.paid_at)}` : ''}</div>${docs}`;
+
+    case 'payment_pending':
+      return `${workSummary}${taxRows(i)}
+        <div class="pay-locked">⏳ Payment received — being confirmed. No further payment is needed.</div>${docs}`;
+
+    case 'partially_refunded':
+      return `${workSummary}${taxRows(i)}
+        <div class="pay-refund">↩ Partially refunded. See your payment history for the amount returned.</div>${docs}`;
+
+    case 'refunded':
+      return `${workSummary}${taxRows(i)}
+        <div class="pay-refund">↩ Refunded in full. Nothing further is owed on this invoice.</div>${docs}`;
+
+    case 'void':
+      return `${workSummary}${taxRows(i)}
+        <div class="pay-void">This invoice was cancelled by Apex. No payment is due.</div>${docs}`;
+
+    case 'unpaid':
+      if (LOCKED_INVOICES.has(i.id)) {
+        return `${workSummary}${taxRows(i)}
+          <div class="pay-locked">⏳ Payment received — being confirmed. No further payment is needed.</div>${docs}`;
+      }
+      return `${workSummary}${taxRows(i)}
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
+          <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
+        </div>`;
+
+    default:
+      // Unknown status must never render a Pay button.
+      return `${workSummary}${taxRows(i)}
+        <div class="pay-locked">This invoice is being reviewed. Please call (516) 644-7187 if you have questions.</div>${docs}`;
+  }
 }
 
 // ── PAY INVOICE (HelcimPay.js + Fee Saver) ────
@@ -741,15 +784,24 @@ async function loadPayments() {
   const shown = (rows || []).filter(r => r.status !== 'initiated');
   if (!shown.length) { wrap.innerHTML = '<div class="empty-state">No payments yet.</div>'; return; }
 
-  const label = { succeeded:'Paid', pending:'Processing', failed:'Failed', unknown:'Needs review', voided:'Voided' };
-  const cls   = { succeeded:'badge-paid', pending:'badge-pending', failed:'badge-declined', unknown:'badge-pending', voided:'badge-hidden' };
+  // A succeeded REFUND is money returned, not a payment. Labelling by status
+  // alone showed refunds as "Paid".
+  const labelFor = (r) => {
+    if (r.kind === 'refund')   return r.status === 'succeeded' ? 'Refunded' : r.status === 'pending' ? 'Refund pending' : 'Refund failed';
+    if (r.kind === 'reversal') return r.status === 'succeeded' ? 'Payment reversed' : 'Reversal failed';
+    return { succeeded:'Paid', pending:'Processing', failed:'Failed', unknown:'Needs review', voided:'Voided' }[r.status] || r.status;
+  };
+  const clsFor = (r) => {
+    if (r.kind === 'refund' || r.kind === 'reversal') return r.status === 'succeeded' ? 'badge-declined' : 'badge-pending';
+    return { succeeded:'badge-paid', pending:'badge-pending', failed:'badge-declined', unknown:'badge-pending', voided:'badge-hidden' }[r.status] || 'badge-pending';
+  };
   wrap.innerHTML = '<div class="q-cards">' + shown.map(r => `
     <div class="q-card">
       <div class="q-hdr">
         <span class="q-id">${xss(r.invoice_id)}${r.kind !== 'payment' ? ` · ${xss(r.kind)}` : ''}</span>
         <div style="display:flex;align-items:center;gap:12px;">
-          <span class="badge ${cls[r.status] || 'badge-pending'}">${label[r.status] || xss(r.status)}</span>
-          <span class="q-amt">${r.kind === 'payment' ? '' : '−'}$${(r.amount_cents/100).toFixed(2)}</span>
+          <span class="badge ${clsFor(r)}">${xss(labelFor(r))}</span>
+          <span class="q-amt" style="${r.kind === 'payment' ? '' : 'color:#f0a500;'}">${r.kind === 'payment' ? '' : '− '}$${(r.amount_cents/100).toFixed(2)}</span>
         </div>
       </div>
       <div class="q-meta">
@@ -870,10 +922,13 @@ async function printInvoice(invoiceId) {
   const { data: i, error } = await sb.from('invoices').select('*')
     .eq('id', invoiceId).eq('customer_id', USER.id).maybeSingle();
   if (error || !i) { console.error('[Apex] printInvoice failed', error); alert('Could not load that invoice.'); return; }
-  const stamp = i.status === 'paid' ? '<div class="stamp paid">Paid</div>'
-              : i.status === 'payment_pending' ? '<div class="stamp pend">Payment Pending</div>'
-              : i.status === 'refunded' || i.status === 'partially_refunded' ? '<div class="stamp info">Refunded</div>'
-              : '<div class="stamp due">Amount Due</div>';
+  const stamp = { paid:'<div class="stamp paid">Paid</div>',
+    payment_pending:'<div class="stamp pend">Payment Pending</div>',
+    partially_refunded:'<div class="stamp info">Partially Refunded</div>',
+    refunded:'<div class="stamp info">Refunded</div>',
+    void:'<div class="stamp info">Void / Cancelled</div>',
+    unpaid:'<div class="stamp due">Amount Due</div>' }[i.status]
+    || '<div class="stamp info">' + esc(String(i.status).replace(/_/g,' ')) + '</div>';
   printDoc(`Invoice ${esc(i.id)}`, `
     <div class="meta">
       <strong>${esc(i.company || i.customer_name || '')}</strong><br>
