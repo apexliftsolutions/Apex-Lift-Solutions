@@ -51,9 +51,9 @@ function deepParse(v: unknown, max = 3): { value: unknown; depth: number; ok: bo
 }
 
 const looksLikeTxn = (o: unknown): o is Record<string, unknown> =>
-  !!o && typeof o === "object" &&
-  ("transactionId" in (o as object) || "cardTransactionId" in (o as object) ||
-   "bankTransactionId" in (o as object));
+!!o && typeof o === "object" &&
+("transactionId" in (o as object) || "cardTransactionId" in (o as object) ||
+"bankTransactionId" in (o as object));
 
 function pickId(o: Record<string, unknown> | null): string | null {
   if (!o) return null;
@@ -71,14 +71,14 @@ export function normalizeHelcimPayResponse(input: unknown): HelcimPayNormalized 
   const root = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
 
   const dataNode = (root.data && typeof root.data === "object")
-    ? root.data as Record<string, unknown> : null;
+  ? root.data as Record<string, unknown> : null;
   const innerNode = (dataNode?.data && typeof dataNode.data === "object")
-    ? dataNode.data as Record<string, unknown> : null;
+  ? dataNode.data as Record<string, unknown> : null;
 
   // Hash sits beside the object it covers.
   const hash = (typeof root.hash === "string" && root.hash) ? root.hash
-             : (dataNode && typeof dataNode.hash === "string" && dataNode.hash) ? dataNode.hash
-             : null;
+  : (dataNode && typeof dataNode.hash === "string" && dataNode.hash) ? dataNode.hash
+  : null;
 
   // Find the transaction object among the documented positions.
   let txn: Record<string, unknown> | null = null;
