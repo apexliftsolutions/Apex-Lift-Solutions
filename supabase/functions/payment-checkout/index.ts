@@ -19,6 +19,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const HELCIM_INIT = "https://api.helcim.com/v2/helcim-pay/initialize";
+const FN_VERSION = "2026-09-06.v23";
 // Helcim checkout tokens are valid for 60 minutes. Reuse inside a safe margin.
 const TOKEN_TTL_MS = 55 * 60 * 1000;
 
@@ -156,14 +157,14 @@ Deno.serve(async (req) => {
   await sb.from("payment_events").insert({
     payment_id: pay.id, invoice_id: inv.id, event: "checkout_created", source: "browser_validate",
     detail: { amount_cents: baseCents, tax_cents: Number(inv.tax_cents) || 0,
-              fee_saver: true, payment_method: "cc-ach" },
+              fee_saver: true, payment_method: "cc-ach", fn_version: FN_VERSION },
   });
   await sb.from("activity_log").insert({
     actor_id: user.id, action: "payment_checkout_created",
     detail: `${inv.id} $${(baseCents / 100).toFixed(2)} (Fee Saver on)`,
   });
 
-  return j({ checkoutToken, amount_cents: baseCents }, 200, cors);
+  return j({ checkoutToken, amount_cents: baseCents, fn_version: FN_VERSION }, 200, cors);
 });
 
 // ── Prior-attempt resolution ─────────────────────────────────────────────────
@@ -188,13 +189,20 @@ async function resolve(
   }
 
   // Settled or in-flight attempts on this invoice, newest first.
+  // IMPORTANT: a historical succeeded payment must NOT permanently block a new
+  // checkout if that payment was later fully reversed/voided. The ledger is
+  // append-only, so the original succeeded row remains forever. Blocking merely
+  // because such a row exists is what caused a reversed invoice to show a Pay
+  // button but never open Helcim again.
   const { data: prior } = await sb.from("payments")
     .select("id, status, checkout_token, initiated_at")
     .eq("invoice_id", inv.id).eq("provider", "helcim").eq("kind", "payment")
     .order("created_at", { ascending: false });
 
   for (const p of prior ?? []) {
-    if (p.status === "succeeded") return j({ error: "already_paid" }, 409, cors);
+    // Do NOT return already_paid for a historical succeeded row here.
+    // Whether money is still retained is decided below from the full ledger
+    // (payments minus refunds/reversals) plus the authoritative invoice status.
     if (p.status === "pending")   return j({ error: "payment_pending" }, 409, cors);
     if (p.status === "unknown")   return j({ error: "payment_under_review" }, 409, cors);
     if (p.status === "initiated") {
@@ -227,9 +235,50 @@ async function resolve(
     if (fresh?.status) status = fresh.status;
   }
 
-  if (status === "paid")            return j({ error: "already_paid" }, 409, cors);
-  if (status === "payment_pending") return j({ error: "payment_pending" }, 409, cors);
-  if (status !== "unpaid")          return j({ error: "invoice_not_payable", invoice_status: status }, 409, cors);
+  // Derive net retained money from the append-only ledger. This is the critical
+  // retry rule after a provider reverse/void:
+  //
+  //   succeeded payment  $141
+  //   succeeded reversal $141
+  //   net retained         $0  -> invoice may be paid again
+  //
+  // Refunds/reversals remain historical rows; we never mutate/delete the
+  // original succeeded payment just to make checkout work.
+  const { data: ledger, error: ledgerErr } = await sb.from("payments")
+    .select("kind, status, amount_cents")
+    .eq("invoice_id", inv.id as string);
+
+  if (ledgerErr) {
+    console.error("[payment-checkout] ledger read failed", { invoice_id: inv.id, error: ledgerErr.message });
+    return j({ error: "payment_under_review" }, 409, cors);
+  }
+
+  let paidCents = 0;
+  let correctionCents = 0;
+  for (const row of ledger ?? []) {
+    if (row.status !== "succeeded") continue;
+    const cents = Number(row.amount_cents) || 0;
+    if (row.kind === "payment") paidCents += cents;
+    else if (row.kind === "refund" || row.kind === "reversal") correctionCents += cents;
+  }
+  const netRetainedCents = Math.max(paidCents - correctionCents, 0);
+
+  if (status === "paid" || netRetainedCents >= baseCents)
+    return j({ error: "already_paid" }, 409, cors);
+  if (status === "payment_pending")
+    return j({ error: "payment_pending" }, 409, cors);
+  if (status !== "unpaid")
+    return j({ error: "invoice_not_payable", invoice_status: status }, 409, cors);
+
+  // Defensive consistency guard: an UNPAID invoice should not still have money
+  // retained against it. If it does, stop rather than risk a duplicate charge.
+  if (netRetainedCents > 0) {
+    console.warn("[payment-checkout] unpaid invoice has retained money — refusing retry", {
+      invoice_id: inv.id, net_retained_cents: netRetainedCents, base_cents: baseCents,
+    });
+    return j({ error: "payment_under_review" }, 409, cors);
+  }
+
   return null;
 }
 

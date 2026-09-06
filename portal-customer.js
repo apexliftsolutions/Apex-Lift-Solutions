@@ -247,6 +247,16 @@ function correctionMetaHtml(correction) {
   return `<br/>Amount: <strong>${amount}</strong>${reason}${ref}`;
 }
 
+// Once the ledger proves a provider reversal succeeded, the previous checkout
+// attempt is definitively over. Clear BOTH duplicate-payment guards so a fresh
+// Helcim checkout can actually start again in the same browser session.
+function unlockReversedInvoice(invoiceId) {
+  LOCKED_INVOICES.delete(invoiceId);
+  if (PAY_ID === invoiceId || PAY_ID == null) {
+    PAY_BUSY = false;
+  }
+}
+
 // ── LOAD INVOICES ─────────────────────────────
 async function loadInvoices() {
   INVOICE_CACHE = {};
@@ -278,7 +288,7 @@ async function loadInvoices() {
   for (const inv of invoices || []) {
     const correction = correctionsByInvoice[inv.id];
     if (inv.status === 'unpaid' && correction?.kind === 'reversal' && correction.status === 'succeeded') {
-      LOCKED_INVOICES.delete(inv.id);
+      unlockReversedInvoice(inv.id);
     }
   }
 
@@ -425,7 +435,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-06.v22";
+const APEX_CLIENT_VERSION = "2026-09-06.v23";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -530,7 +540,7 @@ function invoiceActionHtml(i, workSummary, correction = null) {
       if (reversed) {
         // The provider reversal is authoritative and recalc_invoice_status has
         // returned the invoice to unpaid. It is now safe to allow a new payment.
-        LOCKED_INVOICES.delete(i.id);
+        unlockReversedInvoice(i.id);
         return `${workSummary}${taxRows(i)}
           <div class="pay-refund">
             ↩ <strong>Previous payment was voided / reversed.</strong>
@@ -826,7 +836,7 @@ async function lookupInv() {
     const corrections = await loadSucceededCorrections([row.id]);
     const correction = corrections[row.id] || null;
     const reversed = row.status === 'unpaid' && correction?.kind === 'reversal' && correction.status === 'succeeded';
-    if (reversed) LOCKED_INVOICES.delete(row.id);
+    if (reversed) unlockReversedInvoice(row.id);
 
     const action = row.status === 'unpaid'
       ? ((LOCKED_INVOICES.has(row.id) && !reversed)
