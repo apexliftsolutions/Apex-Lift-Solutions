@@ -209,6 +209,44 @@ async function loadQuotes() {
   wrap.innerHTML = '<div class="q-cards">' + cards.join('') + '</div>';
 }
 
+
+// Fetch the latest successful financial correction for each invoice.
+// A successful reversal is authoritative proof that a prior card payment no
+// longer counts as collected, so it is the ONLY thing that may release the
+// in-memory duplicate-payment lock for an invoice that returned to `unpaid`.
+async function loadSucceededCorrections(invoiceIds) {
+  const byInvoice = {};
+  if (!USER || !invoiceIds?.length) return byInvoice;
+
+  const { data, error } = await sb.from('payments')
+    .select('id,invoice_id,kind,status,amount_cents,provider_transaction_id,refund_of,notes,created_at,approved_at,settled_at,completed_at')
+    .eq('customer_id', USER.id)
+    .in('invoice_id', invoiceIds)
+    .in('kind', ['refund', 'reversal'])
+    .eq('status', 'succeeded')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[Apex] correction ledger query failed', error);
+    return byInvoice;
+  }
+
+  for (const row of data || []) {
+    if (!byInvoice[row.invoice_id]) byInvoice[row.invoice_id] = row;
+  }
+  return byInvoice;
+}
+
+function correctionMetaHtml(correction) {
+  if (!correction) return '';
+  const amount = `$${(Number(correction.amount_cents || 0) / 100).toFixed(2)}`;
+  const reason = correction.notes ? `<br/>Reason: ${xss(correction.notes)}` : '';
+  const ref = correction.provider_transaction_id
+    ? `<br/>Reference: ${xss(correction.provider_transaction_id)}`
+    : '';
+  return `<br/>Amount: <strong>${amount}</strong>${reason}${ref}`;
+}
+
 // ── LOAD INVOICES ─────────────────────────────
 async function loadInvoices() {
   INVOICE_CACHE = {};
@@ -230,6 +268,19 @@ async function loadInvoices() {
     return;
   }
   console.info(`[Apex] invoices loaded: ${(invoices || []).length} for ${USER.id}`);
+
+  const correctionsByInvoice = await loadSucceededCorrections((invoices || []).map(i => i.id));
+
+  // If a provider reversal has succeeded and recalc returned the invoice to
+  // unpaid, the old checkout lock must be released. Do NOT unlock merely because
+  // an invoice is unpaid: during a real confirmation window that would invite a
+  // duplicate charge.
+  for (const inv of invoices || []) {
+    const correction = correctionsByInvoice[inv.id];
+    if (inv.status === 'unpaid' && correction?.kind === 'reversal' && correction.status === 'succeeded') {
+      LOCKED_INVOICES.delete(inv.id);
+    }
+  }
 
   // Index by id so openPay() can read the tax breakdown without stuffing JSON
   // into an onclick attribute.
@@ -279,7 +330,7 @@ async function loadInvoices() {
           </div>
           <p style="color:var(--grey);font-size:.8rem;">Questions? Call (516) 644-7187.</p>
          </div>`
-      : invoiceActionHtml(i, workSummary);
+      : invoiceActionHtml(i, workSummary, correctionsByInvoice[i.id]);
 
     return `<div class="q-card">
       <div class="q-hdr">
@@ -374,7 +425,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-06.v21";
+const APEX_CLIENT_VERSION = "2026-09-06.v22";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -446,7 +497,7 @@ function normalizeHelcimPay(input) {
 //   paid ? ... : pending ? ... : Pay Securely
 // so refunded / partially_refunded / void fell through to a Pay button on an
 // invoice that must never be paid again.
-function invoiceActionHtml(i, workSummary) {
+function invoiceActionHtml(i, workSummary, correction = null) {
   const docs = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
       <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
       ${i.payment_id ? `<button class="print-btn" onclick="printPaymentReceipt('${xss(i.payment_id)}')">🧾 Payment Receipt</button>` : ''}
@@ -464,26 +515,46 @@ function invoiceActionHtml(i, workSummary) {
 
     case 'partially_refunded':
       return `${workSummary}${taxRows(i)}
-        <div class="pay-refund">↩ Partially refunded. See your payment history for the amount returned.</div>${docs}`;
+        <div class="pay-refund">↩ Partially refunded.${correctionMetaHtml(correction)}<br/>See Payment History for every refund entry.</div>${docs}`;
 
     case 'refunded':
       return `${workSummary}${taxRows(i)}
-        <div class="pay-refund">↩ Refunded in full. Nothing further is owed on this invoice.</div>${docs}`;
+        <div class="pay-refund">↩ Refunded in full.${correctionMetaHtml(correction)}<br/>Nothing further is owed on this invoice.</div>${docs}`;
 
     case 'void':
       return `${workSummary}${taxRows(i)}
         <div class="pay-void">This invoice was cancelled by Apex. No payment is due.</div>${docs}`;
 
-    case 'unpaid':
+    case 'unpaid': {
+      const reversed = correction?.kind === 'reversal' && correction?.status === 'succeeded';
+      if (reversed) {
+        // The provider reversal is authoritative and recalc_invoice_status has
+        // returned the invoice to unpaid. It is now safe to allow a new payment.
+        LOCKED_INVOICES.delete(i.id);
+        return `${workSummary}${taxRows(i)}
+          <div class="pay-refund">
+            ↩ <strong>Previous payment was voided / reversed.</strong>
+            ${correctionMetaHtml(correction)}
+            <br/>This invoice is unpaid again and may be paid securely.
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+            <button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
+            <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
+            ${i.quote_id ? `<button class="print-btn" onclick="printQuote('${xss(i.quote_id)}')">📄 Original Quote</button>` : ''}
+          </div>`;
+      }
+
       if (LOCKED_INVOICES.has(i.id)) {
         return `${workSummary}${taxRows(i)}
           <div class="pay-locked">⏳ Payment received — being confirmed. No further payment is needed.</div>${docs}`;
       }
+
       return `${workSummary}${taxRows(i)}
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
           <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
         </div>`;
+    }
 
     default:
       // Unknown status must never render a Pay button.
@@ -752,17 +823,27 @@ async function lookupInv() {
   if (!USER || !id) { box.innerHTML = '<p style="color:#ff4444;font-family:var(--font-head);font-size:.85rem;">Please enter an invoice number.</p>'; return; }
   const { data: row } = await sb.from('invoices').select('*').eq('customer_id', USER.id).eq('id', id).single();
   if (row) {
+    const corrections = await loadSucceededCorrections([row.id]);
+    const correction = corrections[row.id] || null;
+    const reversed = row.status === 'unpaid' && correction?.kind === 'reversal' && correction.status === 'succeeded';
+    if (reversed) LOCKED_INVOICES.delete(row.id);
+
+    const action = row.status === 'unpaid'
+      ? ((LOCKED_INVOICES.has(row.id) && !reversed)
+          ? `<span style="color:#f0a500;font-weight:700;font-family:var(--font-head);font-size:.82rem;">⏳ Payment being confirmed</span>`
+          : `<button class="approve-btn" style="margin-top:8px;" onclick="openPay('${xss(row.id)}',${parseFloat(row.amount)})">Pay Securely</button>`)
+      : `<span style="color:#4caf50;font-weight:700;font-family:var(--font-head);font-size:.88rem;">${xss(String(row.status).replace(/_/g,' '))}</span>`;
+
     box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
       <div>
         <div style="font-family:var(--font-head);font-weight:900;font-size:1rem;color:var(--white);">${xss(row.id)}</div>
         <div style="color:var(--grey-light);font-size:.86rem;margin-top:3px;">${xss(row.description || '')}</div>
         <div style="color:var(--grey);font-size:.76rem;margin-top:3px;">Due: ${bdate(row.due)}</div>
+        ${reversed ? `<div style="color:#f0a500;font-size:.78rem;margin-top:6px;">Previous payment reversed${correction.notes ? ` — ${xss(correction.notes)}` : ''}.</div>` : ''}
       </div>
       <div style="text-align:right;">
         <div style="font-family:var(--font-head);font-size:1.6rem;font-weight:900;color:var(--red);">$${parseFloat(row.amount).toFixed(2)}</div>
-        ${row.status === 'unpaid'
-          ? `<button class="approve-btn" style="margin-top:8px;" onclick="openPay('${xss(row.id)}',${parseFloat(row.amount)})">Pay Securely</button>`
-          : `<span style="color:#4caf50;font-weight:700;font-family:var(--font-head);font-size:.88rem;">✓ Already Paid</span>`}
+        ${action}
       </div>
     </div>`;
   } else {
@@ -810,9 +891,12 @@ async function loadPayments() {
         ${r.provider_transaction_id ? `<div class="q-meta-item">Reference<span>${xss(r.provider_transaction_id)}</span></div>` : ''}
         ${r.reference ? `<div class="q-meta-item">Ref<span>${xss(r.reference)}</span></div>` : ''}
       </div>
+      ${r.notes && r.kind !== 'payment'
+        ? `<p style="color:var(--grey-light);font-size:.84rem;margin-top:6px;"><strong>Reason:</strong> ${xss(r.notes)}</p>`
+        : ''}
       ${r.status === 'pending' && r.method === 'ach'
         ? `<p style="color:#f0a500;font-size:.86rem;margin-top:4px;">Bank payment processing — this usually clears in a few business days.</p>`
-        : r.status === 'succeeded'
+        : (r.kind === 'payment' && r.status === 'succeeded')
           ? `<button class="approve-btn" style="padding:8px 16px;font-size:.76rem;" onclick="printPaymentReceipt('${xss(r.id)}')">Print Receipt</button>` : ''}
     </div>`).join('') + '</div>';
 }

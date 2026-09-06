@@ -1,4 +1,4 @@
-// POST /payment-refund   body: { payment_id, amount?, reason? } — ADMIN ONLY
+// POST /payment-refund   body: { payment_id, amount?, reason } — ADMIN ONLY
 //
 // One endpoint for Apex admin refunds/voids:
 // - Card full amount: try POST /v2/payment/reverse first (open batch), then
@@ -39,6 +39,9 @@ Deno.serve(async (req) => {
 
   const { payment_id, amount, reason } = await req.json().catch(() => ({}));
   if (!payment_id) return j({ error: "bad_request" }, 400, cors);
+  const reasonText = typeof reason === "string" ? reason.trim() : "";
+  if (!reasonText) return j({ error: "reason_required", message: "A refund/void reason is required." }, 400, cors);
+  if (reasonText.length > 500) return j({ error: "reason_too_long", message: "Reason must be 500 characters or less." }, 400, cors);
 
   const { data: orig, error: origErr } = await sb.from("payments")
     .select("*").eq("id", payment_id).eq("kind", "payment").maybeSingle();
@@ -80,7 +83,7 @@ Deno.serve(async (req) => {
     status: "initiated",
     idempotency_key: idem,
     refund_of: orig.id,
-    notes: reason ?? null,
+    notes: reasonText,
     recorded_by: user.id,
   }).select().single();
   if (insErr || !correction) return j({ error: "ledger_error", detail: insErr?.message ?? null }, 500, cors);
@@ -203,6 +206,7 @@ Deno.serve(async (req) => {
       http: provider.httpStatus,
       category: provider.category,
       provider_transaction_id: providerId,
+      reason: reasonText,
     },
   });
 
@@ -216,7 +220,7 @@ Deno.serve(async (req) => {
   await sb.from("activity_log").insert({
     actor_id: user.id,
     action: success ? `payment_${action}ed` : `${action}_failed`,
-    detail: `${orig.invoice_id} $${(want / 100).toFixed(2)}`,
+    detail: `${orig.invoice_id} $${(want / 100).toFixed(2)} — ${reasonText}`,
   });
 
   if (!success) {
@@ -231,6 +235,7 @@ Deno.serve(async (req) => {
     amount_cents: want,
     status: correctionStatus,
     provider_transaction_id: providerId,
+    reason: reasonText,
   }, 200, cors);
 });
 

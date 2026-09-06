@@ -267,7 +267,7 @@ async function renderInvoices() {
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
       <td>
-        ${(i.status === 'unpaid' || i.status === 'payment_pending') ? `${payActionHtml(i, _live[i.id])}` : ''}
+        ${(i.status === 'unpaid' || i.status === 'payment_pending') ? `${payActionHtml(i, _live[i.id], _paymentSummary[i.id])}` : ''}
         ${refundActionHtml(i, _paymentSummary[i.id])}
         <button class="action-btn" onclick="printInvoicePDF('${i.id}')">🖨 PDF</button>
         ${i.status !== 'hidden' ? `<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`
@@ -343,7 +343,7 @@ async function deleteCustomer(id, name) {
 // The manual form is for money that arrived OUTSIDE the portal only. If Helcim
 // already has a live attempt, offering "record payment" invites a duplicate
 // record for the same money.
-function payActionHtml(inv, live) {
+function payActionHtml(inv, live, summary) {
   if (inv.status === 'paid') {
     const how = inv.paid_via === 'helcim' ? 'Online' : 'Offline';
     return `<span class="badge badge-paid">Paid</span>
@@ -353,6 +353,16 @@ function payActionHtml(inv, live) {
     return `<span class="badge badge-pending">Payment Pending</span>
             <div style="font-size:.66rem;color:var(--grey);margin-top:3px;">Bank payment clearing</div>`;
   }
+
+  const successfulReversal = summary?.corrections?.some(p => p.kind === 'reversal' && p.status === 'succeeded');
+  if (inv.status === 'unpaid' && successfulReversal && summary.remainingCents <= 0) {
+    // The original Helcim payment was authoritatively reversed. It no longer
+    // blocks this invoice from being paid again or recorded offline.
+    return `<span class="badge badge-declined">Previous payment reversed</span>
+            <div style="font-size:.66rem;color:#f0a500;margin-top:3px;">Invoice is unpaid again</div>
+            <button class="action-btn green" style="margin-top:5px;" onclick="markPaid('${esc(inv.id)}')">Record Offline Payment</button>`;
+  }
+
   if (live && live.status === 'succeeded') {
     // Payment recorded but the invoice has not caught up — a finalization bug,
     // not something to paper over with a manual entry.
@@ -373,8 +383,13 @@ function refundActionHtml(inv, summary) {
     return `<span class="badge badge-pending">Refund / reversal pending</span>`;
   }
 
+  const successfulReversal = summary.corrections?.some(p => p.kind === 'reversal' && p.status === 'succeeded');
+  const successfulRefund   = summary.corrections?.some(p => p.kind === 'refund' && p.status === 'succeeded');
+
   if (summary.remainingCents <= 0) {
-    return `<span class="badge badge-declined">Fully refunded / reversed</span>`;
+    if (successfulReversal) return `<span class="badge badge-declined">Payment voided / reversed</span>`;
+    if (successfulRefund)   return `<span class="badge badge-declined">Fully refunded</span>`;
+    return `<span class="badge badge-declined">Fully returned</span>`;
   }
 
   if (!['paid', 'partially_refunded'].includes(inv.status)) return '';
@@ -429,15 +444,32 @@ async function markPaid(id) {
   const invs = await DB.getAllInvoices();
   _manualInvoice = invs.find(i => i.id === id);
   if (!_manualInvoice) return;
-  // Last line of defence: refuse to open the offline form when the processor
-  // already has something for this invoice.
-  const { data: existing } = await _sb.from('payments').select('status')
-    .eq('invoice_id', id).eq('provider', 'helcim')
-    .in('status', ['initiated', 'pending', 'unknown', 'succeeded']);
-  if ((existing || []).length) {
-    alert(`Invoice ${id} already has an online payment attempt (status: ${existing[0].status}).\n\n` +
-          `Recording an offline payment would create a second record for the same money.\n\n` +
+  // Last line of defence: block a manual record while a Helcim attempt is live
+  // or while net online money is still retained. A fully reversed payment no
+  // longer blocks the invoice — that is the whole purpose of the reversal row.
+  const { data: existing, error: existingErr } = await _sb.from('payments')
+    .select('id,status,kind,amount_cents,refund_of,provider')
+    .eq('invoice_id', id).eq('provider', 'helcim');
+  if (existingErr) {
+    console.error('[Apex] could not verify online payment state before manual payment', existingErr);
+    alert('Could not verify the online payment state. Please try again.');
+    return;
+  }
+  const rows = existing || [];
+  const inFlight = rows.find(p => p.kind === 'payment' && ['initiated','pending','unknown'].includes(p.status));
+  if (inFlight) {
+    alert(`Invoice ${id} already has an online payment attempt (status: ${inFlight.status}).\n\n` +
+          `Recording an offline payment could create duplicate accounting.\n\n` +
           `Use Review instead to reconcile it against Helcim.`);
+    return;
+  }
+  const paidCents = rows.filter(p => p.kind === 'payment' && p.status === 'succeeded')
+    .reduce((sum,p) => sum + Number(p.amount_cents || 0), 0);
+  const returnedCents = rows.filter(p => ['refund','reversal'].includes(p.kind) && p.status === 'succeeded')
+    .reduce((sum,p) => sum + Number(p.amount_cents || 0), 0);
+  if (paidCents - returnedCents > 0) {
+    alert(`Invoice ${id} still has $${((paidCents-returnedCents)/100).toFixed(2)} of successful online payment applied.\n\n` +
+          `Do not record another payment unless that money is first refunded/reversed.`);
     return;
   }
   document.getElementById('mp-inv-id').textContent  = id;
@@ -502,7 +534,13 @@ async function refundPayment(paymentId, invoiceId, maxAmount) {
     return;
   }
 
-  const reason = prompt('Optional reason / note for the refund or void:', '') ?? '';
+  const reasonRaw = prompt('Reason for the refund or void (required — this is shown in the audit trail/email):', '');
+  if (reasonRaw == null) return;
+  const reason = reasonRaw.trim();
+  if (!reason) {
+    alert('Enter a reason before issuing the refund or void.');
+    return;
+  }
   if (!confirm(
     `Return $${amount.toFixed(2)} on ${invoiceId}?\n\n` +
     `This calls Helcim first and only updates Apex accounting after the provider confirms it.`
