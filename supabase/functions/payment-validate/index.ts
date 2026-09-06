@@ -14,7 +14,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { reconcileAmount, looksACH } from "../_shared/feesaver.ts";
 import { normalizeHelcimPayResponse } from "../_shared/helcimpay.ts";
 
-const FN_VERSION = "2026-09-05.v19";
+const FN_VERSION = "2026-09-05.v20";
 const HELCIM_API = "https://api.helcim.com/v2";
 
 type Row = Record<string, any>;
@@ -22,8 +22,8 @@ type Row = Record<string, any>;
 Deno.serve(async (req) => {
   const cors = {
     "Access-Control-Allow-Origin": Deno.env.get("PUBLIC_SITE_URL") ?? "https://apexliftsolutionsusa.com",
-           "Access-Control-Allow-Headers": "authorization, content-type",
-           "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return j({ error: "method_not_allowed" }, 405, cors);
@@ -41,8 +41,8 @@ Deno.serve(async (req) => {
   // The secret token is read only through a SECURITY DEFINER RPC. It never goes
   // to the browser and is unique to this checkout session.
   const { data: sess, error: sessErr } = await sb
-  .rpc("read_checkout_session", { p_checkout_token: checkoutToken })
-  .maybeSingle();
+    .rpc("read_checkout_session", { p_checkout_token: checkoutToken })
+    .maybeSingle();
 
   if (!sess) {
     console.error("[payment-validate] unknown checkout session", sessErr?.message ?? "");
@@ -116,8 +116,8 @@ Deno.serve(async (req) => {
   const txnId = hp.transactionId ?? extractTxnId(raw);
   if (!txnId) {
     const { error } = await sb.from("payments")
-    .update({ status: "unknown", failure_category: "no_transaction_id" })
-    .eq("id", pay.id);
+      .update({ status: "unknown", failure_category: "no_transaction_id" })
+      .eq("id", pay.id);
     if (error) console.error("[payment-validate] no-id state write failed", error);
     await ev(sb, pay, "verify_deferred", { reason: "no_transaction_id", hash_ok: hashOk });
     return j({ status: "unknown", invoice_id: pay.invoice_id, fn_version: FN_VERSION }, 202, cors);
@@ -133,12 +133,12 @@ Deno.serve(async (req) => {
 
   // Prevent one Helcim transaction from being attached to two Apex payments.
   const { data: dupTxn } = await sb.from("payments")
-  .select("id,invoice_id,status")
-  .eq("provider", "helcim")
-  .eq("provider_transaction_id", txnId)
-  .neq("id", pay.id)
-  .limit(1)
-  .maybeSingle();
+    .select("id,invoice_id,status")
+    .eq("provider", "helcim")
+    .eq("provider_transaction_id", txnId)
+    .neq("id", pay.id)
+    .limit(1)
+    .maybeSingle();
   if (dupTxn) {
     await ev(sb, pay, "validation_failed", {
       reason: "transaction_already_used",
@@ -152,8 +152,8 @@ Deno.serve(async (req) => {
   // First try the provider's transaction API. For cards Helcim documents
   // /v2/card-transactions/{id}; for ACH it is /v2/ach/transactions/{id}.
   const lookupPath = payloadIsAch
-  ? `ach/transactions/${encodeURIComponent(txnId)}`
-  : `card-transactions/${encodeURIComponent(txnId)}`;
+    ? `ach/transactions/${encodeURIComponent(txnId)}`
+    : `card-transactions/${encodeURIComponent(txnId)}`;
 
   await ev(sb, pay, "provider_lookup_started", { txn_id: txnId, path: lookupPath });
 
@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
     const r = await fetch(`${HELCIM_API}/${lookupPath}`, {
       headers: {
         "api-token": Deno.env.get("HELCIM_ADMIN_API_TOKEN")!,
-                          "accept": "application/json",
+        "accept": "application/json",
       },
     });
     providerHttp = r.status;
@@ -182,7 +182,7 @@ Deno.serve(async (req) => {
       txn_id: txnId,
       http: providerHttp,
       provider_status: providerStatusLabel(providerTxn, payloadIsAch),
-             provider_type: providerTxn.type ?? providerTxn.transactionType ?? null,
+      provider_type: providerTxn.type ?? providerTxn.transactionType ?? null,
     });
   } else {
     await ev(sb, pay, "provider_lookup_deferred", {
@@ -192,6 +192,14 @@ Deno.serve(async (req) => {
       hash_ok: hashOk,
       provider_error: providerError,
     });
+    if (providerHttp === 401 || providerHttp === 403) {
+      await ev(sb, pay, "provider_auth_failed", {
+        txn_id: txnId,
+        http: providerHttp,
+        path: lookupPath,
+        note: "HELCIM_ADMIN_API_TOKEN was not accepted for the provider lookup; hash-verified card flow may still complete, but webhook/reconcile credentials must be fixed",
+      });
+    }
   }
 
   // If the secondary V2 GET is unavailable, Helcim's documented hash validation
@@ -225,33 +233,52 @@ Deno.serve(async (req) => {
       txn_id: txnId,
       rail: payloadIsAch ? "ach" : "card",
       note: payloadIsAch
-      ? "hash verified; ACH transaction accepted as pending until clearing"
-      : "hash verified; approved card may settle Apex invoice immediately",
+        ? "hash verified; ACH transaction accepted as pending until clearing"
+        : "hash verified; approved card may settle Apex invoice immediately",
     });
   }
 
   const achTxn = payloadIsAch || looksACH(txn);
   const txnCurrency = normalizeCurrency(txn.currency ?? hp.currency);
   const txnCents = Math.round(Number(txn.amount ?? hp.amount ?? 0) * 100);
-  const invNum = String(txn.invoiceNumber ?? "");
 
-  if (invNum && invNum !== pay.invoice_id) {
-    await parkUnknown(sb, pay, txnId, "invoice_mismatch", txnCents || null);
-    await ev(sb, pay, "validation_failed", {
-      reason: "invoice_mismatch",
+  // IMPORTANT: Apex does NOT currently send its invoice id as Helcim's
+  // invoiceNumber during checkout. Helcim may therefore return its own internal
+  // invoice number (for example INV001005). That value is NOT an Apex linkage
+  // and must not be compared to pay.invoice_id. The binding for this browser
+  // validation path is the server-owned checkout session -> attempt_id, plus the
+  // secretToken-verified HelcimPay response.
+  const providerInvoiceNumber = String(txn.invoiceNumber ?? "");
+  if (providerInvoiceNumber) {
+    await ev(sb, pay, "provider_invoice_observed", {
       txn_id: txnId,
-      expected_invoice: pay.invoice_id,
-      got_invoice: invNum,
+      provider_invoice_number: providerInvoiceNumber,
+      note: "informational only; Apex checkout does not currently link an Apex invoiceNumber to Helcim",
     });
-    return j({ status: "unknown", invoice_id: pay.invoice_id, reason: "invoice_mismatch", fn_version: FN_VERSION }, 409, cors);
+  }
+
+  // Security: a transaction id supplied through the browser is not enough by
+  // itself to claim a provider transaction. For this immediate validation path
+  // require either the HelcimPay response hash to verify against this checkout's
+  // private secretToken, or the transaction to have already been bound to this
+  // payment by a trusted backend path (webhook/reconcile).
+  const alreadyBound = String(pay.provider_transaction_id ?? "") === txnId;
+  if (!hashOk && !alreadyBound) {
+    await parkUnknown(sb, pay, txnId, "hash_unverified", txnCents || null);
+    await ev(sb, pay, "verify_deferred", {
+      reason: "hash_unverified_no_trusted_binding",
+      txn_id: txnId,
+      verification_source: verificationSource,
+    });
+    return j({ status: "unknown", invoice_id: pay.invoice_id, reason: "hash_unverified", fn_version: FN_VERSION }, 202, cors);
   }
 
   const rec = await reconcileAmount(sb, {
     baseCents: Number(pay.amount_cents),
-                                    chargedCents: txnCents,
-                                    currency: txnCurrency,
-                                    expectedCurrency: pay.currency,
-                                    isACH: achTxn,
+    chargedCents: txnCents,
+    currency: txnCurrency,
+    expectedCurrency: pay.currency,
+    isACH: achTxn,
   });
 
   if (!rec.ok) {
@@ -295,7 +322,7 @@ Deno.serve(async (req) => {
       reason: "provider_status_unrecognized",
       txn_id: txnId,
       provider_status: providerStatusLabel(txn, achTxn),
-             verification_source: verificationSource,
+      verification_source: verificationSource,
     });
     return j({ status: "unknown", invoice_id: pay.invoice_id, fn_version: FN_VERSION }, 202, cors);
   }
@@ -313,15 +340,15 @@ Deno.serve(async (req) => {
     provider_transaction_id: txnId,
     method: achTxn ? "ach" : "card",
     method_display: mask(txn),
-           fee_cents: rec.feeCents,
-           total_charged_cents: rec.totalCents,
-           failure_category: newStatus === "failed" ? (achTxn ? "ach_failed" : "declined") : null,
-           approved_at: newStatus !== "failed" ? (pay.approved_at ?? now) : pay.approved_at,
-           // Do not pretend a card has reached bank settlement merely because it was approved.
-           // For ACH, settled_at is populated only after clearing.
-           settled_at: achTxn && newStatus === "succeeded" ? now : pay.settled_at ?? null,
-           declined_at: newStatus === "failed" ? now : null,
-           completed_at: newStatus === "pending" ? null : now,
+    fee_cents: rec.feeCents,
+    total_charged_cents: rec.totalCents,
+    failure_category: newStatus === "failed" ? (achTxn ? "ach_failed" : "declined") : null,
+    approved_at: newStatus !== "failed" ? (pay.approved_at ?? now) : pay.approved_at,
+    // Do not pretend a card has reached bank settlement merely because it was approved.
+    // For ACH, settled_at is populated only after clearing.
+    settled_at: achTxn && newStatus === "succeeded" ? now : pay.settled_at ?? null,
+    declined_at: newStatus === "failed" ? now : null,
+    completed_at: newStatus === "pending" ? null : now,
   };
 
   const { error: payErr } = await sb.from("payments").update(update).eq("id", pay.id);
@@ -361,8 +388,8 @@ Deno.serve(async (req) => {
 
   if (newStatus === "succeeded") {
     const { error: linkErr } = await sb.from("invoices")
-    .update({ paid_via: "helcim", payment_id: pay.id })
-    .eq("id", pay.invoice_id);
+      .update({ paid_via: "helcim", payment_id: pay.id })
+      .eq("id", pay.invoice_id);
     if (linkErr) {
       console.error("[payment-validate] invoice link update failed", linkErr);
       await ev(sb, pay, "persist_failed", {
@@ -375,15 +402,15 @@ Deno.serve(async (req) => {
   }
 
   const { data: invAfter, error: invErr } = await sb.from("invoices")
-  .select("status,paid_at,payment_id,paid_via")
-  .eq("id", pay.invoice_id)
-  .maybeSingle();
+    .select("status,paid_at,payment_id,paid_via")
+    .eq("id", pay.invoice_id)
+    .maybeSingle();
 
   if (invErr) console.error("[payment-validate] invoice read-back failed", invErr);
 
   const expected = newStatus === "succeeded" ? "paid"
-  : newStatus === "pending" ? "payment_pending"
-  : null;
+    : newStatus === "pending" ? "payment_pending"
+    : null;
 
   if (expected && (!invAfter || invAfter.status !== expected)) {
     await ev(sb, pay, "invoice_status_inconsistent", {
@@ -423,14 +450,14 @@ function achCleared(txn: Row): boolean {
   const clearing = String(txn.statusClearing ?? txn.settlementStatus ?? txn.bankStatus ?? "").toUpperCase();
   const auth = String(txn.statusAuth ?? txn.status ?? "").toUpperCase();
   return ["1", "CLEARED", "SETTLED", "COMPLETED", "COMPLETE"].includes(clearing)
-  && !["2", "4", "DECLINED", "CANCELLED", "FAILED"].includes(auth);
+    && !["2", "4", "DECLINED", "CANCELLED", "FAILED"].includes(auth);
 }
 
 function achFailed(txn: Row): boolean {
   const clearing = String(txn.statusClearing ?? txn.settlementStatus ?? txn.bankStatus ?? "").toUpperCase();
   const auth = String(txn.statusAuth ?? txn.status ?? "").toUpperCase();
   return ["2", "4", "DECLINED", "CANCELLED", "FAILED"].includes(auth)
-  || ["4", "REJECTED", "RETURNED", "CONTESTED", "DECLINED", "FAILED"].includes(clearing);
+    || ["4", "REJECTED", "RETURNED", "CONTESTED", "DECLINED", "FAILED"].includes(clearing);
 }
 
 function normalizeCurrency(v: unknown): string {
