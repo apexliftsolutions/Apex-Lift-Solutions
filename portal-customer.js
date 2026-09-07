@@ -1667,7 +1667,7 @@ function cpRenderAgreement() {
 
   const sections = (a.sections || []).map(s => `
     <div class="cp-sec"><h4>${esc(s.heading)}</h4><p>${esc(s.body)}</p>
-    ${s.legal_review ? '<div class="cp-legal">This section is subject to legal review.</div>' : ''}</div>`).join('');
+    ${a.legal_review_required && s.legal_review ? '<div class="cp-legal">This section is subject to legal review.</div>' : ''}</div>`).join('');
 
   document.getElementById('cp-agr-body').innerHTML = `
     ${a.legal_review_required ? `<div class="cp-draft"><b>Draft agreement.</b> The amounts and equipment below come

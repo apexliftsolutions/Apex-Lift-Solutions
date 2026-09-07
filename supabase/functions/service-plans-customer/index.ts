@@ -30,7 +30,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
 
-const FN_VERSION = "2026-09-07.v24.3";
+const FN_VERSION = "2026-09-07.v24.4";
 const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL") ?? "admin@apexliftsolutionsusa.com";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
         if ("error" in ctx) return j(ctx, ctx.status ?? 400);
 
         const mode = await cfg(db, "service_plan_contract_mode", "test");
-        const version = await cfg(db, "service_plan_agreement_version", "APEX-MSP-2026-09-DRAFT");
+        const version = await cfg(db, "service_plan_agreement_version", "APEX-MMA-2026-09-V1");
         const doc = buildAgreement(ctx.offer, ctx.equipment, ctx.customer, rail, version, mode);
 
         return j({
@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
         if ("error" in ctx) return j(ctx, ctx.status ?? 400);
 
         const mode = await cfg(db, "service_plan_contract_mode", "test");
-        const version = await cfg(db, "service_plan_agreement_version", "APEX-MSP-2026-09-DRAFT");
+        const version = await cfg(db, "service_plan_agreement_version", "APEX-MMA-2026-09-V1");
         const doc = buildAgreement(ctx.offer, ctx.equipment, ctx.customer, rail, version, mode);
 
         // The snapshot is assembled here from database rows. Nothing in it comes
@@ -331,11 +331,13 @@ function buildAgreement(offer: any, eq: any, cust: any, rail: "card" | "ach",
   const included = asList(offer.included_services);
   const excluded = asList(offer.exclusions);
 
+  const review = mode !== "live";
   const sections: { heading: string; body: string; legal_review?: boolean }[] = [
     {
-      heading: "1. Parties",
-      body: `This Monthly Service Plan Agreement is entered into between Apex Lift Solutions ("Apex") and `
-        + `${cust.company ? `${cust.company}` : cust.name} ("Customer"), effective on the activation date stated below.`,
+      heading: "1. Parties and business purpose",
+      body: `This Fixed-Term Monthly Maintenance Agreement ("Agreement") is between Apex Lift Solutions ("Apex") and `
+        + `${cust.company ? `${cust.company}` : cust.name} ("Customer"). Customer represents that the covered equipment is used for business or commercial purposes. `
+        + `Apex's issuance of the service-plan offer and Customer's electronic acceptance form this Agreement, effective on the activation date stated below.`,
     },
     {
       heading: "2. Covered equipment",
@@ -345,101 +347,127 @@ function buildAgreement(offer: any, eq: any, cust: any, rail: "card" | "ach",
         `Serial number: ${eq.serial_number || "Not recorded at time of signing"}`,
         `Service location: ${eq.service_location || "Customer's primary service address"}`,
         ``,
-        `This Agreement covers the single unit identified above. Additional units require separate agreements.`,
+        `This Agreement applies only to the single unit identified above. Each additional unit requires its own offer and signed agreement.`,
       ].join("\n"),
     },
     {
-      heading: "3. Services included",
+      heading: "3. Included maintenance services",
       body: included.length
         ? included.map((s) => `• ${s}`).join("\n")
-        : "• As described in the accompanying service plan.",
+        : "• Only the services specifically described in the service-plan offer are included.",
     },
     {
-      heading: "4. Not included",
+      heading: "4. Exclusions and additional work",
       body: (excluded.length
         ? excluded.map((s) => `• ${s}`).join("\n")
-        : "• Items not expressly listed in Section 3.")
-        + `\n\nWork outside the scope of Section 3 will be quoted separately and is not covered by the monthly amount.`,
+        : "• Anything not expressly listed in Section 3 is excluded.")
+        + `\n\nParts, repairs, emergency work, travel, diagnostics, labor, or other services are included only if Section 3 expressly says so. `
+        + `Any work outside the included scope requires separate authorization and may be quoted or invoiced separately.`,
     },
     {
-      heading: "5. Term",
-      body: `${authorized.term_months} monthly billing cycles beginning ${fmtDate(offer.activation_date)}.\n\n`
-        + `This Agreement does not renew automatically. At the end of the ${authorized.term_months} cycles the plan `
-        + `completes. Continuing service requires a new offer and a new signed agreement.`,
-    },
-    {
-      heading: "6. Price and payment method",
+      heading: "5. Customer responsibilities",
       body: [
-        `Customer has selected: ${railLabel}`,
+        `Customer will provide Apex with safe and reasonable access to the covered equipment and service location at scheduled times.`,
+        `Customer will provide accurate equipment and contact information and will promptly disclose known safety hazards, damage, accidents, misuse, or operating conditions that could affect service.`,
+        `Customer remains responsible for ordinary operation, operator training, daily inspections, and compliance with manufacturer instructions and applicable workplace-safety requirements.`,
+      ].join("\n\n"),
+    },
+    {
+      heading: "6. Fixed term; no automatic renewal",
+      body: `${authorized.term_months} monthly billing cycles beginning ${fmtDate(offer.activation_date)}. `
+        + `This Agreement ends after the ${authorized.term_months} scheduled billing cycles and does not renew automatically. `
+        + `Continuing maintenance after the term requires a new offer and a new signed agreement.`,
+    },
+    {
+      heading: "7. Price, taxes, and selected payment method",
+      body: [
+        `Customer selected: ${railLabel}`,
         ``,
-        `Monthly service charge   ${usd(sub)}`,
+        `Monthly maintenance charge   ${usd(sub)}`,
         offer.tax_exempt
-          ? `Sales tax                exempt${offer.exempt_cert_number ? ` (certificate ${offer.exempt_cert_number})` : ""}`
-          : `Sales tax (${authorized.tax_rate_pct.toFixed(3)}%)      ${usd(tax)}`,
-        `Total charged monthly    ${usd(tot)}`,
+          ? `Sales tax                  exempt${offer.exempt_cert_number ? ` (certificate ${offer.exempt_cert_number})` : ""}`
+          : `Sales tax (${authorized.tax_rate_pct.toFixed(3)}%)        ${usd(tax)}`,
+        `Total authorized each month  ${usd(tot)}`,
         ``,
-        `Total over the ${authorized.term_months}-cycle term: ${usd(authorized.total_over_term_cents)}`,
+        `Total scheduled over the ${authorized.term_months}-payment term: ${usd(authorized.total_over_term_cents)}`,
         ``,
-        `Apex prices bank transfer and card separately. Had Customer selected ${otherLabel}, `
-        + `the monthly total would be ${usd(otherTotal)}. Customer may change payment method later; `
-        + `if the monthly total changes as a result, that change requires a new signed agreement `
-        + `before it takes effect.`,
+        `Apex prices bank transfer and card separately. Had Customer selected ${otherLabel}, the monthly total would be ${usd(otherTotal)}. `
+        + `A payment-method change that changes the authorized monthly total requires a new signed agreement before the new amount may be charged.`,
       ].join("\n"),
-      legal_review: true,
+      legal_review: review,
     },
     {
-      heading: "7. Recurring payment authorization",
+      heading: "8. Recurring payment authorization",
       body: [
-        `Customer authorizes Apex to charge ${usd(tot)} to the ${railLabel.toLowerCase()} `
-        + `Customer designates, once per monthly billing cycle, for ${authorized.term_months} cycles, `
-        + `beginning ${fmtDate(offer.activation_date)}.`,
+        `Customer authorizes Apex and its payment processor to charge ${usd(tot)} using the ${railLabel.toLowerCase()} designated by Customer once per monthly billing cycle for exactly ${authorized.term_months} scheduled payments, beginning ${fmtDate(offer.activation_date)}.`,
         ``,
-        `This authorization is for this exact amount. Apex may not increase it under this Agreement. `
-        + `Any change to the amount requires a new signed agreement.`,
+        `This authorization is limited to the exact recurring amount stated above. Apex will not increase the recurring amount under this Agreement without a new signed authorization.`,
         ``,
-        `Payment details are held by Apex's payment processor. Apex does not store card numbers, `
-        + `security codes, or bank account and routing numbers.`,
+        `Payment credentials are collected and stored by Apex's payment processor. Apex does not store full card numbers, card security codes, bank account numbers, or routing numbers.`,
       ].join("\n"),
-      legal_review: true,
+      legal_review: review,
     },
     {
-      heading: "8. Failed payments",
+      heading: "9. Failed or returned payments",
       body: [
-        `If a scheduled payment does not complete, the plan is marked past due and Apex will contact Customer.`,
-        `Bank transfers are not settled at the time of submission and may be returned by Customer's bank `
-        + `several business days later.`,
-        ``,
-        `Consequences of continued non-payment, including any suspension of service or recovery of costs, `
-        + `are subject to review and are not finalized in this draft.`,
-      ].join("\n"),
-      legal_review: true,
+        `A failed, declined, rejected, contested, or returned payment does not cancel this Agreement or eliminate amounts otherwise due under its fixed term.`,
+        `Customer will promptly provide a valid replacement payment method when requested. Apex may suspend included maintenance services while the account is past due, to the extent permitted by law, without treating the Agreement as cancelled.`,
+        `Bank transfers may remain pending for several business days and can later be returned by Customer's financial institution.`,
+        `Apex will not treat an ACH submission as finally paid until the payment processor reports that it has cleared.`,
+      ].join("\n\n"),
+      legal_review: review,
     },
     {
-      heading: "9. Fixed term; no customer cancellation",
+      heading: "10. Fixed commitment; no ordinary customer cancellation",
       body: [
-        `This is a fixed ${authorized.term_months}-payment service agreement. Once signed, Customer does not have an `
-        + `ordinary right to cancel the Agreement before all ${authorized.term_months} scheduled payments are completed.`,
+        `This is a fixed ${authorized.term_months}-payment maintenance commitment. After Customer signs, Customer has no ordinary contractual right to cancel early merely because Customer no longer wishes to continue the plan.`,
         ``,
-        `Apex may stop automated billing only for an administrative error, duplicate setup, legal requirement, `
-        + `or another exceptional circumstance documented by Apex. Stopping the payment processor does not by itself `
-        + `waive any contractual amount that may remain due.`,
+        `Stopping, replacing, or blocking the payment method does not itself cancel this Agreement or waive scheduled amounts that remain due.`,
         ``,
-        `This fixed-term / no-cancellation language requires attorney review before contract_mode is changed to live, `
-        + `and nothing in this draft limits rights that cannot legally be waived.`,
+        `Apex may administratively stop future processor charges to correct a duplicate subscription, billing error, legal requirement, equipment disposition agreed to in writing, or another exceptional circumstance documented by Apex. An administrative billing stop is not a waiver of amounts already due unless Apex expressly confirms a waiver in writing.`,
+        ``,
+        `Nothing in this Agreement waives any right or remedy that applicable law does not permit the parties to waive.`,
       ].join("\n"),
-      legal_review: true,
+      legal_review: review,
     },
     {
-      heading: "10. Electronic signature",
+      heading: "11. Scheduling, access, and service limitations",
       body: [
-        `Customer agrees to sign this Agreement electronically and that a typed name constitutes Customer's `
-        + `signature. Apex records the signature, the signer's name and title, the time of signing, and a `
-        + `one-way hash of the signer's network address.`,
-        ``,
-        `Apex stores a permanent, unmodifiable copy of this Agreement as signed. Customer may retrieve it at `
-        + `any time from the customer portal.`,
-      ],
-      legal_review: true,
+        `Maintenance visits are scheduled by mutual coordination and are subject to technician availability, safe site access, weather, parts availability, and circumstances beyond Apex's reasonable control.`,
+        `A maintenance plan is intended to support routine upkeep; it is not a guarantee that equipment will never fail, require repair, or experience downtime.`,
+        `Apex may decline to perform work that its technician reasonably believes cannot be performed safely until the unsafe condition is corrected.`,
+      ].join("\n\n"),
+    },
+    {
+      heading: "12. Records and communications",
+      body: [
+        `Apex may maintain service records, inspection notes, photographs, invoices, payment records, and signed agreements relating to the covered equipment.`,
+        `Operational notices may be delivered through the customer portal or to the email address associated with Customer's account. Customer is responsible for keeping its contact information current.`,
+      ].join("\n\n"),
+    },
+    {
+      heading: "13. Entire agreement; changes",
+      body: [
+        `This signed Agreement, including the equipment identification, included services, exclusions, selected payment method, price, and incorporated service-plan offer, is the complete agreement for this unit's monthly maintenance plan.`,
+        `Any change to the recurring amount, covered unit, included scope, term, or other material business term must be documented in a new signed agreement or written amendment accepted by both parties.`,
+        `A failure to enforce a provision once does not waive the right to enforce it later. If a provision is held unenforceable, the remaining provisions continue to the fullest extent permitted by law.`,
+      ].join("\n\n"),
+      legal_review: review,
+    },
+    {
+      heading: "14. Governing law",
+      body: `This Agreement is governed by the laws of the State of New York, without regard to conflict-of-law principles. `
+        + `Any dispute concerning this Agreement will be handled in a court of competent jurisdiction in New York, subject to any venue or jurisdiction rules that cannot lawfully be changed by agreement.`,
+      legal_review: review,
+    },
+    {
+      heading: "15. Electronic records and signature",
+      body: [
+        `Customer consents to use of electronic records and signatures for this transaction. Customer agrees that the typed signature entered through the portal is intended as Customer's signature on this Agreement.`,
+        `Apex records the signer's name and title, signing time, agreement version, document hash, and a one-way hash of the signer's network address.`,
+        `Apex stores an immutable PDF copy of the signed Agreement. Customer may retrieve the signed copy from the customer portal.`,
+      ].join("\n\n"),
+      legal_review: review,
     },
   ].map((s) => ({ ...s, body: Array.isArray(s.body) ? s.body.join("\n") : s.body }));
 
@@ -599,7 +627,7 @@ async function renderPdf(agreement: any, snapshot: any, mode: string): Promise<U
     text(String(s.heading ?? ""), 11.5, bold);
     gap(3);
     text(String(s.body ?? ""), 9.8, font, ink, 8);
-    if (s.legal_review) {
+    if (mode !== "live" && s.legal_review) {
       text("[ This section is subject to legal review. ]", 8, font, draftRed, 8);
     }
     gap(11);
@@ -617,7 +645,7 @@ async function renderPdf(agreement: any, snapshot: any, mode: string): Promise<U
     [!!c.scope, "I have reviewed the services included and not included."],
     [!!c.recurring, `I authorize the recurring monthly charge of ${usd(agreement.monthly_total_cents)}.`],
     [!!c.esign, "I agree to sign electronically and that my typed name is my signature."],
-    [!!c.term, `I understand the ${agreement.term_months}-cycle term and the cancellation process.`],
+    [!!c.term, `I understand this is a fixed ${agreement.term_months}-payment term with no ordinary early cancellation right.`],
   ];
   for (const [ok, label] of marks) {
     need(14);
