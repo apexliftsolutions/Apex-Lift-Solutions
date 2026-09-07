@@ -1537,7 +1537,11 @@ async function printInvoicePDF(invoiceId) {
    the customer/equipment/price relationships.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const SP = { customerId: null, customer: null, equipment: [], offers: [], agreements: [], subs: [] };
+const SP = {
+  customerId: null, customer: null, equipment: [], offers: [], agreements: [], subs: [],
+  taxRateMilliPct: DEFAULT_TAX_MILLI_PCT,
+  taxJurisdiction: 'Nassau / Suffolk County, NY'
+};
 
 function spEsc(v) {
   return String(v ?? '').replace(/[&<>"']/g, c =>
@@ -1617,9 +1621,9 @@ async function spLoadCustomer(customerId) {
   SP.customerId = customerId;
   body.innerHTML = '<div class="empty-state">Loading…</div>';
 
-  const [cust, equip, offers, agrees, subs] = await Promise.all([
+  const [cust, equip, offers, agrees, subs, taxCfg] = await Promise.all([
     _sb.from('customers')
-      .select('id, name, company, email, tax_rate_milli_pct, tax_exempt, tax_jurisdiction')
+      .select('id, name, company, email, status')
       .eq('id', customerId).maybeSingle(),
     _sb.from('customer_equipment').select('*')
       .eq('customer_id', customerId).order('created_at', { ascending: true }),
@@ -1628,22 +1632,38 @@ async function spLoadCustomer(customerId) {
     _sb.from('service_plan_agreements').select('*')
       .eq('customer_id', customerId).order('signed_at', { ascending: false }),
     _sb.from('service_subscriptions').select('*').eq('customer_id', customerId),
+    _sb.from('app_config').select('key,value')
+      .in('key', ['sales_tax_default_milli_pct','sales_tax_default_jurisdiction']),
   ]);
+
+  if (cust.error) {
+    console.error('[Service Plans] customer load failed:', cust.error);
+    body.innerHTML = `<div class="empty-state" style="color:#ff4444;">Could not load this customer: ${spEsc(cust.error.message)}</div>`;
+    return;
+  }
 
   SP.customer = cust.data || null;
   SP.equipment = equip.data || [];
   SP.offers = offers.data || [];
   SP.agreements = agrees.data || [];
   SP.subs = subs.data || [];
+
+  for (const row of taxCfg.data || []) {
+    if (row.key === 'sales_tax_default_milli_pct') {
+      const n = Number(row.value);
+      if (Number.isFinite(n) && n >= 0) SP.taxRateMilliPct = n;
+    } else if (row.key === 'sales_tax_default_jurisdiction' && row.value) {
+      SP.taxJurisdiction = row.value;
+    }
+  }
   spRender();
 }
 
 function spRender() {
   const body = document.getElementById('sp-body');
-  const taxLine = SP.customer?.tax_exempt
-    ? 'Tax exempt — offers for this customer are priced with no sales tax.'
-    : `Sales tax ${(Number(SP.customer?.tax_rate_milli_pct ?? 0) / 1000).toFixed(3)}%`
-      + (SP.customer?.tax_jurisdiction ? ` — ${spEsc(SP.customer.tax_jurisdiction)}` : '');
+  const taxLine = `Sales tax ${(Number(SP.taxRateMilliPct ?? DEFAULT_TAX_MILLI_PCT) / 1000).toFixed(3)}%`
+    + (SP.taxJurisdiction ? ` — ${spEsc(SP.taxJurisdiction)}` : '')
+    + ' (calculated server-side)';
 
   let html = `<div class="sp-card"><div class="sp-row">
       <div><h4>${spEsc(SP.customer?.company || SP.customer?.name || 'Customer')}</h4>
@@ -1770,11 +1790,11 @@ function spOpenOffer(offerId, equipmentId) {
 }
 function spCloseOffer() { document.getElementById('sp-offer-modal').hidden = true; }
 
-/* Advisory only. The server recomputes tax from the customer record and the
-   database re-checks that subtotal + tax = total on both rails. */
+/* Advisory only. The server recomputes tax from app_config and the database
+   re-checks that subtotal + tax = total on both rails. */
 function spPricePreview() {
-  const exempt = !!SP.customer?.tax_exempt;
-  const rate = exempt ? 0 : Number(SP.customer?.tax_rate_milli_pct ?? 0);
+  const exempt = false;
+  const rate = Number(SP.taxRateMilliPct ?? DEFAULT_TAX_MILLI_PCT);
   const box = (label, dollars) => {
     const sub = Math.round((Number(dollars) || 0) * 100);
     const tax = rate ? Math.round((sub * rate) / 100000) : 0;

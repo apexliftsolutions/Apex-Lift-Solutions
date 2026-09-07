@@ -21,13 +21,13 @@
 //
 //  TAX
 //    Same semantics as TAX_UPGRADE.sql: tax_rate_milli_pct is thousandths of a
-//    percent (8625 = 8.625%), and an exempt customer is charged zero on BOTH
-//    rails. The rate is snapshotted onto the offer so a later rate change never
-//    silently alters a price a customer has already been shown.
+//    percent (8625 = 8.625%). Apex V1 reads the server-side default rate and
+//    jurisdiction from app_config and snapshots them onto the offer so a later
+//    config change never silently alters a price already shown to a customer.
 // =============================================================================
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const FN_VERSION = "2026-09-07.v24.1";
+const FN_VERSION = "2026-09-07.v24.2";
 const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL") ?? "admin@apexliftsolutionsusa.com";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -151,10 +151,22 @@ Deno.serve(async (req) => {
           .select("id, customer_id").eq("id", equipId).maybeSingle();
         if (!eq) return j({ error: "equipment_not_found" }, 404);
 
-        const { data: cust } = await db.from("customers")
-          .select("id, tax_rate_milli_pct, tax_exempt, tax_jurisdiction, exempt_cert_number")
-          .eq("id", eq.customer_id).maybeSingle();
+        // Customer rows do not carry tax profile columns in the current Apex schema.
+        // TAX_UPGRADE stores the authoritative default rate/jurisdiction in app_config
+        // and snapshots tax onto each quote/invoice/offer. The previous Phase B/C
+        // code selected non-existent customers.tax_* columns; PostgREST therefore
+        // returned data=null + an error, which was incorrectly surfaced as
+        // customer_not_found even when the customer existed.
+        const { data: cust, error: custErr } = await db.from("customers")
+          .select("id").eq("id", eq.customer_id).maybeSingle();
+        if (custErr) {
+          console.error("[create-offer] customer lookup failed", custErr.message);
+          return j({ error: "server_error" }, 500);
+        }
         if (!cust) return j({ error: "customer_not_found" }, 404);
+
+        const defaultTaxRate = await cfgNumber(db, "sales_tax_default_milli_pct", 8625);
+        const defaultTaxJurisdiction = await cfgText(db, "sales_tax_default_jurisdiction", "Nassau / Suffolk County, NY");
 
         const achSub = cents(body.ach_monthly_subtotal);
         const cardSub = cents(body.card_monthly_subtotal);
@@ -167,11 +179,14 @@ Deno.serve(async (req) => {
         const activation = str(body.activation_date);
         if (!activation || !/^\d{4}-\d{2}-\d{2}$/.test(activation)) return j({ error: "bad_activation_date" }, 400);
 
-        // Tax is derived here, from the customer record. Never from the browser.
-        const exempt = !!cust.tax_exempt;
-        const rate = exempt ? 0 : Number(cust.tax_rate_milli_pct ?? 0);
-        const achTax = exempt ? 0 : taxOf(achSub, rate);
-        const cardTax = exempt ? 0 : taxOf(cardSub, rate);
+        // Tax is authoritative server-side. Apex currently has a global default
+        // rate/jurisdiction in app_config (the same source established by
+        // TAX_UPGRADE); there is no per-customer tax profile in customers yet.
+        // V1 service-plan offers therefore snapshot that server-side default.
+        const exempt = false;
+        const rate = defaultTaxRate;
+        const achTax = taxOf(achSub, rate);
+        const cardTax = taxOf(cardSub, rate);
 
         const row = {
           customer_id: eq.customer_id,
@@ -190,8 +205,8 @@ Deno.serve(async (req) => {
           card_monthly_total_cents: cardSub + cardTax,
           tax_rate_milli_pct: rate,
           tax_exempt: exempt,
-          tax_jurisdiction: cust.tax_jurisdiction ?? null,
-          exempt_cert_number: exempt ? (cust.exempt_cert_number ?? null) : null,
+          tax_jurisdiction: defaultTaxJurisdiction || null,
+          exempt_cert_number: null,
         };
 
         if (isUpdate) {
@@ -328,6 +343,18 @@ async function cfgInt(db: any, key: string, dflt: number): Promise<number> {
   const { data } = await db.from("app_config").select("value").eq("key", key).maybeSingle();
   const n = Number(data?.value);
   return Number.isFinite(n) && n > 0 ? n : dflt;
+}
+
+async function cfgNumber(db: any, key: string, dflt: number): Promise<number> {
+  const { data } = await db.from("app_config").select("value").eq("key", key).maybeSingle();
+  const n = Number(data?.value);
+  return Number.isFinite(n) && n >= 0 ? n : dflt;
+}
+
+async function cfgText(db: any, key: string, dflt: string): Promise<string> {
+  const { data } = await db.from("app_config").select("value").eq("key", key).maybeSingle();
+  const v = typeof data?.value === "string" ? data.value.trim() : "";
+  return v || dflt;
 }
 
 async function log(db: any, actor: string, action: string, detail: string) {
