@@ -19,7 +19,7 @@
 //    actually comes from.
 //
 //  LEGAL REVIEW REQUIRED
-//    The agreement body below is a neutral business draft. Cancellation rights,
+//    The agreement body below is a neutral business draft. Fixed-term / no-cancellation language,
 //    failed-payment consequences, the ACH-vs-card price differential and
 //    electronic-signature enforceability have NOT been reviewed by counsel.
 //    While app_config.service_plan_contract_mode <> 'live', every page of the
@@ -30,7 +30,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
 
-const FN_VERSION = "2026-09-07.v24.1";
+const FN_VERSION = "2026-09-07.v24.3";
 const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL") ?? "admin@apexliftsolutionsusa.com";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -213,7 +213,13 @@ Deno.serve(async (req) => {
 
         const row = Array.isArray(agreement) ? agreement[0] : agreement;
         const done = await finishPdf(db, row);
-        return j({ ok: true, agreement_id: row.id, ...done, fn_version: FN_VERSION });
+        let subscription_id: string | null = null;
+        try {
+          const { data: made } = await db.rpc("create_subscription_from_agreement", { p_agreement_id: row.id });
+          const sub = Array.isArray(made) ? made[0] : made;
+          subscription_id = sub?.id ?? null;
+        } catch { /* signing/PDF remain authoritative; setup can be resumed later */ }
+        return j({ ok: true, agreement_id: row.id, subscription_id, ...done, fn_version: FN_VERSION });
       }
 
       // ── SIGNED URL ───────────────────────────────────────────────────────
@@ -409,13 +415,17 @@ function buildAgreement(offer: any, eq: any, cust: any, rail: "card" | "ach",
       legal_review: true,
     },
     {
-      heading: "9. Cancellation",
+      heading: "9. Fixed term; no customer cancellation",
       body: [
-        `Customer may request cancellation at any time through the customer portal. Apex will confirm the `
-        + `cancellation with the payment processor before it is treated as effective, and will notify Customer.`,
+        `This is a fixed ${authorized.term_months}-payment service agreement. Once signed, Customer does not have an `
+        + `ordinary right to cancel the Agreement before all ${authorized.term_months} scheduled payments are completed.`,
         ``,
-        `Cancellation rights, notice periods, and any obligation for cycles already billed or remaining in `
-        + `the term are subject to review and are not finalized in this draft.`,
+        `Apex may stop automated billing only for an administrative error, duplicate setup, legal requirement, `
+        + `or another exceptional circumstance documented by Apex. Stopping the payment processor does not by itself `
+        + `waive any contractual amount that may remain due.`,
+        ``,
+        `This fixed-term / no-cancellation language requires attorney review before contract_mode is changed to live, `
+        + `and nothing in this draft limits rights that cannot legally be waived.`,
       ].join("\n"),
       legal_review: true,
     },

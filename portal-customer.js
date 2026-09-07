@@ -1470,24 +1470,129 @@ function cpOfferCard(o) {
 function cpAgreementCard(a) {
   const u = cpUnitLine(a.equipment_id);
   const sub = CP.subs.find(s => s.agreement_id === a.id);
+  const st = sub?.status || 'setup_pending';
+  let setup = '';
+  if (!sub || ['setup_pending','failed_setup'].includes(st)) {
+    setup = `<div class="cp-meta cp-sec"><b>Payment setup required.</b> Nothing has been charged yet.</div>
+      <button class="approve-btn" type="button" onclick="cpStartPlanPayment('${a.id}')">Add payment method</button>`;
+  } else if (st === 'method_verified') {
+    setup = `<div class="cp-meta cp-sec"><b>Payment method verified.</b> ${esc(sub.payment_method_display || '')}<br>
+      The recurring subscription has not been activated yet.</div>
+      <button class="approve-btn" type="button" onclick="cpActivatePlan('${sub.id}')">Activate service plan</button>`;
+  } else if (st === 'active' || st === 'past_due') {
+    setup = `<div class="cp-meta cp-sec"><b>${st === 'active' ? 'Active service plan' : 'Payment issue — plan is past due'}</b><br>
+      ${esc(sub.payment_method_display || '')}${sub.next_billing_date ? ` · Next billing ${cpDate(sub.next_billing_date)}` : ''}<br>
+      ${esc(sub.times_billed || 0)} of ${esc(sub.max_cycles || a.term_months)} successful payments completed.</div>`;
+  } else if (st === 'completed') {
+    setup = `<div class="cp-meta cp-sec"><b>Completed.</b> All scheduled payments for this fixed-term agreement are complete.</div>`;
+  } else {
+    setup = `<div class="cp-meta cp-sec">Plan status: ${esc(st)}</div>`;
+  }
   return `<div class="cp-card">
     <span class="cp-pill signed">${a.status === 'signed' ? 'Signed' : esc(a.status)}</span>
     <h3 style="margin-top:8px;">${esc(u.title)}</h3>
     <div class="cp-meta">
       ${cpUsd(a.monthly_total_cents)} a month by ${a.selected_payment_method === 'ach' ? 'bank transfer' : 'card'}<br>
-      ${esc(a.term_months)} monthly payments starting ${cpDate(a.activation_date)}<br>
+      <b>Fixed ${esc(a.term_months)}-payment term</b> starting ${cpDate(a.activation_date)} · no automatic renewal<br>
       Signed by ${esc(a.signer_name)}${a.signer_title ? `, ${esc(a.signer_title)}` : ''} on ${cpDate(a.signed_at)}
     </div>
-    <div class="cp-meta cp-sec">
-      ${sub && sub.status !== 'active'
-        ? 'Your payment method has not been set up yet. Nothing has been charged. We will be in touch with the next step.'
-        : 'Nothing has been charged yet.'}
-    </div>
-    <div style="margin-top:14px;">
+    ${setup}
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
       <button class="btn-secondary" type="button" onclick="cpOpenPdf('${a.id}')"
         ${a.pdf_path ? '' : 'disabled title="Your PDF is still being prepared"'}>View signed agreement (PDF)</button>
     </div>
   </div>`;
+}
+
+let CP_VERIFY_LISTENER = null;
+let CP_VERIFY_BUSY = false;
+
+async function cpStartPlanPayment(agreementId) {
+  if (CP_VERIFY_BUSY) return;
+  CP_VERIFY_BUSY = true;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { alert('Your session expired. Please sign in again.'); return; }
+    const r = await fetch(`${FN_BASE}/subscription-verify-checkout`, {
+      method:'POST', headers:{'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json'},
+      body:JSON.stringify({agreement_id:agreementId}),
+    });
+    const out = await r.json().catch(()=>({}));
+    if (!r.ok) { alert(cpPlanPayError(out)); return; }
+    if (out.already_verified) { await loadServicePlans(); return; }
+    const checkoutToken = out.checkoutToken;
+    if (!checkoutToken) { alert('Payment setup could not start. Please try again.'); return; }
+    if (CP_VERIFY_LISTENER) window.removeEventListener('message', CP_VERIFY_LISTENER);
+    let settled = false;
+    CP_VERIFY_LISTENER = async (ev) => {
+      let d = ev.data; if (typeof d === 'string') { try { d = JSON.parse(d); } catch {} }
+      if (!d || typeof d !== 'object' || d.eventName !== `helcim-pay-js-${checkoutToken}`) return;
+      const status = String(d.eventStatus || '').toUpperCase();
+      if (status === 'ABORTED' || status === 'HIDE') {
+        if (settled) return;
+        try { removeHelcimPayIframe(); } catch {}
+        document.body.classList.remove('helcim-active');
+        CP_VERIFY_BUSY = false;
+        return;
+      }
+      if (status !== 'SUCCESS') return;
+      settled = true;
+      try { removeHelcimPayIframe(); } catch {}
+      document.body.classList.remove('helcim-active');
+      const hp = normalizeHelcimPay(d.eventMessage);
+      const vr = await fetch(`${FN_BASE}/subscription-verify-validate`, {
+        method:'POST', headers:{'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({checkoutToken,eventMessage:d.eventMessage,rawDataResponse:hp.txnJson,hash:hp.hash}),
+      });
+      const vo = await vr.json().catch(()=>({}));
+      if (!vr.ok) { alert(cpPlanPayError(vo)); CP_VERIFY_BUSY=false; return; }
+      alert(`Payment method saved${vo.payment_method_display ? `: ${vo.payment_method_display}` : ''}.`);
+      await loadServicePlans();
+      // In production, activation succeeds only when the server-side recurring
+      // gate has been deliberately enabled. In test mode this safely returns a
+      // disabled message and leaves the method verified.
+      await cpActivatePlan(vo.subscription_id, true);
+      CP_VERIFY_BUSY = false;
+    };
+    window.addEventListener('message', CP_VERIFY_LISTENER);
+    document.body.classList.add('helcim-active');
+    appendHelcimPayIframe(checkoutToken, true);
+  } catch (e) {
+    console.error('[Apex] service plan payment setup failed', e);
+    alert('Could not start payment setup. Please try again.');
+  } finally {
+    if (!document.body.classList.contains('helcim-active')) CP_VERIFY_BUSY = false;
+  }
+}
+
+async function cpActivatePlan(subscriptionId, quietDisabled=false) {
+  if (!subscriptionId) return;
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return;
+  const r = await fetch(`${FN_BASE}/subscription-activate`, {
+    method:'POST', headers:{'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json'},
+    body:JSON.stringify({subscription_id:subscriptionId}),
+  });
+  const out = await r.json().catch(()=>({}));
+  if (!r.ok) {
+    if (out.error === 'recurring_billing_disabled' && quietDisabled) { await loadServicePlans(); return; }
+    alert(cpPlanPayError(out)); return;
+  }
+  alert(out.already_active ? 'Service plan is already active.' : 'Service plan activated.');
+  await loadServicePlans();
+}
+
+function cpPlanPayError(b) {
+  const m = {
+    account_not_active:'Your account is not active.', pdf_not_ready:'Your signed agreement PDF is not ready yet.',
+    recurring_billing_disabled:'Your payment method is saved. Recurring billing is still in test mode and has not been activated.',
+    recurring_plan_not_configured:'Apex has not finished configuring the recurring payment plan yet.',
+    test_activation_date_must_be_future:'Test subscriptions must start on a future date.',
+    payment_method_not_verified:'Please add your payment method first.', activation_under_review:'Apex is confirming a previous activation attempt. Do not try again.',
+    gateway_init_failed:'Helcim payment setup could not start. Please try again.', verify_session_expired_or_used:'This setup session expired. Start again.',
+    hash_mismatch:'We could not verify the payment-method response. No recurring plan was activated.'
+  };
+  return m[b?.error] || b?.detail || b?.error || 'Something went wrong. Please try again.';
 }
 
 async function cpDecline(offerId) {
@@ -1593,7 +1698,7 @@ function cpRenderAgreement() {
       <label class="cp-consent"><input type="checkbox" id="cp-c3">
         I agree to sign electronically and that my typed name is my signature.</label>
       <label class="cp-consent"><input type="checkbox" id="cp-c4">
-        I understand the ${esc(auth.term_months)}-payment term and how to cancel.</label>
+        I understand this is a fixed ${esc(auth.term_months)}-payment term and I do not have an ordinary right to cancel it early.</label>
 
       <div class="cp-sign">
         <label>Your full name<input id="cp-signer" maxlength="120" autocomplete="name"></label>
