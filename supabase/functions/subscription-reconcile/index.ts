@@ -7,31 +7,89 @@
 // - Declined/failed => unpaid invoice + failed payment, subscription past_due.
 // - Waiting provider payments are not materialized into Apex invoices yet.
 // - Ambiguous transaction matching is NEVER guessed.
+//
+// v24.6 adds two things and changes no reconciliation logic:
+//   1. Single-subscription mode. An authenticated admin can reconcile one
+//      subscription on demand ({ subscription_id }). This reuses the SAME loop
+//      body as the scheduled run, so there is exactly one reconciliation
+//      implementation. service-plans-admin must not reimplement any of it.
+//   2. Health recording, including on a rejected worker key — see 0009.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { helcimCall } from "../_shared/helcim-api.ts";
 
-const FN_VERSION = "2026-09-07.v24.5";
+const FN_VERSION = "2026-09-07.v24.6";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const WORKER_KEY = Deno.env.get("RECONCILE_WORKER_KEY") ?? "";
 const TOKEN = Deno.env.get("HELCIM_ADMIN_API_TOKEN") ?? "";
 type Row = Record<string, any>;
 
+const SB_ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") ?? "admin@apexliftsolutionsusa.com").toLowerCase();
+const ORIGIN = Deno.env.get("PUBLIC_SITE_URL") ?? Deno.env.get("APP_BASE_URL") ?? "https://apexliftsolutionsusa.com";
+const CORS = {
+  "Access-Control-Allow-Origin": ORIGIN,
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-worker-key",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 Deno.serve(async (req) => {
-  if (req.headers.get("x-worker-key") !== WORKER_KEY || !WORKER_KEY) {
-    return new Response("Forbidden", { status: 403 });
-  }
-  if (!TOKEN) return Response.json({ error: "helcim_not_configured" }, { status: 500 });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   const db = createClient(SB_URL, SB_SERVICE);
-  const { data: subs, error } = await db.from("service_subscriptions")
-    .select("*")
+  const body = await req.json().catch(() => ({}));
+  const wantsOne = String(body?.subscription_id ?? "").trim();
+
+  // Two callers are allowed: the cron worker (shared key) and the signed-in
+  // admin (JWT). Everything else is rejected — and a rejection is RECORDED,
+  // because a silently-403ing cron job is the failure mode that would let
+  // Helcim keep billing while Apex's ledger quietly stopped updating.
+  const workerOk = !!WORKER_KEY && req.headers.get("x-worker-key") === WORKER_KEY;
+  let source = "cron";
+  let adminId: string | null = null;
+
+  if (!workerOk) {
+    const auth = req.headers.get("Authorization");
+    let ok = false;
+    if (auth && SB_ANON) {
+      const uc = createClient(SB_URL, SB_ANON, { global: { headers: { Authorization: auth } } });
+      const { data: { user } } = await uc.auth.getUser();
+      if (user && String(user.email ?? "").toLowerCase() === ADMIN_EMAIL) {
+        ok = true; source = "admin"; adminId = user.id;
+      }
+    }
+    if (!ok) {
+      await db.rpc("record_sync_forbidden").catch(() => {});
+      return Response.json({ error: "forbidden" }, { status: 403, headers: CORS });
+    }
+  }
+
+  if (!TOKEN) {
+    await db.rpc("record_sync_health", { p_source: source, p_ok: false, p_error: "helcim_not_configured" }).catch(() => {});
+    return Response.json({ error: "helcim_not_configured" }, { status: 500, headers: CORS });
+  }
+
+  // Single-subscription mode. Cancelled and completed subscriptions ARE
+  // reconcilable here on purpose: a refund, an ACH return or a late settlement
+  // can land after billing stops, and an admin needs to be able to pull that in.
+  // The scheduled sweep keeps its narrower active-set for cost reasons.
+  let q = db.from("service_subscriptions").select("*")
     .eq("provider", "helcim")
-    .not("provider_subscription_id", "is", null)
-    .in("status", ["active", "past_due", "paused", "cancel_requested"])
-    .order("created_at", { ascending: true })
-    .limit(100);
-  if (error) return Response.json({ error: "subscription_query_failed" }, { status: 500 });
+    .not("provider_subscription_id", "is", null);
+
+  q = wantsOne
+    ? q.eq("id", wantsOne)
+    : q.in("status", ["active", "past_due", "paused", "cancel_requested"])
+       .order("created_at", { ascending: true }).limit(100);
+
+  const { data: subs, error } = await q;
+  if (error) {
+    await db.rpc("record_sync_health", { p_source: source, p_ok: false, p_error: "subscription_query_failed" }).catch(() => {});
+    return Response.json({ error: "subscription_query_failed" }, { status: 500, headers: CORS });
+  }
+  if (wantsOne && !(subs ?? []).length) {
+    return Response.json({ error: "not_found_or_not_provider_bound" }, { status: 404, headers: CORS });
+  }
 
   let synced = 0, invoicesCreated = 0, paymentsCreated = 0, paymentsUpdated = 0;
   let completed = 0, cancelled = 0, pastDue = 0, ambiguous = 0, providerErrors = 0;
@@ -140,12 +198,48 @@ Deno.serve(async (req) => {
     synced++;
   }
 
+  // Health is recorded for BOTH the scheduled sweep and an admin's on-demand
+  // sync. A provider error inside the loop does not fail the run — the run
+  // completed — but the count is surfaced so a persistent provider problem is
+  // visible in the admin UI rather than only in function logs.
+  await db.rpc("record_sync_health", {
+    p_source: source,
+    p_ok: true,
+    p_error: null,
+    p_scanned: subs?.length ?? 0,
+    p_invoices: invoicesCreated,
+    p_payments_created: paymentsCreated,
+    p_payments_updated: paymentsUpdated,
+    p_ambiguous: ambiguous,
+    p_provider_errors: providerErrors,
+  }).catch(() => {});
+
+  if (source === "admin" && wantsOne) {
+    await db.from("service_plan_events").insert({
+      event: "subscription_synced", source: "admin",
+      subscription_id: wantsOne, customer_id: subs?.[0]?.customer_id ?? null,
+      detail: { by: adminId, invoices_created: invoicesCreated,
+                payments_created: paymentsCreated, payments_updated: paymentsUpdated,
+                ambiguous, provider_errors: providerErrors, fn_version: FN_VERSION },
+    }).catch?.(() => {});
+  }
+
+  // The freshly-reconciled row is returned so the admin UI renders provider
+  // truth rather than the state it had before the sync.
+  let subscription: Row | null = null;
+  if (wantsOne) {
+    const { data } = await db.from("service_subscriptions").select("*").eq("id", wantsOne).maybeSingle();
+    subscription = data ?? null;
+  }
+
   return Response.json({
-    ok: true, fn_version: FN_VERSION, checked: subs?.length ?? 0, synced,
+    ok: true, fn_version: FN_VERSION, mode: wantsOne ? "single" : "sweep",
+    source, checked: subs?.length ?? 0, synced,
     invoices_created: invoicesCreated, payments_created: paymentsCreated,
     payments_updated: paymentsUpdated, completed, cancelled, past_due: pastDue,
     ambiguous, provider_errors: providerErrors,
-  });
+    subscription,
+  }, { headers: CORS });
 });
 
 async function ensureInvoice(db: any, s: Row, paymentNumber: number, start: string, end: string) {

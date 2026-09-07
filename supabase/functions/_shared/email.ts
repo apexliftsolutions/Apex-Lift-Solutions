@@ -382,6 +382,110 @@ Agreement: ${p.agreement_id} (${p.agreement_version})
 NEXT STEP: payment method verification. No subscription exists and nothing is
 scheduled to bill yet.${textFoot}` };
 
+    // ── SUBSCRIPTION LIFECYCLE (V24.6) ───────────────────────────────────────
+    // Paused/resumed cannot occur until the Helcim PATCH work is unblocked, so
+    // those branches are inert today. They exist now so the outbox worker can
+    // never fall through to the JSON dump the moment they do start firing.
+    case "subscription_activated":
+    case "subscription_paused":
+    case "subscription_resumed":
+    case "subscription_cancelled":
+    case "subscription_term_ended":
+    case "subscription_activated_admin":
+    case "subscription_paused_admin":
+    case "subscription_resumed_admin":
+    case "subscription_cancelled_admin":
+    case "subscription_term_ended_admin": {
+      const admin = eventType.endsWith("_admin");
+      const kind = eventType.replace(/_admin$/, "");
+      const unit = [p.unit_number, p.equipment].filter(Boolean).map(esc).join(" — ") || "your forklift";
+      const rail = p.payment_method === "ach" ? "bank transfer (ACH)" : "card";
+      const money = usdc(p.monthly_total_cents);
+
+      const copy: Record<string, { subject: string; head: string; body: string; textBody: string }> = {
+        subscription_activated: {
+          subject: `Service plan active — ${p.unit_number || p.equipment || "your forklift"}`,
+          head: "Your service plan is active",
+          body: `<p>Your monthly service plan is now active. We'll bill ${money} to your ${esc(rail)} `
+            + `each month for ${esc(p.term_months)} months.</p>`,
+          textBody: `Your monthly service plan is now active. We'll bill ${money} to your ${rail} each month for ${p.term_months} months.`,
+        },
+        subscription_paused: {
+          subject: `Service plan paused — ${p.unit_number || p.equipment || "your forklift"}`,
+          head: "Your service plan is paused",
+          body: `<p>Billing is paused. You won't be charged while the plan is paused, and no payment is due. `
+            + `Your remaining months are preserved.</p>`,
+          textBody: `Billing is paused. You won't be charged while the plan is paused. Your remaining months are preserved.`,
+        },
+        subscription_resumed: {
+          subject: `Service plan resumed — ${p.unit_number || p.equipment || "your forklift"}`,
+          head: "Your service plan has resumed",
+          body: `<p>Billing has resumed at ${money} a month to your ${esc(rail)}.</p>`,
+          textBody: `Billing has resumed at ${money} a month to your ${rail}.`,
+        },
+        subscription_cancelled: {
+          subject: `Service plan cancelled — ${p.unit_number || p.equipment || "your forklift"}`,
+          head: "Your service plan has been cancelled",
+          body: `<p>Future billing has stopped. You will not be charged again for this plan.</p>
+                 <p style="background:#f7f7f7;padding:12px 14px;font-size:14px;line-height:1.6;">
+                 <b>Months already paid are not refunded by this cancellation.</b>
+                 If you believe a payment should be refunded, reply to this email or call us and we'll review it separately.</p>`,
+          textBody: `Future billing has stopped. You will not be charged again for this plan.\n\n`
+            + `MONTHS ALREADY PAID ARE NOT REFUNDED BY THIS CANCELLATION. If you believe a payment\n`
+            + `should be refunded, reply to this email or call us and we'll review it separately.`,
+        },
+        subscription_term_ended: {
+          subject: `Service plan complete — ${p.unit_number || p.equipment || "your forklift"}`,
+          head: "Your service plan is complete",
+          body: `<p>All ${esc(p.term_months)} monthly payments are complete and billing has stopped. `
+            + `Nothing further is owed and this plan will not renew automatically.</p>
+            <p>Want to keep the coverage going? Give us a call and we'll send a new plan to review.</p>`,
+          textBody: `All ${p.term_months} monthly payments are complete and billing has stopped. Nothing further\n`
+            + `is owed and this plan will not renew automatically.\n\nWant to keep the coverage going? Give us a call.`,
+        },
+      };
+      const c = copy[kind] ?? copy.subscription_activated;
+
+      const detail = `<table role="presentation" style="font-size:14px;line-height:1.9;margin-top:8px;">
+        <tr><td style="color:#666;padding-right:18px;">Unit</td><td><b>${unit}</b></td></tr>
+        ${p.serial_number ? `<tr><td style="color:#666;">Serial</td><td>${esc(p.serial_number)}</td></tr>` : ""}
+        <tr><td style="color:#666;">Monthly</td><td>${money}</td></tr>
+        <tr><td style="color:#666;">Term</td><td>${esc(p.term_months)} months</td></tr>
+        <tr><td style="color:#666;">Billed so far</td><td>${esc(p.times_billed ?? 0)} of ${esc(p.max_cycles ?? p.term_months)}</td></tr>
+        ${p.next_billing_date && kind !== "subscription_cancelled" && kind !== "subscription_term_ended"
+          ? `<tr><td style="color:#666;">Next billing</td><td>${date(p.next_billing_date)}</td></tr>` : ""}
+        ${p.reason ? `<tr><td style="color:#666;">Reason</td><td>${esc(p.reason)}</td></tr>` : ""}
+      </table>`;
+
+      if (admin) {
+        return {
+          subject: `[Admin] ${c.subject} — ${p.company || p.customer_name || ""}`.trim(),
+          html: shell(c.head + co,
+            `<p><b>${esc(p.customer_name)}</b>${p.company ? ` — ${esc(p.company)}` : ""} (${esc(p.customer_email)})</p>
+             ${detail}
+             <p style="font-size:13px;color:#666;">Status ${esc(p.previous_status)} &rarr; <b>${esc(p.new_status)}</b>
+             · subscription <span style="font-family:monospace;font-size:12px;">${esc(p.subscription_id)}</span></p>`),
+          text: `${c.head}\n\n${p.customer_name}${p.company ? ` — ${p.company}` : ""} (${p.customer_email})\n`
+            + `Unit: ${[p.unit_number, p.equipment].filter(Boolean).join(" — ")}\n`
+            + `Monthly: ${money}\nTerm: ${p.term_months} months\n`
+            + `Billed: ${p.times_billed ?? 0} of ${p.max_cycles ?? p.term_months}\n`
+            + `${p.reason ? `Reason: ${p.reason}\n` : ""}`
+            + `Status ${p.previous_status} -> ${p.new_status}\nSubscription: ${p.subscription_id}${textFoot}`,
+        };
+      }
+      return {
+        subject: c.subject,
+        html: shell(c.head, `<p>Hi ${name},</p>${c.body}${detail}`,
+          { label: "View My Service Plans", href: portal() }),
+        text: `Hi ${p.customer_name || "there"},\n\n${c.textBody}\n\n`
+          + `Unit: ${[p.unit_number, p.equipment].filter(Boolean).join(" — ")}\n`
+          + `Monthly: ${money}\nTerm: ${p.term_months} months\n`
+          + `Billed so far: ${p.times_billed ?? 0} of ${p.max_cycles ?? p.term_months}\n`
+          + `${p.reason ? `Reason: ${p.reason}\n` : ""}`
+          + `\nYour plans: ${portal()}${textFoot}`,
+      };
+    }
+
     default:
       return { subject: `Apex Lift Solutions — ${eventType}`, html: shell(eventType, `<pre>${esc(JSON.stringify(p, null, 2))}</pre>`), text: JSON.stringify(p, null, 2) };
   }

@@ -37,6 +37,32 @@
 .sp-quote .big{font-size:1.5rem;font-weight:800}
 .sp-quote .lbl{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--grey,#9a9a9a)}
 </style>
+<style>
+/* ── Recurring subscriptions (V24.6) — rs-* scoped ── */
+.rs-health{border-radius:8px;padding:12px 14px;margin:0 0 16px;font-size:.86rem;line-height:1.6;border:1px solid}
+.rs-health.ok{border-color:rgba(47,191,95,.4);background:rgba(47,191,95,.08)}
+.rs-health.warn{border-color:rgba(224,160,0,.5);background:rgba(224,160,0,.10)}
+.rs-health.bad{border-color:rgba(255,92,92,.5);background:rgba(255,92,92,.10)}
+.rs-co{margin:0 0 22px}
+.rs-co h3{margin:0 0 2px;font-size:1.02rem}
+.rs-co .rs-coemail{font-size:.8rem;color:var(--grey,#9a9a9a);margin-bottom:10px}
+.rs-sub{border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:14px 16px;margin-bottom:10px}
+.rs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px 18px;margin-top:10px}
+.rs-f .k{font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;color:var(--grey,#9a9a9a)}
+.rs-f .v{font-size:.92rem;margin-top:2px}
+.rs-pill{display:inline-block;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid currentColor}
+.rs-pill.active{color:#2fbf5f}.rs-pill.past_due{color:#ff5c5c}.rs-pill.paused{color:#e0a000}
+.rs-pill.cancelled,.rs-pill.failed_setup{color:#9a9a9a}.rs-pill.completed{color:#6aa9ff}
+.rs-pill.setup_pending,.rs-pill.method_verified,.rs-pill.cancel_requested{color:#e0a000}
+.rs-cycle{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;padding:11px 0;border-top:1px solid rgba(255,255,255,.09)}
+.rs-cycle .num{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--grey,#9a9a9a)}
+.rs-cycle .amt{font-size:1.05rem;font-weight:700}
+.rs-cycle .sub{font-size:.78rem;color:var(--grey,#9a9a9a);line-height:1.6}
+.rs-summary{border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:.86rem;line-height:1.9}
+.rs-summary .r{display:flex;justify-content:space-between;gap:16px}
+.rs-blocked{font-size:.76rem;color:var(--grey,#9a9a9a);border-left:3px solid rgba(224,160,0,.6);padding:8px 12px;margin-top:12px;line-height:1.6}
+.rs-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem}
+</style>
 </head>
 <body>
 
@@ -81,6 +107,9 @@
       </a>
       <a class="nav-item" data-view="service-plans" href="#">
         <span class="icon">🗓️</span> Service Plans
+      </a>
+      <a class="nav-item" data-view="subscriptions" href="#">
+        <span class="icon">🔁</span> Subscriptions
       </a>
       <a class="nav-item" data-view="history" href="#">
         <span class="icon">🔧</span> Service History
@@ -385,6 +414,60 @@
       </div>
     </div>
 
+    <!-- RECURRING SUBSCRIPTIONS (V24.6) -->
+    <div class="view" id="view-subscriptions">
+      <div class="view-head">
+        <h2>Recurring Subscriptions</h2>
+        <p class="muted">Monthly service plans. One forklift, one agreement, one subscription.</p>
+      </div>
+      <div id="rs-health" class="rs-health"></div>
+      <div class="sp-bar">
+        <input id="rs-search" type="search" placeholder="Filter by company, unit or serial…" style="min-width:280px;padding:9px 10px;">
+        <select id="rs-status">
+          <option value="">All statuses</option>
+          <option value="live">Live only (active / past due / paused)</option>
+          <option value="active">Active</option>
+          <option value="past_due">Past due</option>
+          <option value="paused">Paused</option>
+          <option value="setup_pending">Setup pending</option>
+          <option value="method_verified">Method verified</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="completed">Completed</option>
+        </select>
+        <button class="btn-secondary" id="rs-refresh" type="button">Refresh</button>
+      </div>
+      <div id="rs-list"><div class="empty-state">Loading…</div></div>
+    </div>
+
+    <!-- SUBSCRIPTION DETAIL -->
+    <div class="sp-modal" id="rs-detail" hidden>
+      <div class="sp-modal-card sp-wide">
+        <div class="sp-row">
+          <h3 id="rs-detail-title">Subscription</h3>
+          <button class="btn-secondary" type="button" onclick="rsCloseDetail()">Close</button>
+        </div>
+        <div id="rs-detail-body"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- REFUND A BILLING CYCLE -->
+    <div class="sp-modal" id="rs-refund" hidden>
+      <div class="sp-modal-card">
+        <h3>Refund a monthly payment</h3>
+        <div id="rs-refund-summary" class="rs-summary"></div>
+        <label>Refund amount (USD)<input id="rs-refund-amount" type="number" min="0.01" step="0.01"></label>
+        <p class="sp-note" id="rs-refund-max"></p>
+        <label>Reason (required, stored on the ledger and emailed)
+          <textarea id="rs-refund-reason" rows="3" maxlength="500"
+            placeholder="e.g. Missed scheduled PM visit for March — goodwill credit"></textarea></label>
+        <p class="sp-note">The server recalculates the maximum refundable amount from the ledger before moving money.
+          Refunding a month does <b>not</b> cancel the subscription.</p>
+        <div class="sp-modal-actions">
+          <button class="btn-secondary" type="button" onclick="rsCloseRefund()">Cancel</button>
+          <button class="approve-btn" type="button" id="rs-refund-go">Process refund</button>
+        </div>
+      </div>
+    </div>
     <div class="view" id="view-settings">
       <div class="admin-header"><h1>Admin <em>Settings</em></h1></div>
       <div class="form-card" style="max-width:480px;">

@@ -894,6 +894,7 @@ function showView(v, el) {
     document.querySelectorAll(`[data-view="${v}"]`).forEach(n => n.classList.add('active'));
   }
   const actions = {
+    subscriptions: renderSubscriptions,
     'service-plans': renderServicePlans,
     quotes:    renderAllQuotes,
     invoices:  renderInvoices,
@@ -1712,7 +1713,7 @@ function spRender() {
           ${Number(sub.times_billed || 0)} of ${Number(sub.max_cycles || agreement.term_months)} payments recorded.
           <div class="sp-actions" style="margin-top:10px;">
             ${sub.status === 'method_verified' ? `<button class="approve-btn" type="button" onclick="spActivateSubscription('${sub.id}')">Activate billing</button>` : ''}
-            ${!['cancelled','completed','failed_setup'].includes(sub.status) ? `<button class="btn-secondary" type="button" onclick="spCancelSubscription('${sub.id}')">Cancel future billing</button>` : ''}
+            ${!['cancelled','completed','failed_setup'].includes(sub.status) ? `<button class="btn-secondary" type="button" onclick="showView('subscriptions')">Manage subscription</button>` : ''}
           </div>`
               : 'No subscription yet.'}
       </div>`;
@@ -1906,4 +1907,483 @@ function spWireModals() {
   document.getElementById('sp-offer-send')?.addEventListener('click', () => spSaveOffer(true));
   document.getElementById('sp-ach')?.addEventListener('input', spPricePreview);
   document.getElementById('sp-card')?.addEventListener('input', spPricePreview);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RECURRING SUBSCRIPTIONS — V24.6 (admin)
+
+   Company-centric presentation over the unchanged one-forklift-per-subscription
+   data model. Grouping happens here, in the view; the contract chain underneath
+   is untouched.
+
+   Every number shown comes from the server. Billing history is the existing
+   append-only payments ledger joined to the recurring invoices the reconciler
+   created — there is no second financial store in this file, and nothing here
+   computes money.
+
+   Four controls are deliberately absent: Pause, Resume, provider Cancel and
+   Change Term. They require a Helcim PATCH whose request schema is not yet
+   verified, and the server reports that in `capabilities`. Rendering a disabled
+   button with the reason is honest; rendering a working-looking one is not.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const RS = { subs: [], health: null, detail: null, refund: null };
+
+const rsUsd  = c => '$' + (Number(c ?? 0) / 100).toFixed(2);
+const rsDate = d => d ? new Date(String(d).length === 10 ? d + 'T12:00:00Z' : d)
+  .toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '—';
+const rsWhen = d => d ? new Date(d).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const rsNum  = v => (v === null || v === undefined || v === '') ? '—' : String(v);
+
+async function rsCall(action, payload) {
+  const { data: { session } } = await _sb.auth.getSession();
+  if (!session) { alert('Your session expired. Please sign in again.'); return null; }
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/service-plans-admin`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(body.detail || body.error || `Request failed (${r.status})`); return null; }
+  return body;
+}
+
+async function renderSubscriptions() {
+  const list = document.getElementById('rs-list');
+  list.innerHTML = '<div class="empty-state">Loading…</div>';
+  const res = await rsCall('list-subscriptions', {});
+  if (!res) { list.innerHTML = '<div class="empty-state">Could not load subscriptions.</div>'; return; }
+  RS.subs = res.subscriptions || [];
+  RS.health = res.sync_health || null;
+
+  const s = document.getElementById('rs-search');
+  const st = document.getElementById('rs-status');
+  if (s && !s.dataset.wired) {
+    s.dataset.wired = '1';
+    s.addEventListener('input', rsPaint);
+    st.addEventListener('change', rsPaint);
+    document.getElementById('rs-refresh').addEventListener('click', renderSubscriptions);
+    document.getElementById('rs-refund-go').addEventListener('click', rsDoRefund);
+  }
+  rsHealth();
+  rsPaint();
+}
+
+/* Reconciliation health. This is the screen that catches the failure mode where
+   the cron job 403s on a stale worker key: Helcim keeps billing, Apex silently
+   stops recording it, and nothing else on the site would show you. */
+function rsHealth() {
+  const el = document.getElementById('rs-health');
+  const h = RS.health;
+  if (!h) {
+    el.className = 'rs-health warn';
+    el.innerHTML = '<b>Recurring sync: UNKNOWN</b><br>No health record yet. Run migration 0009 and let the reconciler run once.';
+    return;
+  }
+  const last = h.last_success_at ? new Date(h.last_success_at) : null;
+  const ageMin = last ? Math.floor((Date.now() - last.getTime()) / 60000) : null;
+  const stale = ageMin === null || ageMin > 90;
+  const forbidden = h.last_forbidden_at &&
+    (!last || new Date(h.last_forbidden_at) > last);
+
+  let cls = 'ok', msg = `<b>Recurring sync: Healthy</b><br>Last successful run ${rsWhen(h.last_success_at)}`
+    + ` (${ageMin} min ago) via ${esc(h.last_run_source || 'cron')}.`;
+
+  if (forbidden) {
+    cls = 'bad';
+    msg = `<b>Recurring sync: BLOCKED — worker key rejected</b><br>`
+      + `A caller was refused at ${rsWhen(h.last_forbidden_at)}. `
+      + `RECURRING_CRON_SETUP.sql still contains the <span class="rs-mono">&lt;RECONCILE_WORKER_KEY&gt;</span> placeholder, `
+      + `or the key was rotated without updating the scheduled job.<br>`
+      + `<b>Helcim is still billing customers. Apex has stopped recording it.</b>`;
+  } else if (stale) {
+    cls = 'bad';
+    msg = `<b>Recurring sync: WARNING</b><br>`
+      + (last ? `No successful run since ${rsWhen(h.last_success_at)} (${ageMin} min ago).`
+              : 'No successful run has ever been recorded.')
+      + ` Expected every 15 minutes.`
+      + (h.last_error ? `<br>Last error: ${esc(h.last_error)}` : '');
+  } else if (Number(h.consecutive_failures) > 0) {
+    cls = 'warn';
+    msg = `<b>Recurring sync: degraded</b><br>${h.consecutive_failures} consecutive failure(s) since the last success at ${rsWhen(h.last_success_at)}.`
+      + (h.last_error ? `<br>${esc(h.last_error)}` : '');
+  } else if (Number(h.ambiguous_transactions) > 0 || Number(h.provider_errors) > 0) {
+    cls = 'warn';
+    msg += `<br>Last run left ${h.ambiguous_transactions} ambiguous transaction(s) and hit ${h.provider_errors} provider error(s) — these were not guessed.`;
+  }
+  el.className = 'rs-health ' + cls;
+  el.innerHTML = msg;
+}
+
+function rsPaint() {
+  const list = document.getElementById('rs-list');
+  const q = (document.getElementById('rs-search')?.value || '').toLowerCase().trim();
+  const want = document.getElementById('rs-status')?.value || '';
+  const LIVE = ['active', 'past_due', 'paused', 'cancel_requested', 'setup_pending', 'method_verified'];
+
+  let rows = RS.subs.filter(s => {
+    if (want === 'live' && !LIVE.includes(s.status)) return false;
+    if (want && want !== 'live' && s.status !== want) return false;
+    if (!q) return true;
+    const hay = [s.customer?.company, s.customer?.name, s.equipment?.unit_number,
+                 s.equipment?.serial_number, s.equipment?.make, s.equipment?.model,
+                 s.provider_subscription_id].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+
+  if (!rows.length) { list.innerHTML = '<div class="empty-state">No subscriptions match.</div>'; return; }
+
+  // Group by company. The model stays one-per-forklift; only the view groups.
+  const byCo = new Map();
+  for (const s of rows) {
+    const key = s.customer?.company || s.customer?.name || 'Unknown customer';
+    if (!byCo.has(key)) byCo.set(key, []);
+    byCo.get(key).push(s);
+  }
+
+  let html = '';
+  for (const [company, subs] of [...byCo.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const liveTotal = subs
+      .filter(s => ['active', 'past_due'].includes(s.status))
+      .reduce((n, s) => n + Number(s.recurring_total_cents || 0), 0);
+
+    html += `<div class="rs-co">
+      <h3>${esc(company)}</h3>
+      <div class="rs-coemail">${esc(subs[0].customer?.email || '')}
+        · ${subs.length} subscription${subs.length === 1 ? '' : 's'}
+        ${liveTotal ? `· <b>${rsUsd(liveTotal)}/month</b> billing now` : ''}</div>`;
+
+    for (const s of subs) {
+      const eq = s.equipment || {};
+      const label = [eq.year, eq.make, eq.model].filter(Boolean).join(' ') || 'Forklift';
+      const lp = s.last_payment;
+      html += `<div class="rs-sub">
+        <div class="sp-row">
+          <div>
+            <b>${esc(eq.unit_number || label)}</b>
+            <span class="rs-pill ${esc(s.status)}" style="margin-left:8px;">${esc(s.status.replace(/_/g, ' '))}</span>
+            ${s.has_failed_payments ? '<span class="rs-pill past_due" style="margin-left:6px;">failed payment</span>' : ''}
+            <div class="sp-meta">${esc(label)}${eq.serial_number ? ` · serial ${esc(eq.serial_number)}` : ''}</div>
+          </div>
+          <button class="approve-btn" type="button" onclick="rsOpenDetail('${s.id}')">Manage</button>
+        </div>
+        <div class="rs-grid">
+          <div class="rs-f"><div class="k">Monthly</div><div class="v">${rsUsd(s.recurring_total_cents)}</div></div>
+          <div class="rs-f"><div class="k">Rail</div><div class="v">${s.payment_method === 'ach' ? 'Bank (ACH)' : 'Card'}</div></div>
+          <div class="rs-f"><div class="k">Term</div><div class="v">${rsNum(s.term_months)} mo</div></div>
+          <div class="rs-f"><div class="k">Billed</div><div class="v">${rsNum(s.times_billed)}</div></div>
+          <div class="rs-f"><div class="k">Remaining</div><div class="v">${rsNum(s.remaining_cycles)}</div></div>
+          <div class="rs-f"><div class="k">Activated</div><div class="v">${rsDate(s.activated_at || s.activation_date)}</div></div>
+          <div class="rs-f"><div class="k">Next billing</div><div class="v">${rsDate(s.next_billing_date)}</div></div>
+          <div class="rs-f"><div class="k">Last payment</div><div class="v">${lp ? esc(lp.status) : '—'}</div></div>
+          <div class="rs-f"><div class="k">Last sync</div><div class="v">${rsWhen(s.last_synced_at)}</div></div>
+          <div class="rs-f"><div class="k">Helcim ID</div><div class="v rs-mono">${rsNum(s.provider_subscription_id)}</div></div>
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  list.innerHTML = html;
+}
+
+/* ── Detail + billing history ──────────────────────────────────────────── */
+async function rsOpenDetail(id) {
+  document.getElementById('rs-detail').hidden = false;
+  document.getElementById('rs-detail-body').innerHTML = '<div class="empty-state">Loading…</div>';
+  const res = await rsCall('subscription-detail', { subscription_id: id });
+  if (!res) { rsCloseDetail(); return; }
+  RS.detail = res;
+  rsPaintDetail();
+}
+function rsCloseDetail() { document.getElementById('rs-detail').hidden = true; RS.detail = null; }
+
+function rsPaintDetail() {
+  const d = RS.detail, s = d.subscription, eq = d.equipment || {}, a = d.agreement || {};
+  const cap = d.capabilities || {};
+  const label = [eq.year, eq.make, eq.model].filter(Boolean).join(' ') || 'Forklift';
+  document.getElementById('rs-detail-title').textContent =
+    `${d.customer?.company || d.customer?.name || 'Customer'} — ${eq.unit_number || label}`;
+
+  const facts = [
+    ['Status', s.status.replace(/_/g, ' ')],
+    ['Monthly total', rsUsd(s.recurring_total_cents)],
+    ['Breakdown', `${rsUsd(s.recurring_subtotal_cents)} + ${rsUsd(s.recurring_tax_cents)} tax`],
+    ['Rail', s.payment_method === 'ach' ? 'Bank transfer (ACH)' : 'Card'],
+    ['Method', s.payment_method_display || '—'],
+    ['Agreed term', `${rsNum(s.term_months)} months`],
+    ['Max cycles', rsNum(s.max_cycles)],
+    ['Times billed', rsNum(s.times_billed)],
+    ['Remaining cycles', rsNum(s.remaining_cycles)],
+    ['Activation date', rsDate(s.activation_date)],
+    ['Activated at', rsWhen(s.activated_at)],
+    ['Next billing', rsDate(s.next_billing_date)],
+    ['Helcim subscription', rsNum(s.provider_subscription_id)],
+    ['Helcim customer', s.provider_customer_code || '—'],
+    ['Helcim plan', rsNum(s.provider_payment_plan_id)],
+    ['Provider verified', rsWhen(s.provider_verified_at)],
+    ['Last synced', rsWhen(s.last_synced_at)],
+    ['Signed by', a.signer_name ? `${a.signer_name}${a.signer_title ? ', ' + a.signer_title : ''}` : '—'],
+    ['Signed at', rsWhen(a.signed_at)],
+    ['Serial', eq.serial_number || '—'],
+    ['Service location', eq.service_location || '—'],
+  ];
+
+  let html = `<div class="rs-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">
+    ${facts.map(([k, v]) => `<div class="rs-f"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join('')}
+  </div>
+
+  <div class="sp-modal-actions" style="justify-content:flex-start;margin-top:16px;">
+    <button class="btn-secondary" type="button" onclick="rsSync('${s.id}')"
+      ${cap.sync ? '' : 'disabled title="Not created at Helcim yet."'}>Sync with Helcim</button>
+    ${rsBtn('Pause', cap.pause, cap.reasons?.pause, `rsPause('${s.id}')`)}
+    ${rsBtn('Resume', cap.resume, cap.reasons?.resume, `rsResume('${s.id}')`)}
+    ${rsBtn('Change term', cap.change_term, cap.reasons?.change_term, `rsChangeTerm('${s.id}')`)}
+    ${rsBtn('Cancel future billing', cap.cancel_provider, cap.reasons?.cancel_provider, `rsCancel('${s.id}')`)}
+  </div>
+  ${s.status === 'cancelled' ? `<div class="rs-blocked">This subscription is cancelled. Future billing has stopped.
+    Past months were <b>not</b> refunded by the cancellation — refund individual cycles below if that is intended.
+    Sync and refunds remain available on the history.</div>` : ''}
+  ${s.term_change_count ? `<div class="rs-blocked">Term changed ${esc(s.term_change_count)} time(s).
+    Signed term ${esc(cap.signed_term_months)} months; current total ${esc(s.max_cycles)} cycles${
+      s.previous_max_cycles ? ` (was ${esc(s.previous_max_cycles)})` : ''}.
+    ${s.term_change_reason ? `Last reason: ${esc(s.term_change_reason)}` : ''}</div>` : ''}
+
+  <h4 style="margin:22px 0 0;">Billing history</h4>
+  <p class="sp-meta">One row per Helcim billing cycle, read from the Apex payments ledger.</p>`;
+
+  if (!d.cycles.length) {
+    html += `<div class="empty-state">No billing cycles recorded yet.${
+      s.provider_subscription_id ? ' Press Sync to pull them from Helcim.' : ''}</div>`;
+  } else {
+    for (const c of d.cycles) {
+      const p = c.payment;
+      const state = !p ? 'no payment row'
+        : p.status === 'succeeded' && c.refunded_cents > 0
+          ? (c.net_retained_cents === 0 ? 'FULLY REFUNDED' : 'PARTIALLY REFUNDED')
+        : p.status.toUpperCase();
+      html += `<div class="rs-cycle">
+        <div class="num">Cycle<br><b style="font-size:1.1rem;color:#fff;">${rsNum(c.cycle)}</b></div>
+        <div>
+          <div class="amt">${rsUsd(c.amount_cents)} <span style="font-size:.8rem;font-weight:400;">${esc(state)}</span></div>
+          <div class="sub">
+            ${rsDate(c.billing_period_start)} – ${rsDate(c.billing_period_end)} · invoice ${esc(c.invoice_id)} (${esc(c.invoice_status)})
+            ${p?.provider_transaction_id ? `<br>Helcim transaction <span class="rs-mono">${esc(p.provider_transaction_id)}</span>` : ''}
+            ${c.refunded_cents > 0 ? `<br>Original ${rsUsd(c.original_cents)} · refunded ${rsUsd(c.refunded_cents)} · <b>net retained ${rsUsd(c.net_retained_cents)}</b>` : ''}
+            ${p?.retry_attempt_count ? `<br>${p.retry_attempt_count} retry attempt(s), last ${rsWhen(p.retry_attempted_at)}` : ''}
+          </div>
+        </div>
+        <div class="sp-actions">
+          ${c.refundable ? `<button class="btn-secondary" type="button"
+              onclick="rsOpenRefund('${p.id}','${c.invoice_id}',${c.refundable_cents},${c.original_cents},${c.refunded_cents},${c.cycle ?? 'null'})">Refund</button>` : ''}
+          ${c.retry_eligible ? `<button class="approve-btn" type="button"
+              onclick="rsRetry('${s.id}',${c.cycle})">Retry payment</button>` : ''}
+        </div>
+      </div>`;
+    }
+  }
+
+  if (d.events?.length) {
+    html += `<h4 style="margin:22px 0 6px;">Recent activity</h4>
+      <div class="sp-meta" style="line-height:1.9;">
+      ${d.events.slice(0, 12).map(e =>
+        `${rsWhen(e.created_at)} — <b>${esc(e.event.replace(/_/g, ' '))}</b> (${esc(e.source)})`).join('<br>')}</div>`;
+  }
+  document.getElementById('rs-detail-body').innerHTML = html;
+}
+
+/* ── Sync — reuses subscription-reconcile, the single reconciliation impl ── */
+async function rsSync(id) {
+  const { data: { session } } = await _sb.auth.getSession();
+  if (!session) { alert('Your session expired.'); return; }
+  const btnHost = document.getElementById('rs-detail-body');
+  btnHost.insertAdjacentHTML('afterbegin', '<div class="empty-state" id="rs-syncing">Syncing with Helcim…</div>');
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/subscription-reconcile`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscription_id: id }),
+  });
+  const out = await r.json().catch(() => ({}));
+  document.getElementById('rs-syncing')?.remove();
+  if (!r.ok) { alert(out.detail || out.error || 'Sync failed.'); return; }
+  const bits = [`${out.payments_created || 0} new payment(s)`, `${out.invoices_created || 0} new invoice(s)`];
+  if (out.ambiguous) bits.push(`${out.ambiguous} ambiguous transaction(s) left unresolved — not guessed`);
+  if (out.provider_errors) bits.push(`${out.provider_errors} provider error(s)`);
+  alert('Sync complete. ' + bits.join(', ') + '.');
+  await rsOpenDetail(id);
+  await renderSubscriptions();
+}
+
+/* ── Retry a declined cycle ────────────────────────────────────────────── */
+async function rsRetry(subId, cycle) {
+  if (!confirm(
+    `Retry the declined payment for cycle ${cycle}?\n\n`
+    + `This asks Helcim to charge the customer's stored payment method again.\n\n`
+    + `Helcim also retries failed payments automatically. If the underlying problem `
+    + `(expired card, insufficient funds) has not been fixed, this will decline again.\n\n`
+    + `Confirm the cause has been corrected before continuing.`)) return;
+  const out = await rsCall('retry-payment', { subscription_id: subId, payment_number: cycle });
+  if (!out) return;
+  alert(out.detail || 'Retry submitted.');
+  await rsOpenDetail(subId);
+  await renderSubscriptions();
+}
+
+/* ── Refund a specific cycle, through the existing payment-refund backend ── */
+function rsOpenRefund(paymentId, invoiceId, maxCents, originalCents, refundedCents, cycle) {
+  RS.refund = { paymentId, invoiceId, maxCents, cycle };
+  document.getElementById('rs-refund-summary').innerHTML = `
+    <div class="r"><span>Cycle</span><b>${rsNum(cycle)}</b></div>
+    <div class="r"><span>Invoice</span><b class="rs-mono">${esc(invoiceId)}</b></div>
+    <div class="r"><span>Original payment</span><b>${rsUsd(originalCents)}</b></div>
+    <div class="r"><span>Already refunded</span><b>${rsUsd(refundedCents)}</b></div>
+    <div class="r"><span>Remaining refundable</span><b>${rsUsd(maxCents)}</b></div>`;
+  document.getElementById('rs-refund-amount').value = (maxCents / 100).toFixed(2);
+  document.getElementById('rs-refund-amount').max = (maxCents / 100).toFixed(2);
+  document.getElementById('rs-refund-max').textContent =
+    `Maximum ${rsUsd(maxCents)}. Enter a smaller amount for a partial refund. `
+    + `The server recalculates this limit from the ledger and will refuse anything above it.`;
+  document.getElementById('rs-refund-reason').value = '';
+  document.getElementById('rs-refund').hidden = false;
+}
+function rsCloseRefund() { document.getElementById('rs-refund').hidden = true; RS.refund = null; }
+
+async function rsDoRefund() {
+  const r = RS.refund; if (!r) return;
+  const reason = document.getElementById('rs-refund-reason').value.trim();
+  const dollars = Number(document.getElementById('rs-refund-amount').value);
+  if (!reason) { alert('A reason is required. It is stored on the ledger and emailed to the customer.'); return; }
+  if (!Number.isFinite(dollars) || dollars <= 0) { alert('Enter a refund amount.'); return; }
+  const cents = Math.round(dollars * 100);
+  if (cents > r.maxCents && !confirm(
+    `${rsUsd(cents)} is more than the ${rsUsd(r.maxCents)} this browser believes is refundable.\n\n`
+    + `The server will refuse it if that is wrong. Send anyway?`)) return;
+
+  const partial = cents < r.maxCents;
+  if (!confirm(`${partial ? 'PARTIAL refund' : 'Full refund'} of ${rsUsd(cents)} for cycle ${r.cycle}.\n\n`
+    + `This does NOT cancel the subscription — future months will still bill.\n\nProceed?`)) return;
+
+  const btn = document.getElementById('rs-refund-go');
+  btn.disabled = true; btn.textContent = 'Processing…';
+
+  const { data: { session } } = await _sb.auth.getSession();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/payment-refund`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payment_id: r.paymentId, amount_cents: cents, reason }),
+  });
+  const out = await res.json().catch(() => ({}));
+  btn.disabled = false; btn.textContent = 'Process refund';
+
+  if (!res.ok) {
+    alert(`Refund failed: ${out.message || out.detail || out.error || 'provider error'}`);
+    return;
+  }
+  rsCloseRefund();
+  alert(`Refund recorded. The original payment row is preserved; a linked correction was appended to the ledger.`);
+  if (RS.detail?.subscription?.id) await rsOpenDetail(RS.detail.subscription.id);
+  await renderSubscriptions();
+}
+
+
+/* ── Provider subscription actions (V24.7) ──────────────────────────────────
+   Every one of these is a thin caller. Eligibility, the provider read-back and
+   the contract rules all live on the server; this file only collects a reason
+   and shows what came back. It never decides whether an action is allowed. */
+
+function rsBtn(label, enabled, reason, onclick) {
+  return enabled
+    ? `<button class="btn-secondary" type="button" onclick="${onclick}">${label}</button>`
+    : `<button class="btn-secondary" type="button" disabled title="${esc(reason || 'Not available in this state.')}">${label}</button>`;
+}
+
+async function rsProviderAction(action, payload, confirmText, busyLabel) {
+  if (confirmText && !confirm(confirmText)) return null;
+  const host = document.getElementById('rs-detail-body');
+  host.insertAdjacentHTML('afterbegin', `<div class="empty-state" id="rs-busy">${esc(busyLabel)}</div>`);
+  const out = await rsCall(action, payload);
+  document.getElementById('rs-busy')?.remove();
+  return out;
+}
+
+async function rsPause(id) {
+  const reason = prompt('Why are you pausing this plan?\n\nStored on the subscription, audited, and emailed to the customer.');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required.'); return; }
+  const out = await rsProviderAction('pause-subscription', { subscription_id: id, reason: reason.trim() },
+    'Pause billing for this subscription?\n\nHelcim will stop charging until you resume. Remaining months are preserved.',
+    'Pausing at Helcim…');
+  if (!out) return;
+  alert('Paused. Helcim confirmed the change before Apex was updated.');
+  await rsOpenDetail(id); await renderSubscriptions();
+}
+
+async function rsResume(id) {
+  const out = await rsProviderAction('resume-subscription', { subscription_id: id },
+    'Resume billing for this subscription?\n\nHelcim will start charging again on the next billing date.',
+    'Resuming at Helcim…');
+  if (!out) return;
+  alert('Resumed. Helcim confirmed the change before Apex was updated.');
+  await rsOpenDetail(id); await renderSubscriptions();
+}
+
+async function rsCancel(id) {
+  const reason = prompt('Why are you cancelling this plan?\n\nRequired. Stored on the subscription, audited, and emailed to the customer.');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required.'); return; }
+  const out = await rsProviderAction('cancel-subscription', { subscription_id: id, reason: reason.trim() },
+    'Cancel this subscription?\n\n'
+    + '• Future billing STOPS at Helcim.\n'
+    + '• Months already paid are NOT refunded — refund those separately if intended.\n'
+    + '• A cancelled subscription CANNOT be resumed. A new plan needs a new signed agreement.\n\n'
+    + 'Continue?',
+    'Cancelling at Helcim…');
+  if (!out) return;
+  alert(out.detail || 'Cancelled. Future billing has stopped. No refunds were issued.');
+  await rsOpenDetail(id); await renderSubscriptions();
+}
+
+async function rsChangeTerm(id) {
+  const cap = RS.detail?.capabilities || {};
+  const s = RS.detail?.subscription || {};
+  const billed = Number(cap.times_billed || 0);
+  const current = Number(cap.max_cycles || s.term_months || 0);
+  const signed = Number(cap.signed_term_months || 0);
+
+  const raw = prompt(
+    `Change the TOTAL number of monthly payments.\n\n`
+    + `This is the total over the life of the plan, NOT the number remaining.\n\n`
+    + `Already billed: ${billed}\n`
+    + `Current total:  ${current}\n`
+    + `Signed term:    ${signed}\n\n`
+    + `Enter the new TOTAL (minimum ${billed}):`, String(current));
+  if (raw === null) return;
+  const next = Number(raw);
+  if (!Number.isInteger(next) || next < 1) { alert('Enter a whole number of cycles.'); return; }
+  if (next < billed) {
+    alert(`Helcim has already billed ${billed} time(s). The total cannot go below ${billed}.`);
+    return;
+  }
+
+  let amendment = false;
+  if (next > signed) {
+    alert(
+      `The signed agreement authorizes ${signed} monthly payments.\n\n`
+      + `Extending to ${next} increases what this customer owes. That needs a revised agreement they sign — `
+      + `it cannot be done by editing the subscription.\n\n`
+      + `Issue a new offer instead.`);
+    return;
+  }
+
+  const reason = prompt('Why is the term changing?\n\nRequired. Audited against the signed agreement.');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A reason is required.'); return; }
+
+  const out = await rsProviderAction('change-term',
+    { subscription_id: id, max_cycles: next, reason: reason.trim(), amendment_confirmed: amendment },
+    `Change the total from ${current} to ${next} monthly payments?\n\n`
+    + `${billed} already billed, so ${Math.max(0, next - billed)} would remain.`,
+    'Updating the term at Helcim…');
+  if (!out) return;
+  alert(`Term updated. Total ${out.max_cycles} cycles, ${out.times_billed} billed, ${out.remaining} remaining.`);
+  await rsOpenDetail(id); await renderSubscriptions();
 }
