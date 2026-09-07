@@ -1565,19 +1565,44 @@ async function spCall(action, payload) {
 
 async function renderServicePlans() {
   const sel = document.getElementById('sp-customer');
-  if (sel && sel.options.length <= 1) {
-    const { data } = await _sb.from('customers')
-      .select('id, name, company, email, tax_rate_milli_pct, tax_exempt')
-      .order('company', { ascending: true });
-    for (const c of data || []) {
-      const o = document.createElement('option');
-      o.value = c.id;
-      o.textContent = c.company ? `${c.company} — ${c.name}` : c.name;
-      sel.appendChild(o);
+  if (sel) {
+    // Use the same customer loader that powers the existing Customers/Quotes UI.
+    // The previous direct supabase-js query could fail silently and leave this
+    // dropdown empty even while the customer existed elsewhere in the admin portal.
+    const previous = SP.customerId || sel.value || '';
+    const customers = await DB.getAllCustomers();
+    const list = Array.isArray(customers) ? customers : [];
+
+    sel.innerHTML = list.length
+      ? '<option value="">— Select a customer —</option>'
+      : '<option value="">— No customers found —</option>';
+
+    list
+      .slice()
+      .sort((a, b) => String(a.company || a.name || '').localeCompare(String(b.company || b.name || '')))
+      .forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.company ? `${c.company} — ${c.name || c.email || ''}` : (c.name || c.email || 'Customer');
+        sel.appendChild(o);
+      });
+
+    if (previous && list.some(c => String(c.id) === String(previous))) {
+      sel.value = previous;
+      SP.customerId = previous;
+    } else if (previous) {
+      SP.customerId = null;
     }
-    sel.addEventListener('change', () => spLoadCustomer(sel.value));
-    document.getElementById('sp-refresh')?.addEventListener('click', () => spLoadCustomer(SP.customerId));
-    spWireModals();
+
+    // Assign handlers rather than stacking duplicate listeners on every render.
+    sel.onchange = () => spLoadCustomer(sel.value);
+    const refresh = document.getElementById('sp-refresh');
+    if (refresh) refresh.onclick = () => renderServicePlans();
+
+    if (!sel.dataset.spWired) {
+      spWireModals();
+      sel.dataset.spWired = '1';
+    }
   }
   if (SP.customerId) await spLoadCustomer(SP.customerId);
 }
