@@ -26,8 +26,9 @@
 //    config change never silently alters a price already shown to a customer.
 // =============================================================================
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { helcimCall } from "../_shared/helcim-api.ts";
 
-const FN_VERSION = "2026-09-07.v24.2";
+const FN_VERSION = "2026-09-07.v24.5";
 const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL") ?? "admin@apexliftsolutionsusa.com";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -304,6 +305,80 @@ Deno.serve(async (req) => {
         if (error) return j({ error: friendly(error.message) }, 400);
         if (data?.length) await log(db, user.id, "service_plan_offers_expired", `${data.length} offer(s)`);
         return j({ ok: true, expired: data?.length ?? 0, fn_version: FN_VERSION });
+      }
+
+      // ADMIN-ONLY emergency/operational cancellation. There is deliberately
+      // no customer cancellation endpoint. A signed agreement remains immutable;
+      // this stops future processor billing when Apex decides it is necessary.
+      case "cancel-subscription": {
+        const subscription_id = str(body.subscription_id);
+        const reason = str(body.reason);
+        if (!subscription_id) return j({ error: "subscription_id required" }, 400);
+        if (!reason) return j({ error: "reason_required" }, 400);
+        if (reason.length > 500) return j({ error: "reason_too_long" }, 400);
+
+        const { data: sub, error: subErr } = await db.from("service_subscriptions")
+          .select("*").eq("id", subscription_id).maybeSingle();
+        if (subErr) return j({ error: "subscription_read_failed" }, 500);
+        if (!sub) return j({ error: "subscription_not_found" }, 404);
+        if (["cancelled","completed"].includes(String(sub.status))) {
+          return j({ ok: true, status: sub.status, already_stopped: true, fn_version: FN_VERSION });
+        }
+
+        const now = new Date().toISOString();
+
+        // If no Helcim subscription was ever created, this is a local setup stop.
+        // setup_pending/method_verified -> cancelled is an allowed terminal transition.
+        if (!sub.provider_subscription_id) {
+          await db.from("service_subscriptions").update({
+            status: "cancelled", cancel_requested_at: now, cancel_requested_by: user.id,
+            cancel_reason: reason, cancelled_at: now, cancelled_by: user.id,
+            provider_cancel_confirmed: true, updated_at: now,
+          }).eq("id", sub.id);
+          await db.from("service_plan_events").insert({
+            event: "subscription_cancelled", source: "admin", customer_id: sub.customer_id,
+            equipment_id: sub.equipment_id, offer_id: sub.offer_id, agreement_id: sub.agreement_id,
+            subscription_id: sub.id, detail: { reason, by: user.id, provider_called: false, fn_version: FN_VERSION },
+          });
+          return j({ ok: true, status: "cancelled", provider_called: false, fn_version: FN_VERSION });
+        }
+
+        // Provider-bound subscriptions use the explicit in-flight state so a
+        // network failure never falsely claims future billing was stopped.
+        await db.from("service_subscriptions").update({
+          status: "cancel_requested", cancel_requested_at: now, cancel_requested_by: user.id,
+          cancel_reason: reason, updated_at: now,
+        }).eq("id", sub.id);
+        await db.from("service_plan_events").insert({
+          event: "subscription_cancel_requested", source: "admin", customer_id: sub.customer_id,
+          equipment_id: sub.equipment_id, offer_id: sub.offer_id, agreement_id: sub.agreement_id,
+          subscription_id: sub.id, detail: { reason, by: user.id, fn_version: FN_VERSION },
+        });
+
+        const token = Deno.env.get("HELCIM_ADMIN_API_TOKEN") ?? "";
+        if (!token) return j({ error: "helcim_not_configured", status: "cancel_requested" }, 500);
+        const del = await helcimCall(`subscriptions/${sub.provider_subscription_id}`, token, { method: "DELETE" });
+        if (!del.ok && del.category !== "not_found") {
+          await db.from("service_plan_events").insert({
+            event: "subscription_cancel_provider_error", source: "admin", customer_id: sub.customer_id,
+            equipment_id: sub.equipment_id, offer_id: sub.offer_id, agreement_id: sub.agreement_id,
+            subscription_id: sub.id, detail: { category: del.category, provider_http: del.httpStatus, fn_version: FN_VERSION },
+          });
+          return j({ error: "provider_cancel_failed", category: del.category, provider_http: del.httpStatus, status: "cancel_requested" }, 502);
+        }
+
+        const { data: stopped, error: stopErr } = await db.from("service_subscriptions").update({
+          status: "cancelled", cancelled_at: now, cancelled_by: user.id,
+          provider_cancel_confirmed: true, last_synced_at: now, updated_at: now,
+        }).eq("id", sub.id).select().single();
+        if (stopErr) return j({ error: "cancel_persist_failed", provider_cancelled: true }, 500);
+        await db.from("service_plan_events").insert({
+          event: "subscription_cancelled", source: "admin", customer_id: sub.customer_id,
+          equipment_id: sub.equipment_id, offer_id: sub.offer_id, agreement_id: sub.agreement_id,
+          subscription_id: sub.id, detail: { reason, by: user.id, provider_http: del.httpStatus, fn_version: FN_VERSION },
+        });
+        await log(db, user.id, "service_plan_subscription_cancelled", `${sub.id}: ${reason}`);
+        return j({ ok: true, subscription: stopped, status: "cancelled", fn_version: FN_VERSION });
       }
 
       default:

@@ -85,6 +85,15 @@ Deno.serve(async (req) => {
     refund_of: orig.id,
     notes: reasonText,
     recorded_by: user.id,
+    // Preserve the workflow axis. Recurring corrections stay attached to the
+    // service subscription, but intentionally carry no cycle identity; refund_of
+    // is the authoritative link to the original recurring charge.
+    payment_source: orig.payment_source ?? "one_time",
+    subscription_id: orig.payment_source === "recurring" ? orig.subscription_id : null,
+    billing_period_start: null,
+    billing_period_end: null,
+    provider_subscription_payment_id: null,
+    provider_payment_number: null,
   }).select().single();
   if (insErr || !correction) return j({ error: "ledger_error", detail: insErr?.message ?? null }, 500, cors);
 

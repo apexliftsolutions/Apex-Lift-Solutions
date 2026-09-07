@@ -536,6 +536,12 @@ function invoiceActionHtml(i, workSummary, correction = null) {
         <div class="pay-void">This invoice was cancelled by Apex. No payment is due.</div>${docs}`;
 
     case 'unpaid': {
+      // Recurring invoices are never payable through the one-time Fee Saver
+      // checkout. The signed service-plan authorization controls collection.
+      if (i.invoice_source === 'recurring') {
+        return `${workSummary}${taxRows(i)}
+          <div class="pay-locked">This monthly service-plan payment is handled automatically by the payment method on your plan. If it failed, Apex will contact you or retry it through the recurring billing system.</div>${docs}`;
+      }
       const reversed = correction?.kind === 'reversal' && correction?.status === 'succeeded';
       if (reversed) {
         // The provider reversal is authoritative and recalc_invoice_status has
@@ -848,7 +854,9 @@ async function lookupInv() {
     const reversed = row.status === 'unpaid' && correction?.kind === 'reversal' && correction.status === 'succeeded';
     if (reversed) unlockReversedInvoice(row.id);
 
-    const action = row.status === 'unpaid'
+    const action = row.invoice_source === 'recurring'
+      ? `<span style="color:#f0a500;font-weight:700;font-family:var(--font-head);font-size:.82rem;">Automatic service-plan billing</span>`
+      : row.status === 'unpaid'
       ? ((LOCKED_INVOICES.has(row.id) && !reversed)
           ? `<span style="color:#f0a500;font-weight:700;font-family:var(--font-head);font-size:.82rem;">⏳ Payment being confirmed</span>`
           : `<button class="approve-btn" style="margin-top:8px;" onclick="openPay('${xss(row.id)}',${parseFloat(row.amount)})">Pay Securely</button>`)
@@ -1482,7 +1490,7 @@ function cpAgreementCard(a) {
   } else if (st === 'active' || st === 'past_due') {
     setup = `<div class="cp-meta cp-sec"><b>${st === 'active' ? 'Active service plan' : 'Payment issue — plan is past due'}</b><br>
       ${esc(sub.payment_method_display || '')}${sub.next_billing_date ? ` · Next billing ${cpDate(sub.next_billing_date)}` : ''}<br>
-      ${esc(sub.times_billed || 0)} of ${esc(sub.max_cycles || a.term_months)} successful payments completed.</div>`;
+      ${esc(sub.times_billed || 0)} of ${esc(sub.max_cycles || a.term_months)} billing cycles processed.</div>`;
   } else if (st === 'completed') {
     setup = `<div class="cp-meta cp-sec"><b>Completed.</b> All scheduled payments for this fixed-term agreement are complete.</div>`;
   } else {

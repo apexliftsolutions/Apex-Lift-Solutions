@@ -4,7 +4,7 @@
 // reconciled before any new POST is permitted.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { helcimCall, subscriptionIdempotencyKey } from "../_shared/helcim-api.ts";
-const FN_VERSION="2026-09-07.v24.3";
+const FN_VERSION="2026-09-07.v24.5";
 const SB_URL=Deno.env.get("SUPABASE_URL")!,SB_SERVICE=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,SB_ANON=Deno.env.get("SUPABASE_ANON_KEY")!;
 const ORIGIN=Deno.env.get("PUBLIC_SITE_URL")??Deno.env.get("APP_BASE_URL")??"https://apexliftsolutionsusa.com";
 const cors={"Access-Control-Allow-Origin":ORIGIN,"Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"POST, OPTIONS"};
@@ -16,13 +16,22 @@ Deno.serve(async(req)=>{
   const auth=req.headers.get("Authorization");if(!auth)return j({error:"unauthorized"},401);
   const uc=createClient(SB_URL,SB_ANON,{global:{headers:{Authorization:auth}}});const {data:{user}}=await uc.auth.getUser();if(!user)return j({error:"unauthorized"},401);
   const db=createClient(SB_URL,SB_SERVICE);const body=await req.json().catch(()=>({}));const sid=String(body.subscription_id??"");if(!sid)return j({error:"subscription_id_required"},400);
-  const {data:cust}=await db.from("customers").select("status,helcim_customer_code").eq("id",user.id).maybeSingle();if(!cust||cust.status!=="active")return j({error:"account_not_active"},403);
-  let {data:s}=await db.from("service_subscriptions").select("*").eq("id",sid).eq("customer_id",user.id).maybeSingle();if(!s)return j({error:"not_found"},404);
+  const adminEmail=(Deno.env.get("ADMIN_EMAIL")??"admin@apexliftsolutionsusa.com").toLowerCase();
+  const isAdmin=String(user.email??"").toLowerCase()===adminEmail;
+  let q=db.from("service_subscriptions").select("*").eq("id",sid);
+  if(!isAdmin)q=q.eq("customer_id",user.id);
+  let {data:s}=await q.maybeSingle();if(!s)return j({error:"not_found"},404);
+  const {data:cust}=await db.from("customers").select("status,helcim_customer_code").eq("id",s.customer_id).maybeSingle();if(!cust||cust.status!=="active")return j({error:"account_not_active"},403);
   if(s.provider_subscription_id)return j({ok:true,status:s.status,already_active:true,provider_subscription_id:s.provider_subscription_id,fn_version:FN_VERSION});
   if(s.status!=="method_verified")return j({error:"payment_method_not_verified",status:s.status},409);
   const gate=await cfg(db,"recurring_billing_enabled","false");if(gate!=="true")return j({error:"recurring_billing_disabled"},409);
   const mode=await cfg(db,"service_plan_contract_mode","test");
-  if(mode==="test" && s.activation_date<=new Date().toISOString().slice(0,10))return j({error:"test_activation_date_must_be_future"},409);
+  const today=new Date().toISOString().slice(0,10);
+  if(mode==="test" && s.activation_date<=today)return j({error:"test_activation_date_must_be_future"},409);
+  // Never create a production subscription with a historical activation date:
+  // provider catch-up behavior can create an unintended immediate charge. A
+  // signed plan should be activated on/before its start date, or re-offered.
+  if(mode!=="test" && s.activation_date<today)return j({error:"activation_date_in_past"},409);
   if(!s.payment_method_verified_at)return j({error:"payment_method_not_verified"},409);
   const code=String(s.provider_customer_code??cust.helcim_customer_code??"");if(!code)return j({error:"helcim_customer_missing"},409);
   const token=Deno.env.get("HELCIM_ADMIN_API_TOKEN")??"";if(!token)return j({error:"helcim_not_configured"},500);

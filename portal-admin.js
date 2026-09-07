@@ -1707,7 +1707,13 @@ function spRender() {
         ${spEsc(agreement.term_months)} cycles from ${spDate(agreement.activation_date)}.
         Signed by ${spEsc(agreement.signer_name)} on ${spDate(agreement.signed_at)}.
         ${agreement.pdf_path ? 'PDF stored.' : 'PDF pending.'}<br>
-        ${sub ? `Subscription status: <b>${spEsc(sub.status)}</b>. Payment method not yet collected.`
+        ${sub ? `Subscription status: <b>${spEsc(sub.status)}</b>. ${sub.payment_method_display ? spEsc(sub.payment_method_display) : 'Payment method not yet collected.'}
+          ${sub.next_billing_date ? ` Next billing ${spDate(sub.next_billing_date)}.` : ''}
+          ${Number(sub.times_billed || 0)} of ${Number(sub.max_cycles || agreement.term_months)} payments recorded.
+          <div class="sp-actions" style="margin-top:10px;">
+            ${sub.status === 'method_verified' ? `<button class="approve-btn" type="button" onclick="spActivateSubscription('${sub.id}')">Activate billing</button>` : ''}
+            ${!['cancelled','completed','failed_setup'].includes(sub.status) ? `<button class="btn-secondary" type="button" onclick="spCancelSubscription('${sub.id}')">Cancel future billing</button>` : ''}
+          </div>`
               : 'No subscription yet.'}
       </div>`;
     }
@@ -1847,6 +1853,34 @@ async function spCancelOffer(id) {
   const reason = prompt('Cancel this offer? Optional reason:');
   if (reason === null) return;
   if (await spCall('cancel-offer', { offer_id: id, reason })) await spLoadCustomer(SP.customerId);
+}
+
+
+async function spActivateSubscription(id) {
+  if (!confirm('Activate this verified service plan with Helcim recurring billing? The signed activation date and amount will be used.')) return;
+  const { data: { session } } = await _sb.auth.getSession();
+  if (!session) { alert('Your session expired. Please sign in again.'); return; }
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/subscription-activate`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscription_id: id }),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(out.detail || out.error || `Activation failed (${r.status})`); return; }
+  alert(out.already_active ? 'Billing is already active.' : 'Recurring billing activated.');
+  await spLoadCustomer(SP.customerId);
+}
+
+async function spCancelSubscription(id) {
+  const reason = prompt('Reason for cancelling future recurring billing (required):', 'Admin cancellation');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('A cancellation reason is required.'); return; }
+  if (!confirm('This will stop FUTURE Helcim subscription charges. Existing charges are not automatically refunded. Continue?')) return;
+  const out = await spCall('cancel-subscription', { subscription_id: id, reason: reason.trim() });
+  if (out) {
+    alert(out.status === 'cancelled' ? 'Future recurring billing cancelled.' : `Cancellation status: ${out.status || 'submitted'}`);
+    await spLoadCustomer(SP.customerId);
+  }
 }
 
 function spWireModals() {

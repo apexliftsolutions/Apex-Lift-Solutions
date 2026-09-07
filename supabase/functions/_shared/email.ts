@@ -122,16 +122,20 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
       html: shell(`Quote ${esc(p.quote_id)} declined${co}`, `<p><b>${name}</b>${co} declined quote <b>${esc(p.quote_id)}</b> (${usd(p.amount)}). No action required.</p>`),
       text: `${p.customer_name}${co} declined quote ${p.quote_id} (${usd(p.amount)}). No action required.` };
 
-    case "invoice_created": return {
-      subject: `Apex Lift Solutions — Invoice ${p.invoice_id}`,
-      html: shell(`Invoice ${esc(p.invoice_id)}`,
-        `<p>Hi ${name},</p><p>Your invoice is ready.${p.quote_id ? ` This covers the work from quote <b>${esc(p.quote_id)}</b>.` : ""}</p>
-         ${p.description ? `<p>${esc(p.description)}</p>` : ""}${itemsHtml(p.items)}
-         ${totalsHtml(p)}
-         <p style="font-size:15px;"><b>Amount due: ${usd(p.amount)}</b>${p.due ? `<br><span style="font-size:14px;color:#666;">Due ${date(p.due)}</span>` : ""}</p>
-         <p>Pay securely online by card or bank transfer (ACH) from your portal.</p>`,
-        { label: "View & Pay Invoice", href: portal() }),
-      text: `Hi ${p.customer_name || "there"},\n\nInvoice ${p.invoice_id} is ready.${p.quote_id ? ` Covers quote ${p.quote_id}.` : ""}\n${p.description ?? ""}${itemsText(p.items)}${totalsText(p)}\nAmount due: ${usd(p.amount)}${p.due ? `\nDue ${date(p.due)}` : ""}\n\nPay securely: ${portal()}${textFoot}` };
+    case "invoice_created": {
+      const recurring = p.invoice_source === "recurring" || String(p.description ?? "").startsWith("Monthly Service Plan");
+      return {
+        subject: `Apex Lift Solutions — Invoice ${p.invoice_id}`,
+        html: shell(`Invoice ${esc(p.invoice_id)}`,
+          `<p>Hi ${name},</p><p>Your invoice is ready.${p.quote_id ? ` This covers the work from quote <b>${esc(p.quote_id)}</b>.` : ""}</p>
+           ${p.description ? `<p>${esc(p.description)}</p>` : ""}${itemsHtml(p.items)}
+           ${totalsHtml(p)}
+           <p style="font-size:15px;"><b>${recurring ? "Scheduled amount" : "Amount due"}: ${usd(p.amount)}</b>${p.due ? `<br><span style="font-size:14px;color:#666;">Due ${date(p.due)}</span>` : ""}</p>
+           <p>${recurring ? "This is a recurring service-plan invoice. It is handled automatically using the payment method authorized on your signed plan; do not pay it again through the one-time checkout." : "Pay securely online by card or bank transfer (ACH) from your portal."}</p>`,
+          { label: recurring ? "View Service Plan Invoice" : "View & Pay Invoice", href: portal() }),
+        text: `Hi ${p.customer_name || "there"},\n\nInvoice ${p.invoice_id} is ready.${p.quote_id ? ` Covers quote ${p.quote_id}.` : ""}\n${p.description ?? ""}${itemsText(p.items)}${totalsText(p)}\n${recurring ? "Scheduled amount" : "Amount due"}: ${usd(p.amount)}${p.due ? `\nDue ${date(p.due)}` : ""}\n\n${recurring ? "This service-plan invoice is handled automatically using your authorized recurring payment method. Do not pay it again through one-time checkout." : `Pay securely: ${portal()}`}${textFoot}`
+      };
+    }
 
     case "payment_received": return {
       subject: `Payment Received — Apex Invoice ${p.invoice_id}`,
@@ -193,12 +197,16 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
          <p style="font-size:13px;color:#666;margin-top:14px;">The invoice stays at Payment Pending until the bank clears it. You'll get a second email when it settles.</p>`),
       text: `${p.customer_name}${co} submitted ACH ${usd(p.amount)} for invoice ${p.invoice_id}. Pending settlement.` };
 
-    case "payment_declined": return {
-      subject: `Payment Not Completed — Invoice ${p.invoice_id}`,
-      html: shell(`Payment not completed`,
-        `<p>Hi ${name},</p><p>A payment attempt for invoice <b>${esc(p.invoice_id)}</b> (${usd(p.amount)}) didn't go through. Your invoice is still open — you can try again from your portal, or call us at ${PHONE} if you'd like to pay another way.</p>`,
-        { label: "Try Again", href: portal() }),
-      text: `Hi ${p.customer_name || "there"},\n\nA payment attempt for invoice ${p.invoice_id} (${usd(p.amount)}) didn't go through. The invoice is still open. Try again: ${portal()}${textFoot}` };
+    case "payment_declined": {
+      const recurring = p.payment_source === "recurring";
+      return {
+        subject: `Payment Not Completed — Invoice ${p.invoice_id}`,
+        html: shell(`Payment not completed`,
+          `<p>Hi ${name},</p><p>A payment attempt for invoice <b>${esc(p.invoice_id)}</b> (${usd(p.amount)}) didn't go through. ${recurring ? `This invoice belongs to your recurring service plan. Please contact Apex at ${PHONE}; do not submit a separate one-time payment for the same billing period.` : `Your invoice is still open — you can try again from your portal, or call us at ${PHONE} if you'd like to pay another way.`}</p>`,
+          { label: recurring ? "View Service Plan" : "Try Again", href: portal() }),
+        text: `Hi ${p.customer_name || "there"},\n\nA payment attempt for invoice ${p.invoice_id} (${usd(p.amount)}) didn't go through. ${recurring ? `This is a recurring service-plan payment. Contact Apex at ${PHONE}; do not submit a separate one-time payment for this billing period.` : `The invoice is still open. Try again: ${portal()}`}${textFoot}`
+      };
+    }
 
     case "payment_refunded": return {
       subject: `Refund Issued — Invoice ${p.invoice_id}`,
