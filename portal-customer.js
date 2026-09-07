@@ -584,6 +584,16 @@ function invoiceActionHtml(i, workSummary, correction = null) {
 let PAY_LISTENER = null;   // exactly one message listener per checkout
 
 function openPay(id, amount) {
+  // A recurring service-plan invoice is billed by Helcim under a signed
+  // recurring authorization. Paying it here would be a second charge for the
+  // same billing period. payment-checkout v24 refuses it server-side; this
+  // stops the customer being offered a button that cannot work.
+  const _inv = INVOICE_CACHE[id];
+  if (_inv && _inv.invoice_source === 'recurring') {
+    alert('This is a monthly service plan invoice. It is charged automatically to the payment method on your plan and cannot be paid here.');
+    return;
+  }
+
   if (LOCKED_INVOICES.has(id)) return;   // already approved this session
   PAY_ID = id;
   PAY_INVOICE = INVOICE_CACHE[id] || null;
@@ -1186,14 +1196,15 @@ function showBanner(msg, type) {
 function showView(v, el) {
   document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
-  document.getElementById('view-' + v).classList.add('active');
+  document.getElementById('view-' + v)?.classList.add('active');
   if (el) el.classList.add('active');
   if (v === 'quotes')   loadQuotes();
   if (v === 'invoices') loadInvoices();
   if (v === 'history')  loadHistory();
   if (v === 'payments') loadPayments();
   if (v === 'account')  loadAccount();
-  const titles = { quotes: 'My Quotes', invoices: 'My Invoices', pay: 'Pay Invoice', history: 'Service History', request: 'Request Service', account: 'My Account' };
+  if (v === 'service-plans') loadServicePlans();
+  const titles = { quotes: 'My Quotes', invoices: 'My Invoices', pay: 'Pay Invoice', history: 'Service History', request: 'Request Service', account: 'My Account', 'service-plans': 'Service Plans', agreement: 'Agreement' };
   const titleEl = document.getElementById('mobile-page-title');
   if (titleEl && titles[v]) titleEl.textContent = titles[v];
   closeMobileSidebar();
@@ -1324,3 +1335,325 @@ async function changePassword() {
 }
 
 // ── PRINT RECEIPT ─────────────────────────────
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SERVICE PLANS — Phase C (customer)
+
+   Reads go direct through PostgREST under RLS: a customer sees only their own
+   rows, and never a draft offer.
+
+   Writes do not. The browser has no INSERT/UPDATE on these tables. Declining,
+   previewing and signing all go through the service-plans-customer Edge
+   Function, and the contract itself is authored server-side from database rows
+   — this file never computes, sends or stores a price.
+
+   Nothing here collects card or bank details. Phase C ends at the signature.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const CP = { offers: [], equipment: {}, agreements: [], subs: [], current: null, rail: null, preview: null };
+
+const cpUsd = c => '$' + (Number(c ?? 0) / 100).toFixed(2);
+const cpDate = d => d ? new Date(String(d).length === 10 ? d + 'T12:00:00Z' : d)
+  .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '—';
+
+async function cpCall(action, payload) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { alert('Your session expired. Please sign in again.'); return null; }
+  const r = await fetch(`${SB_URL}/functions/v1/service-plans-customer`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(cpError(body)); return null; }
+  return body;
+}
+
+function cpError(b) {
+  const map = {
+    offer_no_longer_open: 'This offer is no longer open. Please refresh.',
+    offer_expired: 'This offer has expired. Contact us and we will send a new one.',
+    price_changed_reload: 'The plan details changed. Please reload and review again.',
+    all_consents_required: 'Please check all four boxes before signing.',
+    already_signed: 'This plan has already been signed.',
+    pdf_not_ready: 'Your agreement PDF is still being prepared. Try again in a moment.',
+    not_found: 'We could not find that plan.',
+  };
+  return map[b?.error] || b?.detail || b?.error || 'Something went wrong. Please try again.';
+}
+
+async function loadServicePlans() {
+  const wrap = document.getElementById('cp-body');
+  wrap.innerHTML = '<div class="empty-state">Loading…</div>';
+
+  const [offers, equip, agrees, subs] = await Promise.all([
+    sb.from('service_plan_offers').select('*').order('created_at', { ascending: false }),
+    sb.from('customer_equipment').select('*'),
+    sb.from('service_plan_agreements').select('*').order('signed_at', { ascending: false }),
+    sb.from('service_subscriptions').select('*'),
+  ]);
+
+  CP.offers = offers.data || [];
+  CP.agreements = agrees.data || [];
+  CP.subs = subs.data || [];
+  CP.equipment = {};
+  for (const e of equip.data || []) CP.equipment[e.id] = e;
+
+  const open = CP.offers.filter(o => o.status === 'sent');
+  if (!open.length && !CP.agreements.length) {
+    wrap.innerHTML = `<div class="empty-state">You don't have any service plans yet.<br>
+      <span style="font-size:.85rem;color:var(--grey);">Ask us about monthly maintenance for your forklifts — (516) 644-7187.</span></div>`;
+    return;
+  }
+
+  let html = '';
+  for (const o of open) html += cpOfferCard(o);
+  for (const a of CP.agreements) html += cpAgreementCard(a);
+  wrap.innerHTML = html;
+}
+
+function cpUnitLine(equipmentId) {
+  const e = CP.equipment[equipmentId] || {};
+  const label = [e.year, e.make, e.model].filter(Boolean).join(' ') || 'Forklift';
+  return {
+    title: e.unit_number ? `${e.unit_number} — ${label}` : label,
+    meta: [
+      e.serial_number ? `Serial ${esc(e.serial_number)}` : null,
+      e.service_location ? esc(e.service_location) : null,
+    ].filter(Boolean).join(' · '),
+  };
+}
+
+function cpOfferCard(o) {
+  const u = cpUnitLine(o.equipment_id);
+  const inc = (o.included_services || []).map(x => `<li>${esc(x)}</li>`).join('');
+  const exc = (o.exclusions || []).map(x => `<li>${esc(x)}</li>`).join('');
+  const saving = Number(o.card_monthly_total_cents) - Number(o.ach_monthly_total_cents);
+
+  return `<div class="cp-card">
+    <span class="cp-pill sent">Awaiting your decision</span>
+    <h3 style="margin-top:8px;">${esc(o.plan_name)}</h3>
+    <div class="cp-meta">${esc(u.title)}${u.meta ? `<br>${u.meta}` : ''}</div>
+    ${o.description ? `<p style="margin:10px 0 0;font-size:.92rem;">${esc(o.description)}</p>` : ''}
+
+    <div class="cp-rails">
+      <div class="cp-rail">
+        <div class="lbl">Bank transfer (ACH)</div>
+        <div class="big">${cpUsd(o.ach_monthly_total_cents)}<span style="font-size:.8rem;font-weight:400;">/month</span></div>
+        <div class="sub">Service ${cpUsd(o.ach_monthly_subtotal_cents)}${o.tax_exempt ? ' · tax exempt' : ` · tax ${cpUsd(o.ach_monthly_tax_cents)}`}</div>
+        ${saving > 0 ? `<div class="save">Saves ${cpUsd(saving)} a month vs card</div>` : ''}
+      </div>
+      <div class="cp-rail">
+        <div class="lbl">Card</div>
+        <div class="big">${cpUsd(o.card_monthly_total_cents)}<span style="font-size:.8rem;font-weight:400;">/month</span></div>
+        <div class="sub">Service ${cpUsd(o.card_monthly_subtotal_cents)}${o.tax_exempt ? ' · tax exempt' : ` · tax ${cpUsd(o.card_monthly_tax_cents)}`}</div>
+      </div>
+    </div>
+
+    <div class="cp-lists">
+      ${inc ? `<div><b>Included</b><ul>${inc}</ul></div>` : '<div></div>'}
+      ${exc ? `<div><b>Not included</b><ul>${exc}</ul></div>` : '<div></div>'}
+    </div>
+
+    <div class="cp-meta cp-sec">
+      <b>${esc(o.term_months)} monthly payments</b> starting ${cpDate(o.activation_date)}. No automatic renewal.
+      ${o.expires_at ? `<br>This offer expires ${cpDate(o.expires_at)}.` : ''}
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+      <button class="approve-btn" type="button" onclick="cpReview('${o.id}')">Review agreement</button>
+      <button class="btn-secondary" type="button" onclick="cpDecline('${o.id}')">Not right now</button>
+    </div>
+  </div>`;
+}
+
+function cpAgreementCard(a) {
+  const u = cpUnitLine(a.equipment_id);
+  const sub = CP.subs.find(s => s.agreement_id === a.id);
+  return `<div class="cp-card">
+    <span class="cp-pill signed">${a.status === 'signed' ? 'Signed' : esc(a.status)}</span>
+    <h3 style="margin-top:8px;">${esc(u.title)}</h3>
+    <div class="cp-meta">
+      ${cpUsd(a.monthly_total_cents)} a month by ${a.selected_payment_method === 'ach' ? 'bank transfer' : 'card'}<br>
+      ${esc(a.term_months)} monthly payments starting ${cpDate(a.activation_date)}<br>
+      Signed by ${esc(a.signer_name)}${a.signer_title ? `, ${esc(a.signer_title)}` : ''} on ${cpDate(a.signed_at)}
+    </div>
+    <div class="cp-meta cp-sec">
+      ${sub && sub.status !== 'active'
+        ? 'Your payment method has not been set up yet. Nothing has been charged. We will be in touch with the next step.'
+        : 'Nothing has been charged yet.'}
+    </div>
+    <div style="margin-top:14px;">
+      <button class="btn-secondary" type="button" onclick="cpOpenPdf('${a.id}')"
+        ${a.pdf_path ? '' : 'disabled title="Your PDF is still being prepared"'}>View signed agreement (PDF)</button>
+    </div>
+  </div>`;
+}
+
+async function cpDecline(offerId) {
+  const reason = prompt('Let us know why, if you like. (Optional)');
+  if (reason === null) return;
+  if (await cpCall('decline-offer', { offer_id: offerId, reason })) await loadServicePlans();
+}
+
+async function cpOpenPdf(agreementId) {
+  const res = await cpCall('agreement-url', { agreement_id: agreementId });
+  if (res?.url) window.open(res.url, '_blank', 'noopener');
+}
+
+/* ── Review + sign ─────────────────────────────────────────────────────── */
+async function cpReview(offerId) {
+  CP.current = CP.offers.find(o => o.id === offerId) || null;
+  if (!CP.current) return;
+  CP.rail = null;
+  CP.preview = null;
+  showView('agreement');
+  cpRenderChooser();
+}
+
+function cpRenderChooser() {
+  const o = CP.current;
+  const u = cpUnitLine(o.equipment_id);
+  const saving = Number(o.card_monthly_total_cents) - Number(o.ach_monthly_total_cents);
+  document.getElementById('cp-agr-title').textContent = 'Choose how you would like to pay';
+  document.getElementById('cp-agr-body').innerHTML = `
+    <div class="cp-card">
+      <h3>${esc(o.plan_name)}</h3>
+      <div class="cp-meta">${esc(u.title)}${u.meta ? `<br>${u.meta}` : ''}</div>
+      <div class="cp-rails">
+        <button class="cp-rail" type="button" id="cp-rail-ach" onclick="cpPick('ach')">
+          <div class="lbl">Bank transfer (ACH)</div>
+          <div class="big">${cpUsd(o.ach_monthly_total_cents)}<span style="font-size:.8rem;font-weight:400;">/month</span></div>
+          <div class="sub">Service ${cpUsd(o.ach_monthly_subtotal_cents)}${o.tax_exempt ? ' · tax exempt' : ` · tax ${cpUsd(o.ach_monthly_tax_cents)}`}</div>
+          ${saving > 0 ? `<div class="save">Saves ${cpUsd(saving)} a month</div>` : ''}
+        </button>
+        <button class="cp-rail" type="button" id="cp-rail-card" onclick="cpPick('card')">
+          <div class="lbl">Card</div>
+          <div class="big">${cpUsd(o.card_monthly_total_cents)}<span style="font-size:.8rem;font-weight:400;">/month</span></div>
+          <div class="sub">Service ${cpUsd(o.card_monthly_subtotal_cents)}${o.tax_exempt ? ' · tax exempt' : ` · tax ${cpUsd(o.card_monthly_tax_cents)}`}</div>
+        </button>
+      </div>
+      <p class="cp-meta">Card processing costs more, so card is priced higher. You are not entering any
+      payment details on this page — we will set that up separately, after you sign.</p>
+    </div>`;
+}
+
+async function cpPick(rail) {
+  CP.rail = rail;
+  document.getElementById('cp-rail-ach')?.classList.toggle('sel', rail === 'ach');
+  document.getElementById('cp-rail-card')?.classList.toggle('sel', rail === 'card');
+
+  const body = document.getElementById('cp-agr-body');
+  body.insertAdjacentHTML('beforeend', '<div class="empty-state" id="cp-loading">Preparing your agreement…</div>');
+
+  // The contract is authored on the server from database rows. The browser
+  // sends only the offer id and the chosen rail.
+  const res = await cpCall('preview-agreement', { offer_id: CP.current.id, payment_method: rail });
+  document.getElementById('cp-loading')?.remove();
+  if (!res) return;
+  CP.preview = res;
+  cpRenderAgreement();
+}
+
+function cpRenderAgreement() {
+  const a = CP.preview;
+  const auth = a.authorized;
+  document.getElementById('cp-agr-title').textContent = 'Review and sign';
+
+  const sections = (a.sections || []).map(s => `
+    <div class="cp-sec"><h4>${esc(s.heading)}</h4><p>${esc(s.body)}</p>
+    ${s.legal_review ? '<div class="cp-legal">This section is subject to legal review.</div>' : ''}</div>`).join('');
+
+  document.getElementById('cp-agr-body').innerHTML = `
+    ${a.legal_review_required ? `<div class="cp-draft"><b>Draft agreement.</b> The amounts and equipment below come
+      from our records and are accurate. The contract wording has not yet been reviewed by an attorney.</div>` : ''}
+
+    <div class="cp-card">
+      <h3>You are authorizing ${cpUsd(auth.monthly_total_cents)} a month</h3>
+      <div class="cp-meta">
+        ${auth.selected_payment_method === 'ach' ? 'Bank transfer (ACH)' : 'Card'} ·
+        ${esc(auth.term_months)} monthly payments · first payment ${cpDate(auth.activation_date)}<br>
+        Service ${cpUsd(auth.monthly_subtotal_cents)}${auth.tax_exempt ? ' · tax exempt' : ` · sales tax ${cpUsd(auth.monthly_tax_cents)}`}<br>
+        Total across the whole term: <b>${cpUsd(auth.total_over_term_cents)}</b>
+      </div>
+      <p class="cp-meta" style="margin-top:10px;">
+        <button class="btn-secondary" type="button" onclick="cpRenderChooser()">Change payment method</button>
+      </p>
+    </div>
+
+    <div class="cp-card">${sections}</div>
+
+    <div class="cp-card">
+      <h3>Sign</h3>
+      <label class="cp-consent"><input type="checkbox" id="cp-c1">
+        I have reviewed the services included and not included.</label>
+      <label class="cp-consent"><input type="checkbox" id="cp-c2">
+        I authorize Apex Lift Solutions to charge <b>${cpUsd(auth.monthly_total_cents)}</b> per month for
+        ${esc(auth.term_months)} months, starting ${cpDate(auth.activation_date)}.</label>
+      <label class="cp-consent"><input type="checkbox" id="cp-c3">
+        I agree to sign electronically and that my typed name is my signature.</label>
+      <label class="cp-consent"><input type="checkbox" id="cp-c4">
+        I understand the ${esc(auth.term_months)}-payment term and how to cancel.</label>
+
+      <div class="cp-sign">
+        <label>Your full name<input id="cp-signer" maxlength="120" autocomplete="name"></label>
+        <label>Your title (optional)<input id="cp-title" maxlength="120" placeholder="Operations Manager"></label>
+        <label>Type your name to sign<input id="cp-signature" class="cp-sig" maxlength="120" autocomplete="off"></label>
+      </div>
+
+      <p class="cp-meta" style="margin-top:14px;">Signing does not charge you. No payment details are collected on this page.</p>
+      <button class="approve-btn" type="button" id="cp-sign-btn" style="margin-top:10px;">Sign agreement</button>
+    </div>`;
+
+  document.getElementById('cp-signer').addEventListener('input', e => {
+    const sig = document.getElementById('cp-signature');
+    if (!sig.dataset.touched) sig.value = e.target.value;
+  });
+  document.getElementById('cp-signature').addEventListener('input', e => { e.target.dataset.touched = '1'; });
+  document.getElementById('cp-sign-btn').addEventListener('click', cpSign);
+}
+
+async function cpSign() {
+  const btn = document.getElementById('cp-sign-btn');
+  const consents = ['cp-c1', 'cp-c2', 'cp-c3', 'cp-c4'].map(id => document.getElementById(id).checked);
+  if (consents.some(c => !c)) { alert('Please check all four boxes before signing.'); return; }
+
+  const signer = document.getElementById('cp-signer').value.trim();
+  const signature = document.getElementById('cp-signature').value.trim();
+  if (!signer) { alert('Please enter your full name.'); return; }
+  if (!signature) { alert('Please type your name to sign.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing…';
+
+  const res = await cpCall('sign', {
+    offer_id: CP.current.id,
+    payment_method: CP.rail,
+    signer_name: signer,
+    signer_title: document.getElementById('cp-title').value.trim(),
+    signature_typed: signature,
+    consent_service_scope: consents[0],
+    consent_recurring_auth: consents[1],
+    consent_electronic_sig: consents[2],
+    consent_term_cancel: consents[3],
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'Sign agreement';
+  if (!res) return;
+
+  document.getElementById('cp-agr-title').textContent = 'Agreement signed';
+  document.getElementById('cp-agr-body').innerHTML = `
+    <div class="cp-card">
+      <h3>Thank you — your agreement is signed.</h3>
+      <p class="cp-meta">We have emailed you a copy. Nothing has been charged, and no payment details
+      have been collected yet. We will be in touch with the next step before your first billing date.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+        ${res.pdf_ready
+          ? `<button class="approve-btn" type="button" onclick="cpOpenPdf('${res.agreement_id}')">View signed agreement (PDF)</button>`
+          : '<span class="cp-meta">Your PDF is being prepared and will appear in Service Plans shortly.</span>'}
+        <button class="btn-secondary" type="button" onclick="showView('service-plans')">Back to Service Plans</button>
+      </div>
+    </div>`;
+  await loadServicePlans();
+}

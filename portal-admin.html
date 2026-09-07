@@ -8,6 +8,35 @@
   <link rel="stylesheet" href="portal-admin.css" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ── Service Plans (Phase B) — all selectors sp-* scoped ── */
+.sp-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 18px}
+.sp-bar select{min-width:260px;padding:9px 10px}
+.sp-body{display:flex;flex-direction:column;gap:18px}
+.sp-card{border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:16px}
+.sp-card h4{margin:0 0 4px;font-size:1rem}
+.sp-row{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.sp-meta{font-size:.82rem;color:var(--grey,#9a9a9a);line-height:1.7}
+.sp-pill{display:inline-block;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid currentColor}
+.sp-pill.draft{color:#9a9a9a}.sp-pill.sent{color:#e0a000}.sp-pill.accepted{color:#2fbf5f}
+.sp-pill.declined,.sp-pill.cancelled,.sp-pill.expired{color:#ff5c5c}
+.sp-actions{display:flex;gap:8px;flex-wrap:wrap}
+.sp-modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:flex-start;justify-content:center;padding:28px 14px;overflow:auto;z-index:60}
+.sp-modal[hidden]{display:none}
+.sp-modal-card{background:#141416;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:22px;width:100%;max-width:520px}
+.sp-modal-card.sp-wide{max-width:760px}
+.sp-modal-card label{display:block;font-size:.82rem;margin:10px 0 0;color:var(--grey,#9a9a9a)}
+.sp-modal-card input,.sp-modal-card textarea,.sp-modal-card select{width:100%;margin-top:4px;padding:9px 10px}
+.sp-grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+@media(max-width:620px){.sp-grid2{grid-template-columns:1fr}}
+.sp-modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+.sp-note{font-size:.78rem;color:var(--grey,#9a9a9a);margin:10px 0 0;line-height:1.6}
+.sp-preview{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+@media(max-width:620px){.sp-preview{grid-template-columns:1fr}}
+.sp-quote{border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:12px 14px}
+.sp-quote .big{font-size:1.5rem;font-weight:800}
+.sp-quote .lbl{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--grey,#9a9a9a)}
+</style>
 </head>
 <body>
 
@@ -49,6 +78,9 @@
       <a class="nav-item" data-view="requests" href="#">
         <span class="icon">📩</span> Requests
         <span id="req-badge" class="new-badge" style="display:none"></span>
+      </a>
+      <a class="nav-item" data-view="service-plans" href="#">
+        <span class="icon">🗓️</span> Service Plans
       </a>
       <a class="nav-item" data-view="history" href="#">
         <span class="icon">🔧</span> Service History
@@ -276,6 +308,83 @@
     </div>
 
     <!-- SETTINGS -->
+    <!-- SERVICE PLANS (Phase B) -->
+    <div class="view" id="view-service-plans">
+      <div class="view-head">
+        <h2>Service Plans</h2>
+        <p class="muted">Monthly maintenance plans. One forklift, one offer, one agreement.</p>
+      </div>
+
+      <div class="sp-bar">
+        <label for="sp-customer">Customer</label>
+        <select id="sp-customer"><option value="">Select a customer…</option></select>
+        <button class="btn-secondary" id="sp-refresh" type="button">Refresh</button>
+      </div>
+
+      <div id="sp-body" class="sp-body">
+        <div class="empty-state">Select a customer to see their equipment and service plans.</div>
+      </div>
+
+      <!-- Equipment editor -->
+      <div class="sp-modal" id="sp-equip-modal" hidden>
+        <div class="sp-modal-card">
+          <h3 id="sp-equip-title">Add forklift</h3>
+          <input type="hidden" id="sp-equip-id">
+          <div class="sp-grid2">
+            <label>Unit number<input id="sp-eq-unit" maxlength="40" placeholder="FL-07"></label>
+            <label>Year<input id="sp-eq-year" maxlength="8" placeholder="2019"></label>
+            <label>Make<input id="sp-eq-make" maxlength="60" placeholder="Toyota"></label>
+            <label>Model<input id="sp-eq-model" maxlength="60" placeholder="8FGCU25"></label>
+          </div>
+          <label>Serial number<input id="sp-eq-serial" maxlength="80" placeholder="Optional at offer time"></label>
+          <label>Service location<input id="sp-eq-loc" maxlength="160" placeholder="Bay 3 — Hicksville NY"></label>
+          <label>Notes<textarea id="sp-eq-notes" rows="2"></textarea></label>
+          <p class="sp-note" id="sp-equip-lock" hidden>This unit is named in a signed agreement. Serial, make, model and year are frozen.</p>
+          <div class="sp-modal-actions">
+            <button class="btn-secondary" type="button" onclick="spCloseEquip()">Cancel</button>
+            <button class="approve-btn" type="button" id="sp-equip-save">Save forklift</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Offer builder -->
+      <div class="sp-modal" id="sp-offer-modal" hidden>
+        <div class="sp-modal-card sp-wide">
+          <h3 id="sp-offer-title">New service plan offer</h3>
+          <input type="hidden" id="sp-offer-id">
+          <input type="hidden" id="sp-offer-equip">
+          <p class="sp-note" id="sp-offer-unit"></p>
+
+          <label>Plan name<input id="sp-plan-name" maxlength="120" value="Monthly Planned Maintenance — Standard"></label>
+          <label>Description<textarea id="sp-plan-desc" rows="2" placeholder="One line the customer will read first."></textarea></label>
+
+          <div class="sp-grid2">
+            <label>Included services (one per line)<textarea id="sp-included" rows="5" placeholder="250-hour PM service&#10;Fluid + filter replacement&#10;Safety inspection"></textarea></label>
+            <label>Exclusions (one per line)<textarea id="sp-excluded" rows="5" placeholder="Tires&#10;Forks&#10;Battery replacement&#10;Damage from misuse"></textarea></label>
+          </div>
+
+          <div class="sp-grid2">
+            <label>ACH monthly price (before tax)<input id="sp-ach" type="number" min="0" step="0.01" placeholder="180.00"></label>
+            <label>Card monthly price (before tax)<input id="sp-card" type="number" min="0" step="0.01" placeholder="189.00"></label>
+          </div>
+          <p class="sp-note">Fee Saver is not available on recurring billing, so each rail is priced explicitly. Sales tax is calculated by Apex from this customer's tax settings — you do not enter it.</p>
+          <div id="sp-price-preview" class="sp-preview"></div>
+
+          <div class="sp-grid2">
+            <label>Term (months)<input id="sp-term" type="number" min="1" max="120" value="6"></label>
+            <label>Activation date<input id="sp-activation" type="date"></label>
+          </div>
+          <label>Offer expires in (days)<input id="sp-expiry" type="number" min="1" max="365" value="30"></label>
+
+          <div class="sp-modal-actions">
+            <button class="btn-secondary" type="button" onclick="spCloseOffer()">Cancel</button>
+            <button class="btn-secondary" type="button" id="sp-offer-save">Save draft</button>
+            <button class="approve-btn" type="button" id="sp-offer-send">Save &amp; send offer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="view" id="view-settings">
       <div class="admin-header"><h1>Admin <em>Settings</em></h1></div>
       <div class="form-card" style="max-width:480px;">

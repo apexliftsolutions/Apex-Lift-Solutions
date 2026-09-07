@@ -20,6 +20,8 @@ export async function sendViaResend(to: string, subject: string, html: string, t
 // ── Formatting helpers ────────────────────────────────────────────────────────
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]!));
 const usd = (n: unknown) => "$" + Number(n ?? 0).toFixed(2);
+// Service-plan money is stored as integer cents, unlike quotes/invoices.
+const usdc = (c: unknown) => "$" + (Number(c ?? 0) / 100).toFixed(2);
 const date = (d: unknown) => d ? new Date(String(d)).toLocaleDateString("en-US", { year:"numeric", month:"long", day:"numeric" }) : "—";
 const methodLabel = (m: unknown) => ({ card:"Card", ach:"Bank transfer (ACH)", check:"Check", cash:"Cash", bank_transfer:"Bank transfer", terminal:"Card (in person)", other:"Other" }[String(m)] ?? "Payment");
 
@@ -249,6 +251,128 @@ export function render(eventType: string, p: Record<string, unknown>): { subject
       subject: `Job Application — ${p.name}`,
       html: shell(`Job application`, `<table role="presentation" style="font-size:14px;line-height:1.9;">${Object.entries(p).filter(([k]) => k !== "about").map(([k,v]) => `<tr><td style="color:#666;padding-right:18px;">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table><p style="background:#f7f7f7;padding:12px 14px;white-space:pre-wrap;">${esc(p.about)}</p>`),
       text: Object.entries(p).map(([k,v]) => `${k}: ${v}`).join("\n") };
+
+    // ── SERVICE PLANS ────────────────────────────────────────────────────────
+    // Note what these do NOT contain: any link to a signed agreement PDF.
+    // Agreements are private and reachable only through a short-lived signed
+    // URL minted for the authenticated owner. Email says "sign in".
+    case "service_plan_offer_sent": {
+      const unit = [p.unit_number, p.equipment].filter(Boolean).map(esc).join(" — ");
+      const inc = Array.isArray(p.included_services) ? p.included_services as string[] : [];
+      const exc = Array.isArray(p.exclusions) ? p.exclusions as string[] : [];
+      const taxLbl = p.tax_exempt ? "Sales tax (exempt)" : `Sales tax (${Number(p.tax_rate ?? 0).toFixed(3)}%)`;
+      const railRow = (label: string, sub: unknown, tax: unknown, tot: unknown, best: boolean) => `
+        <td style="width:50%;padding:14px 16px;border:${best ? "2px solid #cc0000" : "1px solid #e5e5e5"};vertical-align:top;">
+          <div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#666;">${esc(label)}</div>
+          <div style="font-size:26px;font-weight:800;margin:6px 0 2px;">${usdc(tot)}<span style="font-size:13px;font-weight:400;color:#666;">/month</span></div>
+          <div style="font-size:12px;color:#666;line-height:1.8;">Service ${usdc(sub)}<br>${esc(taxLbl)} ${usdc(tax)}</div>
+        </td>`;
+      return {
+        subject: `Monthly Service Plan for ${p.unit_number || p.equipment || "your forklift"} — Apex Lift Solutions`,
+        html: shell(`Your monthly service plan`,
+          `<p>Hi ${name},</p>
+           <p>We've put together a monthly service plan for <b>${unit || "your forklift"}</b>${p.serial_number ? ` (serial ${esc(p.serial_number)})` : ""}.</p>
+           <p style="font-size:16px;"><b>${esc(p.plan_name)}</b>${p.description ? `<br><span style="font-size:14px;color:#555;">${esc(p.description)}</span>` : ""}</p>
+           <p style="font-size:14px;color:#555;">Choose how you'd like to pay. Bank transfer costs less because card processing does.</p>
+           <table role="presentation" style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:6px 0 14px;"><tr>
+             ${railRow("Bank transfer (ACH)", p.ach_subtotal_cents, p.ach_tax_cents, p.ach_total_cents, true)}
+             ${railRow("Card", p.card_subtotal_cents, p.card_tax_cents, p.card_total_cents, false)}
+           </tr></table>
+           ${inc.length ? `<p style="margin-bottom:4px;"><b>Included</b></p><ul style="margin:0 0 12px;padding-left:20px;font-size:14px;line-height:1.7;">${inc.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+           ${exc.length ? `<p style="margin-bottom:4px;"><b>Not included</b></p><ul style="margin:0 0 12px;padding-left:20px;font-size:14px;line-height:1.7;color:#666;">${exc.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+           <table role="presentation" style="font-size:14px;line-height:1.9;margin-top:6px;">
+             <tr><td style="color:#666;padding-right:18px;">Term</td><td><b>${esc(p.term_months)} monthly payments</b>, no automatic renewal</td></tr>
+             <tr><td style="color:#666;">Starts</td><td>${date(p.activation_date)}</td></tr>
+             ${p.expires_at ? `<tr><td style="color:#666;">Offer expires</td><td>${date(p.expires_at)}</td></tr>` : ""}
+           </table>
+           <p>Sign in to review the full agreement and choose your payment method. Nothing is charged when you sign.</p>`,
+          { label: "Review Service Plan", href: portal() }),
+        text: `Hi ${p.customer_name || "there"},
+
+Monthly service plan for ${[p.unit_number, p.equipment].filter(Boolean).join(" — ") || "your forklift"}${p.serial_number ? ` (serial ${p.serial_number})` : ""}.
+
+${p.plan_name}
+${p.description ?? ""}
+
+Bank transfer (ACH): ${usdc(p.ach_total_cents)}/month  (service ${usdc(p.ach_subtotal_cents)} + tax ${usdc(p.ach_tax_cents)})
+Card:                ${usdc(p.card_total_cents)}/month  (service ${usdc(p.card_subtotal_cents)} + tax ${usdc(p.card_tax_cents)})
+${inc.length ? `\nIncluded:\n${inc.map(x => `  - ${x}`).join("\n")}\n` : ""}${exc.length ? `\nNot included:\n${exc.map(x => `  - ${x}`).join("\n")}\n` : ""}
+Term: ${p.term_months} monthly payments, no automatic renewal
+Starts: ${date(p.activation_date)}${p.expires_at ? `\nOffer expires: ${date(p.expires_at)}` : ""}
+
+Review and choose your payment method: ${portal()}
+Nothing is charged when you sign.${textFoot}` };
+    }
+
+    case "service_plan_agreement_signed": return {
+      subject: `Your Apex Service Plan Agreement — ${p.unit_number || p.equipment || "forklift"}`,
+      html: shell(`Agreement signed`,
+        `<p>Hi ${name},</p>
+         <p>Thank you — your monthly service plan agreement is signed and on file.</p>
+         <table role="presentation" style="font-size:14px;line-height:1.9;">
+           <tr><td style="color:#666;padding-right:18px;">Plan</td><td><b>${esc(p.plan_name)}</b></td></tr>
+           <tr><td style="color:#666;">Unit</td><td>${esc([p.unit_number, p.equipment].filter(Boolean).join(" — "))}</td></tr>
+           ${p.serial_number ? `<tr><td style="color:#666;">Serial</td><td>${esc(p.serial_number)}</td></tr>` : ""}
+           <tr><td style="color:#666;">Payment method</td><td>${p.payment_method === "ach" ? "Bank transfer (ACH)" : "Card"}</td></tr>
+           <tr><td style="color:#666;">Monthly total</td><td><b>${usdc(p.total_cents)}</b></td></tr>
+           <tr><td style="color:#666;">Term</td><td>${esc(p.term_months)} monthly payments</td></tr>
+           <tr><td style="color:#666;">First billing date</td><td>${date(p.activation_date)}</td></tr>
+           <tr><td style="color:#666;">Signed by</td><td>${esc(p.signer_name)}${p.signer_title ? `, ${esc(p.signer_title)}` : ""}</td></tr>
+         </table>
+         <p style="background:#f7f7f7;padding:12px 14px;font-size:14px;line-height:1.6;">
+           <b>Nothing has been charged.</b> Your payment method has not been set up yet — we'll be in touch
+           with the next step before the ${date(p.activation_date)} start date.</p>
+         <p>A copy of your signed agreement is available any time from your portal.</p>`,
+        { label: "View My Agreement", href: portal() }),
+      text: `Hi ${p.customer_name || "there"},
+
+Your monthly service plan agreement is signed and on file.
+
+Plan: ${p.plan_name}
+Unit: ${[p.unit_number, p.equipment].filter(Boolean).join(" — ")}${p.serial_number ? `\nSerial: ${p.serial_number}` : ""}
+Payment method: ${p.payment_method === "ach" ? "Bank transfer (ACH)" : "Card"}
+Monthly total: ${usdc(p.total_cents)}
+Term: ${p.term_months} monthly payments
+First billing date: ${date(p.activation_date)}
+Signed by: ${p.signer_name}${p.signer_title ? `, ${p.signer_title}` : ""}
+
+NOTHING HAS BEEN CHARGED. Your payment method has not been set up yet — we'll be
+in touch with the next step before the ${date(p.activation_date)} start date.
+
+Your signed agreement is available any time from your portal: ${portal()}${textFoot}` };
+
+    case "service_plan_agreement_signed_admin": return {
+      subject: `Service Plan Signed — ${p.company || p.customer_name} — ${usdc(p.total_cents)}/mo`,
+      html: shell(`Service plan signed${co}`,
+        `<table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.9;">
+           <tr><td style="color:#666;padding-right:18px;">Customer</td><td><b>${esc(p.customer_name)}</b>${p.company ? ` — ${esc(p.company)}` : ""}</td></tr>
+           <tr><td style="color:#666;">Email</td><td>${esc(p.customer_email)}</td></tr>
+           <tr><td style="color:#666;">Plan</td><td>${esc(p.plan_name)}</td></tr>
+           <tr><td style="color:#666;">Unit</td><td>${esc([p.unit_number, p.equipment].filter(Boolean).join(" — "))}${p.serial_number ? ` (${esc(p.serial_number)})` : ""}</td></tr>
+           <tr><td style="color:#666;">Location</td><td>${esc(p.service_location || "—")}</td></tr>
+           <tr><td style="color:#666;">Rail</td><td><b>${p.payment_method === "ach" ? "ACH" : "Card"}</b></td></tr>
+           <tr><td style="color:#666;">Monthly</td><td><b>${usdc(p.total_cents)}</b> (${usdc(p.subtotal_cents)} + ${usdc(p.tax_cents)} tax)</td></tr>
+           <tr><td style="color:#666;">Term</td><td>${esc(p.term_months)} cycles from ${date(p.activation_date)}</td></tr>
+           <tr><td style="color:#666;">Signer</td><td>${esc(p.signer_name)}${p.signer_title ? `, ${esc(p.signer_title)}` : ""}</td></tr>
+           <tr><td style="color:#666;">Agreement</td><td style="font-family:monospace;font-size:12px;">${esc(p.agreement_id)}</td></tr>
+           <tr><td style="color:#666;">Version</td><td>${esc(p.agreement_version)}</td></tr>
+         </table>
+         <p style="background:#fff6f6;border-left:3px solid #cc0000;padding:12px 14px;font-size:14px;">
+           <b>Next step:</b> payment method verification. No subscription exists and nothing is scheduled to bill yet.</p>`),
+      text: `Service plan signed.
+
+Customer: ${p.customer_name}${p.company ? ` — ${p.company}` : ""} (${p.customer_email})
+Plan: ${p.plan_name}
+Unit: ${[p.unit_number, p.equipment].filter(Boolean).join(" — ")}${p.serial_number ? ` (${p.serial_number})` : ""}
+Location: ${p.service_location || "—"}
+Rail: ${p.payment_method === "ach" ? "ACH" : "Card"}
+Monthly: ${usdc(p.total_cents)} (${usdc(p.subtotal_cents)} + ${usdc(p.tax_cents)} tax)
+Term: ${p.term_months} cycles from ${date(p.activation_date)}
+Signer: ${p.signer_name}${p.signer_title ? `, ${p.signer_title}` : ""}
+Agreement: ${p.agreement_id} (${p.agreement_version})
+
+NEXT STEP: payment method verification. No subscription exists and nothing is
+scheduled to bill yet.${textFoot}` };
 
     default:
       return { subject: `Apex Lift Solutions — ${eventType}`, html: shell(eventType, `<pre>${esc(JSON.stringify(p, null, 2))}</pre>`), text: JSON.stringify(p, null, 2) };

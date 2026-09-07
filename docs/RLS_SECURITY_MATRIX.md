@@ -41,3 +41,101 @@ them out) and at **checkout** (`payment-checkout` returns `account_not_active`).
 - Edit or delete `audit_log`.
 - Call `payment-refund` (403 on non-admin email) or `admin-action` (same).
 - Trigger `outbox-worker` / `payment-reconcile` (shared-secret header).
+
+---
+
+# Service Plans / Recurring Billing (added by SERVICE_PLANS_UPGRADE.sql)
+
+| Table | Anonymous | Pending customer | Active customer A | Admin | Service |
+|---|---|---|---|---|---|
+| `customer_equipment` | — | S own | S own | ALL | ALL |
+| `service_plan_offers` | — | S own (not `draft`) | S own (not `draft`) | ALL | ALL |
+| `service_plan_agreements` | — | S own | S own | ALL | ALL |
+| `service_subscriptions` | — | S own | S own · `set_subscription_reminder()` | ALL | ALL |
+| `service_plan_events` | — | — | — | S | ALL |
+| `private.helcim_verify_session` | — | — | — | — | ALL (not exposed to PostgREST) |
+| storage `apex-agreements` | — | — | — | ALL | ALL |
+
+S = SELECT. Blank = no policy = denied.
+
+## Stricter than policies alone
+
+These five tables additionally have `INSERT`, `UPDATE`, `DELETE` and `TRUNCATE`
+**revoked from `anon` and `authenticated`**, and `anon` has no privilege at all.
+RLS is the second line, not the only one: even a mistaken future policy cannot
+open a write path through PostgREST.
+
+This intentionally removes admin PostgREST writes on these tables too. Admin
+manages equipment, offers and subscriptions through admin-only server paths
+(`admin-action` / service role), never by writing the table directly.
+
+## Customer A cannot, even by direct REST call
+
+- See a `draft` offer. Drafts are internal until sent.
+- See B's equipment, offers, agreements or subscriptions — every policy filters
+  on `customer_id = auth.uid()`.
+- Insert, update or delete any service-plan row. The privilege is not granted.
+- Change a signed agreement's amount, rail or snapshot — `guard_service_plan_agreement()`
+  refuses in the database regardless of who is calling.
+- Change a subscription's authorized recurring amount — `guard_service_subscription()`
+  refuses. An amendment must produce a new agreement.
+- Mark a subscription `active` — `ck_sub_active_needs_provider_id` requires a real
+  Helcim subscription id.
+- Toggle anything except the optional pre-charge reminder, and only on their own
+  subscription (`set_subscription_reminder` re-checks ownership server-side).
+- Read `service_plan_events` — provider error detail is admin-only.
+- Read another customer's agreement PDF. The bucket is private with no customer
+  policy; owners receive short-lived signed URLs minted server-side.
+
+## Agreement PDF access path
+
+| Function | Granted to | Purpose |
+|---|---|---|
+| `create_verify_session(text,text,uuid,uuid,text)` | `service_role` only | store a HelcimPay verify session bound to one agreement + one rail |
+| `read_verify_session(text)` | `service_role` only | fetch `secret_token` during verify validation |
+| `set_subscription_reminder(uuid,boolean)` | `authenticated` | the only customer-writable field in the whole subsystem |
+| `cfg_bool(text)` | `service_role` only | reads the recurring gate; fails closed |
+
+## Integrity that RLS cannot provide (revision 2)
+
+RLS defends against a hostile browser. It does nothing against Apex's own
+server code, because every Edge Function writes with the service role and
+service_role bypasses RLS entirely. These rules are therefore enforced as
+constraints and triggers, which DO fire for service_role:
+
+| Rule | Mechanism |
+|---|---|
+| An offer cannot reference another customer's equipment | composite FK `fk_offer_equipment_same_customer` |
+| An agreement's customer/equipment must be the offer's | composite FK `fk_agreement_matches_offer_chain` |
+| A subscription must sit on the exact signed agreement chain | composite FK `fk_sub_matches_agreement_chain` |
+| An agreement's amount must equal the offer's price for the signed rail | trigger `trg_validate_agreement` |
+| An agreement cannot be signed against a draft, expired or already-accepted offer | trigger `trg_validate_agreement` |
+| A subscription's amount, rail, term and dates are copied from the agreement | trigger `trg_validate_subscription` |
+| A subscription cannot be born active or carry a provider id at creation | trigger `trg_validate_subscription` |
+| Terminal states stay terminal (offer, agreement, subscription) | `assert_transition()` inside each guard |
+| A signed agreement can never be DELETEd | trigger `trg_no_delete_agreement` |
+| `service_plan_events` is append-only | trigger `trg_events_append_only` |
+| A provider-bound or billed subscription can never be DELETEd | trigger `trg_no_delete_billed_sub` |
+
+A superuser can still bypass triggers with `session_replication_role='replica'`.
+That is a deliberate, auditable act rather than an accident, which is the point.
+
+## Verify-session lifecycle
+
+`private.helcim_verify_session` rows are bound to one agreement, one customer
+and one rail, expire with the Helcim checkout token (60 minutes, configurable
+via `service_plan_verify_session_minutes`), and are single-use.
+
+| Function | Granted to | Behaviour |
+|---|---|---|
+| `create_verify_session` | `service_role` | raises if the token is already bound to a different agreement/customer/rail; an identical replay is a no-op |
+| `read_verify_session` | `service_role` | read-only peek; returns nothing once expired or consumed |
+| `consume_verify_session` | `service_role` | atomically marks consumed and returns the secret exactly once |
+| `purge_expired_verify_sessions` | `service_role` | housekeeping; deletes rows expired more than 24h |
+
+## Server-side write paths
+
+| Function | Granted to | Purpose |
+|---|---|---|
+| `accept_offer_and_sign_agreement` | `service_role` | atomic offer-accept + agreement-insert; reads the money out of the offer row, re-checks ownership, refuses a missing contract snapshot |
+| `create_subscription_from_agreement` | `service_role` | copies the signed agreement into a subscription; accepts no amount, rail, term or date from the caller |

@@ -1,7 +1,7 @@
 # Recurring Service Plans — Approved Architecture (NOT YET IMPLEMENTED)
 
-**Status: on hold pending one-time payment verification.** Nothing in this
-document has been built. It records the approved design so it survives.
+**Status: implementation authorized from the V23 baseline; LIVE recurring activation remains gated.**
+Nothing in this document has been deployed as recurring billing yet. Build the Service Plans/contract system now, but keep provider subscription activation OFF by default until controlled acceptance tests pass.
 
 ## Two changes from my original plan
 
@@ -81,4 +81,4 @@ These get placeholders and a source comment, not invented language.
 
 ## Gate
 
-Do not begin until `ONE_TIME_PAYMENT_TEST.sql` section C reads PASS on every row.
+Development may proceed from the audited V23 baseline. Live recurring activation must remain disabled until the owner explicitly approves a controlled end-to-end recurring test after schema/RLS, contract/PDF, payment-method verification, reconciliation, cancellation, and refund behavior have been reviewed.

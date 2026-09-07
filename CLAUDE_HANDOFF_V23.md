@@ -1,4 +1,4 @@
-# Apex Lift Solutions — Payment/Refund Handoff v22
+# Apex Lift Solutions — Payment/Refund Handoff v23
 
 ## What was confirmed in production
 
@@ -11,7 +11,7 @@
 ## v22 changes in this patch
 
 ### portal-customer.js
-- Client diagnostic version bumped to `2026-09-06.v22`.
+- Client diagnostic version is `2026-09-06.v23`; V23 adds safe retry after an authoritative full reversal.
 - Loads authoritative successful refund/reversal ledger rows for visible invoices.
 - Only a successful provider reversal may release a stale checkout lock on an `unpaid` invoice.
 - A reversed payment now renders:

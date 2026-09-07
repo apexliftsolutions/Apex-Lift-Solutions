@@ -894,6 +894,7 @@ function showView(v, el) {
     document.querySelectorAll(`[data-view="${v}"]`).forEach(n => n.classList.add('active'));
   }
   const actions = {
+    'service-plans': renderServicePlans,
     quotes:    renderAllQuotes,
     invoices:  renderInvoices,
     customers: renderCustomers,
@@ -1520,4 +1521,310 @@ async function printInvoicePDF(invoiceId) {
   <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>
   </body></html>`);
   win.document.close();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SERVICE PLANS — Phase B (admin)
+
+   Reads go direct through PostgREST: RLS policy "…_admin_all" gives the admin
+   SELECT on customer_equipment / service_plan_offers / service_plan_agreements
+   / service_subscriptions.
+
+   Writes do NOT. SERVICE_PLANS_UPGRADE.sql revoked INSERT/UPDATE/DELETE on
+   those tables from `authenticated`, which the admin also is. Every write below
+   goes through the service-plans-admin Edge Function, which re-verifies the
+   caller is the admin, derives tax server-side, and lets the database enforce
+   the customer/equipment/price relationships.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const SP = { customerId: null, customer: null, equipment: [], offers: [], agreements: [], subs: [] };
+
+function spEsc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+const spUsd = c => '$' + (Number(c ?? 0) / 100).toFixed(2);
+const spDate = d => d ? new Date(String(d).length === 10 ? d + 'T12:00:00Z' : d)
+  .toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '—';
+
+async function spCall(action, payload) {
+  const { data: { session } } = await _sb.auth.getSession();
+  if (!session) { alert('Your session expired. Please sign in again.'); return null; }
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/service-plans-admin`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    alert(body.detail || body.error || `Request failed (${r.status})`);
+    return null;
+  }
+  return body;
+}
+
+async function renderServicePlans() {
+  const sel = document.getElementById('sp-customer');
+  if (sel && sel.options.length <= 1) {
+    const { data } = await _sb.from('customers')
+      .select('id, name, company, email, tax_rate_milli_pct, tax_exempt')
+      .order('company', { ascending: true });
+    for (const c of data || []) {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.company ? `${c.company} — ${c.name}` : c.name;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => spLoadCustomer(sel.value));
+    document.getElementById('sp-refresh')?.addEventListener('click', () => spLoadCustomer(SP.customerId));
+    spWireModals();
+  }
+  if (SP.customerId) await spLoadCustomer(SP.customerId);
+}
+
+async function spLoadCustomer(customerId) {
+  const body = document.getElementById('sp-body');
+  if (!customerId) {
+    SP.customerId = null;
+    body.innerHTML = '<div class="empty-state">Select a customer to see their equipment and service plans.</div>';
+    return;
+  }
+  SP.customerId = customerId;
+  body.innerHTML = '<div class="empty-state">Loading…</div>';
+
+  const [cust, equip, offers, agrees, subs] = await Promise.all([
+    _sb.from('customers')
+      .select('id, name, company, email, tax_rate_milli_pct, tax_exempt, tax_jurisdiction')
+      .eq('id', customerId).maybeSingle(),
+    _sb.from('customer_equipment').select('*')
+      .eq('customer_id', customerId).order('created_at', { ascending: true }),
+    _sb.from('service_plan_offers').select('*')
+      .eq('customer_id', customerId).order('created_at', { ascending: false }),
+    _sb.from('service_plan_agreements').select('*')
+      .eq('customer_id', customerId).order('signed_at', { ascending: false }),
+    _sb.from('service_subscriptions').select('*').eq('customer_id', customerId),
+  ]);
+
+  SP.customer = cust.data || null;
+  SP.equipment = equip.data || [];
+  SP.offers = offers.data || [];
+  SP.agreements = agrees.data || [];
+  SP.subs = subs.data || [];
+  spRender();
+}
+
+function spRender() {
+  const body = document.getElementById('sp-body');
+  const taxLine = SP.customer?.tax_exempt
+    ? 'Tax exempt — offers for this customer are priced with no sales tax.'
+    : `Sales tax ${(Number(SP.customer?.tax_rate_milli_pct ?? 0) / 1000).toFixed(3)}%`
+      + (SP.customer?.tax_jurisdiction ? ` — ${spEsc(SP.customer.tax_jurisdiction)}` : '');
+
+  let html = `<div class="sp-card"><div class="sp-row">
+      <div><h4>${spEsc(SP.customer?.company || SP.customer?.name || 'Customer')}</h4>
+        <div class="sp-meta">${spEsc(SP.customer?.email || '')}<br>${taxLine}</div></div>
+      <div class="sp-actions"><button class="approve-btn" type="button" onclick="spOpenEquip()">Add forklift</button></div>
+    </div></div>`;
+
+  if (!SP.equipment.length) {
+    html += '<div class="empty-state">No equipment on file. Add a forklift to create a service plan.</div>';
+  }
+
+  for (const eq of SP.equipment) {
+    const label = [eq.year, eq.make, eq.model].filter(Boolean).join(' ') || 'Forklift';
+    const offers = SP.offers.filter(o => o.equipment_id === eq.id);
+    const live = offers.find(o => o.status === 'sent');
+    const agreement = SP.agreements.find(a => a.equipment_id === eq.id && a.status === 'signed');
+    const sub = SP.subs.find(x => x.equipment_id === eq.id
+      && !['cancelled', 'completed', 'failed_setup'].includes(x.status));
+
+    html += `<div class="sp-card">
+      <div class="sp-row">
+        <div>
+          <h4>${spEsc(eq.unit_number || label)}</h4>
+          <div class="sp-meta">
+            ${spEsc(label)}${eq.serial_number ? ` · serial ${spEsc(eq.serial_number)}` : ' · no serial on file'}<br>
+            ${spEsc(eq.service_location || 'No service location recorded')}
+          </div>
+        </div>
+        <div class="sp-actions">
+          <button class="btn-secondary" type="button" onclick="spOpenEquip('${eq.id}')">Edit</button>
+          ${live || agreement
+            ? ''
+            : `<button class="approve-btn" type="button" onclick="spOpenOffer(null,'${eq.id}')">New offer</button>`}
+        </div>
+      </div>`;
+
+    if (agreement) {
+      html += `<div class="sp-meta" style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);">
+        <b>Signed agreement</b> — ${spUsd(agreement.monthly_total_cents)}/month by
+        ${agreement.selected_payment_method === 'ach' ? 'bank transfer' : 'card'},
+        ${spEsc(agreement.term_months)} cycles from ${spDate(agreement.activation_date)}.
+        Signed by ${spEsc(agreement.signer_name)} on ${spDate(agreement.signed_at)}.
+        ${agreement.pdf_path ? 'PDF stored.' : 'PDF pending.'}<br>
+        ${sub ? `Subscription status: <b>${spEsc(sub.status)}</b>. Payment method not yet collected.`
+              : 'No subscription yet.'}
+      </div>`;
+    }
+
+    if (offers.length) {
+      html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);">';
+      for (const o of offers) {
+        html += `<div class="sp-row" style="padding:6px 0;">
+          <div class="sp-meta">
+            <span class="sp-pill ${spEsc(o.status)}">${spEsc(o.status)}</span>
+            &nbsp;${spEsc(o.plan_name)} — ACH ${spUsd(o.ach_monthly_total_cents)} / card ${spUsd(o.card_monthly_total_cents)} per month
+            · ${spEsc(o.term_months)} cycles from ${spDate(o.activation_date)}
+            ${o.expires_at && o.status === 'sent' ? ` · expires ${spDate(o.expires_at)}` : ''}
+            ${o.declined_reason ? `<br>Declined: ${spEsc(o.declined_reason)}` : ''}
+          </div>
+          <div class="sp-actions">
+            ${o.status === 'draft' ? `<button class="btn-secondary" type="button" onclick="spOpenOffer('${o.id}')">Edit</button>
+              <button class="approve-btn" type="button" onclick="spSendOffer('${o.id}')">Send</button>` : ''}
+            ${['draft', 'sent'].includes(o.status)
+              ? `<button class="btn-secondary" type="button" onclick="spCancelOffer('${o.id}')">Cancel</button>` : ''}
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  body.innerHTML = html;
+}
+
+/* ── Equipment ─────────────────────────────────────────────────────────── */
+function spOpenEquip(id) {
+  const eq = id ? SP.equipment.find(e => e.id === id) : null;
+  const locked = !!(eq && SP.agreements.some(a => a.equipment_id === eq.id && a.status === 'signed'));
+  document.getElementById('sp-equip-title').textContent = eq ? 'Edit forklift' : 'Add forklift';
+  document.getElementById('sp-equip-id').value = eq?.id || '';
+  document.getElementById('sp-eq-unit').value = eq?.unit_number || '';
+  document.getElementById('sp-eq-year').value = eq?.year || '';
+  document.getElementById('sp-eq-make').value = eq?.make || '';
+  document.getElementById('sp-eq-model').value = eq?.model || '';
+  document.getElementById('sp-eq-serial').value = eq?.serial_number || '';
+  document.getElementById('sp-eq-loc').value = eq?.service_location || '';
+  document.getElementById('sp-eq-notes').value = eq?.notes || '';
+  document.getElementById('sp-equip-lock').hidden = !locked;
+  for (const f of ['sp-eq-year', 'sp-eq-make', 'sp-eq-model', 'sp-eq-serial']) {
+    document.getElementById(f).disabled = locked;
+  }
+  document.getElementById('sp-equip-modal').hidden = false;
+}
+function spCloseEquip() { document.getElementById('sp-equip-modal').hidden = true; }
+
+/* ── Offers ────────────────────────────────────────────────────────────── */
+function spOpenOffer(offerId, equipmentId) {
+  const o = offerId ? SP.offers.find(x => x.id === offerId) : null;
+  const eqId = o?.equipment_id || equipmentId;
+  const eq = SP.equipment.find(e => e.id === eqId);
+  const label = [eq?.year, eq?.make, eq?.model].filter(Boolean).join(' ') || 'Forklift';
+
+  document.getElementById('sp-offer-title').textContent = o ? 'Edit draft offer' : 'New service plan offer';
+  document.getElementById('sp-offer-id').value = o?.id || '';
+  document.getElementById('sp-offer-equip').value = eqId || '';
+  document.getElementById('sp-offer-unit').textContent =
+    `${eq?.unit_number || label}${eq?.serial_number ? ` · serial ${eq.serial_number}` : ''}`;
+
+  document.getElementById('sp-plan-name').value = o?.plan_name || 'Monthly Planned Maintenance — Standard';
+  document.getElementById('sp-plan-desc').value = o?.description || '';
+  document.getElementById('sp-included').value = (o?.included_services || []).join('\n');
+  document.getElementById('sp-excluded').value = (o?.exclusions || []).join('\n');
+  document.getElementById('sp-ach').value = o ? (o.ach_monthly_subtotal_cents / 100).toFixed(2) : '';
+  document.getElementById('sp-card').value = o ? (o.card_monthly_subtotal_cents / 100).toFixed(2) : '';
+  document.getElementById('sp-term').value = o?.term_months ?? 6;
+
+  const d = new Date(); d.setDate(d.getDate() + 7);
+  document.getElementById('sp-activation').value = o?.activation_date || d.toISOString().slice(0, 10);
+  document.getElementById('sp-expiry').value = 30;
+
+  spPricePreview();
+  document.getElementById('sp-offer-modal').hidden = false;
+}
+function spCloseOffer() { document.getElementById('sp-offer-modal').hidden = true; }
+
+/* Advisory only. The server recomputes tax from the customer record and the
+   database re-checks that subtotal + tax = total on both rails. */
+function spPricePreview() {
+  const exempt = !!SP.customer?.tax_exempt;
+  const rate = exempt ? 0 : Number(SP.customer?.tax_rate_milli_pct ?? 0);
+  const box = (label, dollars) => {
+    const sub = Math.round((Number(dollars) || 0) * 100);
+    const tax = rate ? Math.round((sub * rate) / 100000) : 0;
+    return `<div class="sp-quote"><div class="lbl">${label}</div>
+      <div class="big">${spUsd(sub + tax)}<span style="font-size:.8rem;font-weight:400;">/mo</span></div>
+      <div class="sp-meta">Service ${spUsd(sub)} · ${exempt ? 'exempt' : `tax ${spUsd(tax)}`}</div></div>`;
+  };
+  document.getElementById('sp-price-preview').innerHTML =
+    box('Bank transfer (ACH)', document.getElementById('sp-ach').value) +
+    box('Card', document.getElementById('sp-card').value);
+}
+
+function spOfferPayload() {
+  return {
+    offer_id: document.getElementById('sp-offer-id').value || undefined,
+    equipment_id: document.getElementById('sp-offer-equip').value,
+    plan_name: document.getElementById('sp-plan-name').value,
+    description: document.getElementById('sp-plan-desc').value,
+    included_services: document.getElementById('sp-included').value,
+    exclusions: document.getElementById('sp-excluded').value,
+    ach_monthly_subtotal: document.getElementById('sp-ach').value,
+    card_monthly_subtotal: document.getElementById('sp-card').value,
+    term_months: Number(document.getElementById('sp-term').value),
+    activation_date: document.getElementById('sp-activation').value,
+  };
+}
+
+async function spSaveOffer(thenSend) {
+  const p = spOfferPayload();
+  if (!p.equipment_id) { alert('No forklift selected.'); return; }
+  const res = await spCall(p.offer_id ? 'update-offer' : 'create-offer', p);
+  if (!res) return;
+  if (thenSend) {
+    const sent = await spCall('send-offer', {
+      offer_id: res.offer.id,
+      expiry_days: Number(document.getElementById('sp-expiry').value) || 30,
+    });
+    if (!sent) { await spLoadCustomer(SP.customerId); return; }
+  }
+  spCloseOffer();
+  await spLoadCustomer(SP.customerId);
+}
+
+async function spSendOffer(id) {
+  if (!confirm('Send this offer to the customer? They will get an email and can sign it.')) return;
+  if (await spCall('send-offer', { offer_id: id })) await spLoadCustomer(SP.customerId);
+}
+
+async function spCancelOffer(id) {
+  const reason = prompt('Cancel this offer? Optional reason:');
+  if (reason === null) return;
+  if (await spCall('cancel-offer', { offer_id: id, reason })) await spLoadCustomer(SP.customerId);
+}
+
+function spWireModals() {
+  document.getElementById('sp-equip-save')?.addEventListener('click', async () => {
+    const id = document.getElementById('sp-equip-id').value;
+    const payload = {
+      customer_id: SP.customerId,
+      equipment_id: id || undefined,
+      unit_number: document.getElementById('sp-eq-unit').value,
+      year: document.getElementById('sp-eq-year').value,
+      make: document.getElementById('sp-eq-make').value,
+      model: document.getElementById('sp-eq-model').value,
+      serial_number: document.getElementById('sp-eq-serial').value,
+      service_location: document.getElementById('sp-eq-loc').value,
+      notes: document.getElementById('sp-eq-notes').value,
+    };
+    if (await spCall(id ? 'update-equipment' : 'create-equipment', payload)) {
+      spCloseEquip();
+      await spLoadCustomer(SP.customerId);
+    }
+  });
+  document.getElementById('sp-offer-save')?.addEventListener('click', () => spSaveOffer(false));
+  document.getElementById('sp-offer-send')?.addEventListener('click', () => spSaveOffer(true));
+  document.getElementById('sp-ach')?.addEventListener('input', spPricePreview);
+  document.getElementById('sp-card')?.addEventListener('input', spPricePreview);
 }

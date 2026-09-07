@@ -16,10 +16,15 @@
 //
 // RETRY
 //   A previous failed or abandoned attempt never blocks a new one. See resolve().
+//
+// RECURRING
+//   v24: an invoice with invoice_source = 'recurring' is refused outright. It is
+//   billed by Helcim under a signed recurring authorization; paying it here
+//   would be a second charge for the same billing period.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const HELCIM_INIT = "https://api.helcim.com/v2/helcim-pay/initialize";
-const FN_VERSION = "2026-09-06.v23";
+const FN_VERSION = "2026-09-07.v24";
 // Helcim checkout tokens are valid for 60 minutes. Reuse inside a safe margin.
 const TOKEN_TTL_MS = 55 * 60 * 1000;
 
@@ -46,8 +51,31 @@ Deno.serve(async (req) => {
 
   // Ownership + authoritative amount. IDOR on another customer's invoice → 404.
   const { data: inv } = await sb.from("invoices")
-    .select("id, amount, status, customer_id, tax_cents, subtotal_cents").eq("id", invoice_id).eq("customer_id", user.id).maybeSingle();
+    .select("id, amount, status, customer_id, tax_cents, subtotal_cents, invoice_source").eq("id", invoice_id).eq("customer_id", user.id).maybeSingle();
   if (!inv) return j({ error: "not_found" }, 404, cors);
+
+  // ── Recurring invoices are NOT payable here ────────────────────────────────
+  // A monthly service-plan cycle is charged by Helcim against the customer's
+  // stored default payment method under a signed recurring authorization.
+  // This endpoint opens a Fee Saver purchase session, which would be a SECOND,
+  // separately-authorized charge for the same billing period.
+  //
+  // Recurring Payments are also incompatible with Fee Saver, so the amounts
+  // would not even agree: the signed agreement authorizes an exact monthly
+  // total, and Fee Saver would add a convenience fee on top of it.
+  //
+  // Refused BEFORE any ledger row is written and BEFORE Helcim is contacted, so
+  // a refused call consumes no idempotency key and opens no session.
+  //
+  // A future past-due self-service payment flow, if we build one, gets its own
+  // endpoint with its own authorization — not this one.
+  if (inv.invoice_source === "recurring") {
+    await sb.from("activity_log").insert({
+      actor_id: user.id, action: "payment_checkout_refused_recurring",
+      detail: `${inv.id} is a recurring service-plan invoice`,
+    });
+    return j({ error: "recurring_invoice_not_payable_here", fn_version: FN_VERSION }, 409, cors);
+  }
 
   const baseCents = Math.round(Number(inv.amount) * 100);
   if (!Number.isFinite(baseCents) || baseCents <= 0) return j({ error: "invalid_amount" }, 400, cors);
