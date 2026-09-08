@@ -114,6 +114,21 @@ function badgeHtml(s) {
 }
 
 // ── ATTACHMENT RENDERER ───────────────────────
+// Signed attachment URLs cost a storage round-trip per quote and expire in 600s.
+// Re-rendering the whole list on every Load More would regenerate them for every
+// previously loaded quote. Markup is cached per quote and reused, but only while
+// comfortably inside the signing window — an expired URL would 403 on click, so
+// this deliberately refreshes well before the 10 minutes are up.
+const ATT_CACHE = {};
+const ATT_TTL_MS = 8 * 60 * 1000;
+async function attHtmlCached(quoteId, paths) {
+  const hit = ATT_CACHE[quoteId];
+  if (hit && (Date.now() - hit.at) < ATT_TTL_MS) return hit.html;
+  const html = await attHtml(paths);
+  ATT_CACHE[quoteId] = { html, at: Date.now() };
+  return html;
+}
+
 async function attHtml(paths) {
   if (!paths?.length) return '';
   // Bucket is PRIVATE. Each path becomes a 10-minute signed URL for the signed-in
@@ -151,26 +166,39 @@ function lineItemsHtml(items) {
 }
 
 // ── LOAD QUOTES ───────────────────────────────
-async function loadQuotes() {
+let QUOTES_PAGE = null;
+async function loadQuotes(append) {
   const wrap = document.getElementById('quotes-wrap');
   if (!USER) return;
-  wrap.innerHTML = '<div class="loading-msg">Loading quotes…</div>';
+  // Initial load only. On append the existing rows and the existing Load More
+  // button must stay in the DOM: handleMore() shows progress on the button, and
+  // a failed append must leave the visible history untouched.
+  if (!append) wrap.innerHTML = '<div class="loading-msg">Loading quotes…</div>';
 
   // Invoiced quotes stay visible, read-only. A customer needs the document that
   // shows what they approved. Only quotes they explicitly dismissed are hidden.
-  const { data: quotes, error } = await sb
-    .from('quotes').select('*')
-    .eq('customer_id', USER.id)
-    .eq('hidden_by_customer', false)
-    .order('created_at', { ascending: false });
+  // hidden_by_customer is filtered in the DATABASE, before the page boundary,
+  // so a dismissed quote can never consume one of the 25 slots.
+  if (!QUOTES_PAGE) QUOTES_PAGE = ApexPage.create({
+    table: 'quotes', sortCol: 'created_at',
+    applyFilters: q => q.eq('customer_id', USER.id).eq('hidden_by_customer', false),
+  });
+  if (!append) ApexPage.reset(QUOTES_PAGE);
+  const { error } = await ApexPage.loadPage(sb, QUOTES_PAGE);
+  const quotes = QUOTES_PAGE.items;
 
   if (error) {
+    // An append failure keeps the rows already on screen; handleMore()
+    // re-enables the button and announces it. Only an initial-load failure
+    // replaces the wrapper with the retry card.
+    if (append) return { error };
+
     console.error('[Apex] quote query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
     wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
       Couldn't load your quotes.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
       <button class="approve-btn" style="margin-top:12px;" onclick="loadQuotes()">Try Again</button>
       <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
-    return;
+    return { error };
   }
   console.info(`[Apex] quotes loaded: ${(quotes || []).length} for ${USER.id}`);
   if (!quotes?.length) { wrap.innerHTML = '<div class="empty-state">No quotes yet — contact us or use Request Service to get started!</div>'; return; }
@@ -183,7 +211,7 @@ async function loadQuotes() {
       </div>
       ${q.description ? `<div class="q-desc">${xss(q.description)}</div>` : ''}
       ${lineItemsHtml(q.items)}
-      ${await attHtml(q.attachments)}
+      ${await attHtmlCached(q.id, q.attachments)}
       <div class="q-meta" style="margin-top:12px;">
         <div class="q-meta-item">Sent<span>${bdate(q.created_at)}</span></div>
         ${q.equipment ? `<div class="q-meta-item">Equipment<span>${xss(q.equipment)}</span></div>` : ''}
@@ -207,6 +235,7 @@ async function loadQuotes() {
       }
     </div>`));
   wrap.innerHTML = '<div class="q-cards">' + cards.join('') + '</div>';
+  wrap.insertAdjacentHTML('beforeend', ApexPage.moreButtonHtml(QUOTES_PAGE, 'moreQuotes'));
 }
 
 
@@ -258,34 +287,57 @@ function unlockReversedInvoice(invoiceId) {
 }
 
 // ── LOAD INVOICES ─────────────────────────────
-async function loadInvoices() {
-  INVOICE_CACHE = {};
+let INVOICES_PAGE = null;
+let CORRECTIONS_BY_INVOICE = {};
+async function loadInvoices(append) {
   const wrap = document.getElementById('invoices-wrap');
   if (!USER) return;
-  wrap.innerHTML = '<div class="loading-msg">Loading invoices…</div>';
+  // Initial load only. On append the existing rows and the existing Load More
+  // button must stay in the DOM: handleMore() shows progress on the button, and
+  // a failed append must leave the visible history untouched.
+  if (!append) wrap.innerHTML = '<div class="loading-msg">Loading invoices…</div>';
 
-  const { data: invoices, error } = await sb
-    .from('invoices').select('*')
-    .eq('customer_id', USER.id)
-    .order('created_at', { ascending: false });
+  if (!INVOICES_PAGE) INVOICES_PAGE = ApexPage.create({
+    table: 'invoices', sortCol: 'created_at',
+    // 'hidden' is excluded IN THE DATABASE. Filtering it client-side after the
+    // page boundary meant a page of 25 hidden invoices produced an empty
+    // visible list, an early return before the Load More button was rendered,
+    // and older visible invoices that could never be reached.
+    // Safe as .neq: invoices.status is NOT NULL.
+    applyFilters: q => q.eq('customer_id', USER.id).neq('status', 'hidden'),
+  });
+  if (!append) { ApexPage.reset(INVOICES_PAGE); INVOICE_CACHE = {}; }
+  const { error, page } = await ApexPage.loadPage(sb, INVOICES_PAGE);
+  const invoices = INVOICES_PAGE.items;
 
   if (error) {
+    // An append failure keeps the rows already on screen; handleMore()
+    // re-enables the button and announces it. Only an initial-load failure
+    // replaces the wrapper with the retry card.
+    if (append) return { error };
+
     console.error('[Apex] invoice query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
     wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
       Couldn't load your invoices.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
       <button class="approve-btn" style="margin-top:12px;" onclick="loadInvoices()">Try Again</button>
       <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
-    return;
+    return { error };
   }
   console.info(`[Apex] invoices loaded: ${(invoices || []).length} for ${USER.id}`);
 
-  const correctionsByInvoice = await loadSucceededCorrections((invoices || []).map(i => i.id));
+  // Corrections are fetched only for the ids in THIS page and merged into the
+  // running map. Earlier pages keep the corrections already fetched for them,
+  // so a Load More does not re-query the whole history.
+  const pageIds = (page || []).map(i => i.id);
+  if (!append) CORRECTIONS_BY_INVOICE = {};
+  Object.assign(CORRECTIONS_BY_INVOICE, await loadSucceededCorrections(pageIds));
+  const correctionsByInvoice = CORRECTIONS_BY_INVOICE;
 
   // If a provider reversal has succeeded and recalc returned the invoice to
   // unpaid, the old checkout lock must be released. Do NOT unlock merely because
   // an invoice is unpaid: during a real confirmation window that would invite a
   // duplicate charge.
-  for (const inv of invoices || []) {
+  for (const inv of page || []) {
     const correction = correctionsByInvoice[inv.id];
     if (inv.status === 'unpaid' && correction?.kind === 'reversal' && correction.status === 'succeeded') {
       unlockReversedInvoice(inv.id);
@@ -294,12 +346,15 @@ async function loadInvoices() {
 
   // Index by id so openPay() can read the tax breakdown without stuffing JSON
   // into an onclick attribute.
-  (invoices || []).forEach(r => { INVOICE_CACHE[r.id] = r; });
+  // INVARIANT: every invoice currently VISIBLE has its row cached. The cache is
+  // a render aid for openPay(), never financial authority — payment-checkout
+  // re-reads the invoice server-side before charging anything.
+  (page || []).forEach(r => { INVOICE_CACHE[r.id] = r; });
 
   // Show unpaid always; show paid invoices for 90 days (receipt window); hide hidden
   const now = Date.now();   // used by other status branches
   const visible = (invoices || []).filter(i => {
-    if (i.status === 'hidden') return false;
+    if (i.status === 'hidden') return false;   // defensive only; excluded server-side
     // Paid invoices are permanent records — the customer's proof of payment.
     // If this list ever gets long, add paging or a year filter; never hide history.
     if (i.status === 'paid') return true;
@@ -355,26 +410,39 @@ async function loadInvoices() {
       ${body}
     </div>`;
   }).join('') + '</div>';
+  wrap.insertAdjacentHTML('beforeend', ApexPage.moreButtonHtml(INVOICES_PAGE, 'moreInvoices'));
 }
 
 // ── LOAD HISTORY ──────────────────────────────
-async function loadHistory() {
+let HISTORY_PAGE = null;
+async function loadHistory(append) {
   const wrap = document.getElementById('history-wrap');
   if (!USER) return;
-  wrap.innerHTML = '<div class="loading-msg">Loading history…</div>';
+  // Initial load only. On append the existing rows and the existing Load More
+  // button must stay in the DOM: handleMore() shows progress on the button, and
+  // a failed append must leave the visible history untouched.
+  if (!append) wrap.innerHTML = '<div class="loading-msg">Loading history…</div>';
 
-  const { data: rows, error } = await sb
-    .from('service_history').select('*')
-    .eq('customer_id', USER.id)
-    .order('date', { ascending: false });
+  if (!HISTORY_PAGE) HISTORY_PAGE = ApexPage.create({
+    table: 'service_history', sortCol: 'date',
+    applyFilters: q => q.eq('customer_id', USER.id),
+  });
+  if (!append) ApexPage.reset(HISTORY_PAGE);
+  const { error } = await ApexPage.loadPage(sb, HISTORY_PAGE);
+  const rows = HISTORY_PAGE.items;
 
   if (error) {
+    // An append failure keeps the rows already on screen; handleMore()
+    // re-enables the button and announces it. Only an initial-load failure
+    // replaces the wrapper with the retry card.
+    if (append) return { error };
+
     console.error('[Apex] service history query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
     wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
       Couldn't load your service history.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
       <button class="approve-btn" style="margin-top:12px;" onclick="loadHistory()">Try Again</button>
       <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
-    return;
+    return { error };
   }
   console.info(`[Apex] service history loaded: ${(rows || []).length} for ${USER.id}`);
   if (!rows?.length) { wrap.innerHTML = '<div class="empty-state">No service history yet.</div>'; return; }
@@ -392,6 +460,7 @@ async function loadHistory() {
       </div>
       ${h.notes ? `<p style="color:var(--grey-light);font-size:.86rem;margin-top:6px;">${xss(h.notes)}</p>` : ''}
     </div>`).join('') + '</div>';
+  wrap.insertAdjacentHTML('beforeend', ApexPage.moreButtonHtml(HISTORY_PAGE, 'moreHistory'));
 }
 
 // ── QUOTE RESPOND ─────────────────────────────
@@ -435,7 +504,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-07.v24.8-hardening";
+const APEX_CLIENT_VERSION = "2026-09-08.v24.9-hardening";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -849,6 +918,15 @@ async function lookupInv() {
   if (!USER || !id) { box.innerHTML = '<p style="color:#ff4444;font-family:var(--font-head);font-size:.85rem;">Please enter an invoice number.</p>'; return; }
   const { data: row } = await sb.from('invoices').select('*').eq('customer_id', USER.id).eq('id', id).single();
   if (row) {
+    // Invoice history is paginated, so a looked-up invoice may not be on any
+    // page the customer has loaded. openPay() reads INVOICE_CACHE for the
+    // recurring guard and for the tax breakdown, and would otherwise see
+    // undefined and skip the guard. This row came from the same table with the
+    // same full projection and the same customer_id scope as the list query, so
+    // caching it keeps the invariant: every invoice with a visible Pay button
+    // has its row cached. The cache stays a render aid — payment-checkout
+    // re-reads the invoice server-side before any charge.
+    INVOICE_CACHE[row.id] = row;
     const corrections = await loadSucceededCorrections([row.id]);
     const correction = corrections[row.id] || null;
     const reversed = row.status === 'unpaid' && correction?.kind === 'reversal' && correction.status === 'succeeded';
@@ -883,14 +961,31 @@ async function lookupInv() {
 // ── PAYMENTS / RECEIPTS ───────────────────────
 // Sourced from the payments ledger — never from invoice.status, and never from
 // anything the browser computed.
-async function loadPayments() {
+let PAYMENTS_PAGE = null;
+async function loadPayments(append) {
   const wrap = document.getElementById('payments-wrap');
   if (!USER || !wrap) return;
-  wrap.innerHTML = '<div class="loading-msg">Loading payments…</div>';
-  const { data: rows, error } = await sb.from('payments')
-    .select('*').eq('customer_id', USER.id).order('created_at', { ascending: false });
-  if (error) { wrap.innerHTML = '<div class="empty-state" style="color:#ff4444;">Could not load payments.</div>'; return; }
-  const shown = (rows || []).filter(r => r.status !== 'initiated');
+  // Initial load only. On append the existing rows and the existing Load More
+  // button must stay in the DOM: handleMore() shows progress on the button, and
+  // a failed append must leave the visible history untouched.
+  if (!append) wrap.innerHTML = '<div class="loading-msg">Loading payments…</div>';
+  // 'initiated' rows are excluded IN THE DATABASE. Filtering them out after the
+  // fetch would let a 25-row page render as 18 and make Load More inconsistent.
+  // Safe as a .neq: payments.status is NOT NULL with a CHECK restricting it to
+  // six literals, verified against the deployed schema — there are no NULL rows
+  // for three-valued logic to drop.
+  if (!PAYMENTS_PAGE) PAYMENTS_PAGE = ApexPage.create({
+    table: 'payments', sortCol: 'created_at',
+    applyFilters: q => q.eq('customer_id', USER.id).neq('status', 'initiated'),
+  });
+  if (!append) ApexPage.reset(PAYMENTS_PAGE);
+  const { error } = await ApexPage.loadPage(sb, PAYMENTS_PAGE);
+  if (error) {
+    // Same rule: never wipe loaded payments because a later page failed.
+    if (!append && !PAYMENTS_PAGE.items.length) wrap.innerHTML = '<div class="empty-state" style="color:#ff4444;">Could not load payments.</div>';
+    return { error };
+  }
+  const shown = PAYMENTS_PAGE.items;
   if (!shown.length) { wrap.innerHTML = '<div class="empty-state">No payments yet.</div>'; return; }
 
   // A succeeded REFUND is money returned, not a payment. Labelling by status
@@ -927,6 +1022,7 @@ async function loadPayments() {
         : (r.kind === 'payment' && r.status === 'succeeded')
           ? `<button class="approve-btn" style="padding:8px 16px;font-size:.76rem;" onclick="printPaymentReceipt('${xss(r.id)}')">Print Receipt</button>` : ''}
     </div>`).join('') + '</div>';
+  wrap.insertAdjacentHTML('beforeend', ApexPage.moreButtonHtml(PAYMENTS_PAGE, 'morePayments'));
 }
 function methodName(m) {
   return ({ card:'Card', ach:'Bank transfer (ACH)', check:'Check', cash:'Cash', bank_transfer:'Bank transfer', terminal:'Card (in person)', other:'Other' })[m] || '—';
@@ -1770,3 +1866,13 @@ async function cpSign() {
     </div>`;
   await loadServicePlans();
 }
+
+
+/* ── Load More handlers (Group 6.1) ────────────────────────────────────────
+   Each keeps the rows already on screen, appends the next page, and leaves
+   keyboard focus on the button. A failure re-enables the button and announces
+   it rather than clearing history the customer was reading. */
+function moreQuotes()   { return ApexPage.handleMore(document.getElementById('quotes-wrap'),   () => loadQuotes(true)); }
+function moreInvoices() { return ApexPage.handleMore(document.getElementById('invoices-wrap'), () => loadInvoices(true)); }
+function moreHistory()  { return ApexPage.handleMore(document.getElementById('history-wrap'),  () => loadHistory(true)); }
+function morePayments() { return ApexPage.handleMore(document.getElementById('payments-wrap'), () => loadPayments(true)); }

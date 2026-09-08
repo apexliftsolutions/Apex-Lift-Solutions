@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Reset Password — Apex Lift Solutions</title>
+</head>
+<body>
+  <script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-08.v24.9-hardening"></script>
+  <script>
+    // Supabase redirects here after email link click.
+    // Forward to portal-forgot.html preserving the hash token.
+    // No meta-refresh — pure JS only.
+    (function() {
+      var dest = 'portal-forgot.html';
+      if (window.location.hash) dest += window.location.hash;
+      else if (window.location.search) dest += window.location.search;
+      window.location.replace(dest);
+    })();
+  </script>
+  <noscript>
+    <p>Please enable JavaScript. <a href="portal-forgot.html">Click here to reset your password.</a></p>
+  </noscript>
+</body>
+</html>

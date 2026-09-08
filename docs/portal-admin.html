@@ -4,10 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin Portal — Apex Lift Solutions</title>
-  <link rel="stylesheet" href="style.css?v=2026-09-07.v24.8-hardening" />
-  <link rel="stylesheet" href="portal-admin.css?v=2026-09-07.v24.8-hardening" />
+  <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css?v=2026-09-08.v24.9-hardening" />
+  <link rel="stylesheet" href="portal-admin.css?v=2026-09-08.v24.9-hardening" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
 /* ── Service Plans (Phase B) — all selectors sp-* scoped ── */
 .sp-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 18px}
@@ -68,7 +69,7 @@
 
 <!-- MOBILE TOPBAR -->
 <div class="mobile-topbar" id="mobile-topbar">
-  <img src="logo.jpg" alt="Apex Lift Solutions" class="mobile-topbar-logo"/>
+  <img src="logo.jpg" alt="Apex Lift Solutions" class="mobile-topbar-logo" width="342" height="120" decoding="async"/>
   <div class="mobile-topbar-right">
     <span class="mobile-topbar-badge">Admin</span>
     <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">
@@ -81,7 +82,7 @@
 <div class="admin-layout">
   <aside class="admin-sidebar" id="admin-sidebar-el">
     <div class="sidebar-logo">
-      <img src="logo.jpg" alt="Apex Lift Solutions"/>
+      <img src="logo.jpg" alt="Apex Lift Solutions" width="342" height="120" decoding="async"/>
       <span class="sidebar-label">Admin Portal</span>
     </div>
     <nav class="sidebar-nav">
@@ -170,18 +171,18 @@
         </div>
       </div>
       <div class="filter-row">
-        <select id="quotes-company-filter" class="filter-select" onchange="renderAllQuotes()">
+        <select id="quotes-company-filter" class="filter-select" onchange="renderAllQuotes()" aria-label="Filter quotes by company">
           <option value="">All Companies</option>
         </select>
-        <select id="quotes-status-filter" class="filter-select" onchange="renderAllQuotes()">
+        <select id="quotes-status-filter" class="filter-select" onchange="renderAllQuotes()" aria-label="Filter quotes by status">
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="declined">Declined</option>
         </select>
-        <input type="date" id="quotes-date-from" class="date-input" title="From date" onchange="renderAllQuotes()"/>
-        <input type="date" id="quotes-date-to" class="date-input" title="To date" onchange="renderAllQuotes()"/>
-        <input type="text" id="quotes-search" class="search-input" placeholder="Search customer / quote #…" oninput="renderAllQuotes()"/>
+        <input type="date" id="quotes-date-from" class="date-input" title="From date" onchange="renderAllQuotes()"/ aria-label="Quotes from date">
+        <input type="date" id="quotes-date-to" class="date-input" title="To date" onchange="renderAllQuotes()"/ aria-label="Quotes to date">
+        <input type="text" id="quotes-search" class="search-input" placeholder="Search customer / quote #…" oninput="renderAllQuotes()"/ aria-label="Search quotes">
       </div>
       <table class="data-table">
         <thead><tr><th>Quote #</th><th>Customer</th><th>Description</th><th>Amount</th><th>Status</th><th>Responded</th><th>Actions</th></tr></thead>
@@ -196,25 +197,25 @@
         <h3>Quote Details</h3>
         <div class="form-grid">
           <div class="form-group" style="grid-column:1/-1;">
-            <label>Select Customer *</label>
+            <label for="q-customer-select">Select Customer *</label>
             <select id="q-customer-select" onchange="selectCustomer()">
               <option value="">— Loading customers… —</option>
             </select>
           </div>
           <div class="form-group">
             <label>Customer Email</label>
-            <input type="text" id="q-email" readonly style="opacity:.55;cursor:not-allowed;"/>
+            <input type="text" id="q-email" readonly style="opacity:.55;cursor:not-allowed;"/ aria-label="Customer email">
           </div>
           <div class="form-group">
             <label>Company</label>
-            <input type="text" id="q-company" readonly style="opacity:.55;cursor:not-allowed;"/>
+            <input type="text" id="q-company" readonly style="opacity:.55;cursor:not-allowed;"/ aria-label="Customer company">
           </div>
           <div class="form-group">
-            <label>Forklift Make / Model</label>
+            <label for="q-equipment">Forklift Make / Model</label>
             <input type="text" id="q-equipment" placeholder="e.g. Toyota 8FGU25"/>
           </div>
           <div class="form-group" style="grid-column:1/-1;">
-            <label>Job Description</label>
+            <label for="q-desc">Job Description</label>
             <textarea id="q-desc" rows="2" placeholder="Brief description of work to be performed…"></textarea>
           </div>
         </div>
@@ -226,10 +227,10 @@
           </div>
           <div id="line-items-container">
             <div class="line-item">
-              <input type="text" placeholder="e.g. LBR Bracket" class="item-desc"/>
-              <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" oninput="updateTotal()"/>
-              <select class="item-type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
-              <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()"/>
+              <input type="text" placeholder="e.g. LBR Bracket" class="item-desc"/ aria-label="Line item description">
+              <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" oninput="updateTotal()"/ aria-label="Quantity">
+              <select class="item-type" aria-label="Line item type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
+              <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()"/ aria-label="Unit price">
               <button class="remove-line" onclick="removeLine(this)">×</button>
             </div>
           </div>
@@ -240,7 +241,7 @@
         <div style="margin-top:24px;">
           <h3>Attachments <span style="color:var(--grey);font-weight:400;font-size:.8rem;text-transform:none;letter-spacing:0;">(optional)</span></h3>
           <div class="file-upload-area" onclick="document.getElementById('quote-files').click()">
-            <label class="upload-label">📎 Click to attach files (photos, PDFs)</label>
+            <label for="quote-files" class="upload-label">📎 Click to attach files (photos, PDFs)</label>
             <input type="file" id="quote-files" multiple accept="image/*,.pdf,.txt,.doc,.docx" onchange="handleFileSelect(this)"/>
           </div>
           <div class="uploaded-files" id="uploaded-files-list"></div>
@@ -278,7 +279,7 @@
       </div>
       <div style="display:flex;gap:12px;">
         <button class="btn-primary" onclick="saveQuote()">Send Quote to Customer</button>
-        <button class="action-btn" onclick="showView('quotes')">Cancel</button>
+        <button class="action-btn" onclick="showView('quotes')" data-a11y-close>Cancel</button>
       </div>
     </div>
 
@@ -292,10 +293,10 @@
         </div>
       </div>
       <div class="filter-row">
-        <select id="invoices-company-filter" class="filter-select" onchange="renderInvoices()">
+        <select id="invoices-company-filter" class="filter-select" onchange="renderInvoices()" aria-label="Filter invoices by company">
           <option value="">All Companies</option>
         </select>
-        <select id="invoices-status-filter" class="filter-select" onchange="renderInvoices()">
+        <select id="invoices-status-filter" class="filter-select" onchange="renderInvoices()" aria-label="Filter invoices by status">
           <option value="">All Statuses</option>
           <option value="unpaid">Unpaid</option>
           <option value="payment_pending">Payment Pending</option>
@@ -305,9 +306,9 @@
           <option value="void">Void / Canceled</option>
           <option value="hidden">Hidden</option>
         </select>
-        <input type="date" id="invoices-date-from" class="date-input" title="From date" onchange="renderInvoices()"/>
-        <input type="date" id="invoices-date-to" class="date-input" title="To date" onchange="renderInvoices()"/>
-        <input type="text" id="invoices-search" class="search-input" placeholder="Search customer / invoice #…" oninput="renderInvoices()"/>
+        <input type="date" id="invoices-date-from" class="date-input" title="From date" onchange="renderInvoices()"/ aria-label="Invoices from date">
+        <input type="date" id="invoices-date-to" class="date-input" title="To date" onchange="renderInvoices()"/ aria-label="Invoices to date">
+        <input type="text" id="invoices-search" class="search-input" placeholder="Search customer / invoice #…" oninput="renderInvoices()"/ aria-label="Search invoices">
       </div>
       <table class="data-table">
         <thead><tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Due Date</th><th>Paid On</th><th>Actions</th></tr></thead>
@@ -322,8 +323,8 @@
         <button class="action-btn" onclick="exportCustomersCSV()" title="Download customer list as CSV">⬇ Export CSV</button>
       </div>
       <div class="filter-row">
-        <input type="text" id="customers-search" class="search-input" placeholder="Search name / email / company…" oninput="renderCustomers()"/>
-        <select id="customers-status-filter" class="filter-select" onchange="renderCustomers()">
+        <input type="text" id="customers-search" class="search-input" placeholder="Search name / email / company…" oninput="renderCustomers()"/ aria-label="Search customers">
+        <select id="customers-status-filter" class="filter-select" onchange="renderCustomers()" aria-label="Filter customers by status">
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
           <option value="active">Active</option>
@@ -355,7 +356,7 @@
       </div>
 
       <!-- Equipment editor -->
-      <div class="sp-modal" id="sp-equip-modal" hidden>
+      <div class="sp-modal" id="sp-equip-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sp-equip-title">
         <div class="sp-modal-card">
           <h3 id="sp-equip-title">Add forklift</h3>
           <input type="hidden" id="sp-equip-id">
@@ -370,14 +371,14 @@
           <label>Notes<textarea id="sp-eq-notes" rows="2"></textarea></label>
           <p class="sp-note" id="sp-equip-lock" hidden>This unit is named in a signed agreement. Serial, make, model and year are frozen.</p>
           <div class="sp-modal-actions">
-            <button class="btn-secondary" type="button" onclick="spCloseEquip()">Cancel</button>
+            <button class="btn-secondary" type="button" onclick="spCloseEquip()" data-a11y-close>Cancel</button>
             <button class="approve-btn" type="button" id="sp-equip-save">Save forklift</button>
           </div>
         </div>
       </div>
 
       <!-- Offer builder -->
-      <div class="sp-modal" id="sp-offer-modal" hidden>
+      <div class="sp-modal" id="sp-offer-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sp-offer-title">
         <div class="sp-modal-card sp-wide">
           <h3 id="sp-offer-title">New service plan offer</h3>
           <input type="hidden" id="sp-offer-id">
@@ -406,7 +407,7 @@
           <label>Offer expires in (days)<input id="sp-expiry" type="number" min="1" max="365" value="30"></label>
 
           <div class="sp-modal-actions">
-            <button class="btn-secondary" type="button" onclick="spCloseOffer()">Cancel</button>
+            <button class="btn-secondary" type="button" onclick="spCloseOffer()" data-a11y-close>Cancel</button>
             <button class="btn-secondary" type="button" id="sp-offer-save">Save draft</button>
             <button class="approve-btn" type="button" id="sp-offer-send">Save &amp; send offer</button>
           </div>
@@ -422,8 +423,8 @@
       </div>
       <div id="rs-health" class="rs-health"></div>
       <div class="sp-bar">
-        <input id="rs-search" type="search" placeholder="Filter by company, unit or serial…" style="min-width:280px;padding:9px 10px;">
-        <select id="rs-status">
+        <input id="rs-search" type="search" placeholder="Filter by company, unit or serial…" style="min-width:280px;padding:9px 10px;" aria-label="Search subscriptions">
+        <select id="rs-status" aria-label="Filter subscriptions by status">
           <option value="">All statuses</option>
           <option value="live">Live only (active / past due / paused)</option>
           <option value="active">Active</option>
@@ -440,18 +441,18 @@
     </div>
 
     <!-- SUBSCRIPTION DETAIL -->
-    <div class="sp-modal" id="rs-detail" hidden>
+    <div class="sp-modal" id="rs-detail" hidden role="dialog" aria-modal="true" aria-labelledby="rs-detail-title">
       <div class="sp-modal-card sp-wide">
         <div class="sp-row">
           <h3 id="rs-detail-title">Subscription</h3>
-          <button class="btn-secondary" type="button" onclick="rsCloseDetail()">Close</button>
+          <button class="btn-secondary" type="button" onclick="rsCloseDetail()" data-a11y-close>Close</button>
         </div>
         <div id="rs-detail-body"><div class="empty-state">Loading…</div></div>
       </div>
     </div>
 
     <!-- REFUND A BILLING CYCLE -->
-    <div class="sp-modal" id="rs-refund" hidden>
+    <div class="sp-modal" id="rs-refund" hidden role="dialog" aria-modal="true" aria-label="Refund a monthly payment">
       <div class="sp-modal-card">
         <h3>Refund a monthly payment</h3>
         <div id="rs-refund-summary" class="rs-summary"></div>
@@ -463,7 +464,7 @@
         <p class="sp-note">The server recalculates the maximum refundable amount from the ledger before moving money.
           Refunding a month does <b>not</b> cancel the subscription.</p>
         <div class="sp-modal-actions">
-          <button class="btn-secondary" type="button" onclick="rsCloseRefund()">Cancel</button>
+          <button class="btn-secondary" type="button" onclick="rsCloseRefund()" data-a11y-close>Cancel</button>
           <button class="approve-btn" type="button" id="rs-refund-go">Process refund</button>
         </div>
       </div>
@@ -475,11 +476,11 @@
         <p style="color:var(--grey-light);font-size:.9rem;margin-bottom:20px;line-height:1.65;">Password is managed by Supabase Auth. Changes take effect immediately.</p>
         <div class="form-group" style="margin-bottom:14px;">
           <label>New Password</label>
-          <input type="password" id="admin-new-pass" placeholder="Min 8 characters" autocomplete="new-password"/>
+          <input type="password" id="admin-new-pass" placeholder="Min 8 characters" autocomplete="new-password"/ aria-label="New password">
         </div>
         <div class="form-group" style="margin-bottom:14px;">
           <label>Confirm New Password</label>
-          <input type="password" id="admin-new-pass2" placeholder="Repeat password" autocomplete="new-password"/>
+          <input type="password" id="admin-new-pass2" placeholder="Repeat password" autocomplete="new-password"/ aria-label="Confirm new password">
         </div>
         <div id="pw-err" class="pw-msg pw-err"></div>
         <div id="pw-suc" class="pw-msg pw-suc"></div>
@@ -494,13 +495,13 @@
         <button class="refresh-btn" onclick="renderRequests()">↻ Refresh</button>
       </div>
       <div class="filter-row">
-        <select id="req-status-filter" class="filter-select" onchange="renderRequests()">
+        <select id="req-status-filter" class="filter-select" onchange="renderRequests()" aria-label="Filter requests by status">
           <option value="">All Statuses</option>
           <option value="open">Open</option>
           <option value="quoted">Quoted</option>
           <option value="closed">Closed</option>
         </select>
-        <input type="text" id="req-search" class="search-input" placeholder="Search customer / company…" oninput="renderRequests()"/>
+        <input type="text" id="req-search" class="search-input" placeholder="Search customer / company…" oninput="renderRequests()"/ aria-label="Search service requests">
       </div>
       <table class="data-table">
         <thead><tr><th>Req #</th><th>Customer</th><th>Equipment</th><th>Issue</th><th>Urgency</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
@@ -518,15 +519,15 @@
         </div>
       </div>
       <div class="filter-row">
-        <select id="history-customer-filter" class="filter-select" onchange="renderHistory()">
+        <select id="history-customer-filter" class="filter-select" onchange="renderHistory()" aria-label="Filter history by customer">
           <option value="">All Customers</option>
         </select>
-        <select id="history-paid-filter" class="filter-select" onchange="renderHistory()">
+        <select id="history-paid-filter" class="filter-select" onchange="renderHistory()" aria-label="Filter history by payment status">
           <option value="">All</option>
           <option value="paid">Paid</option>
           <option value="unpaid">Unpaid</option>
         </select>
-        <input type="text" id="history-search" class="search-input" placeholder="Search customer / equipment…" oninput="renderHistory()"/>
+        <input type="text" id="history-search" class="search-input" placeholder="Search customer / equipment…" oninput="renderHistory()"/ aria-label="Search service history">
       </div>
       <table class="data-table">
         <thead><tr><th>ID</th><th>Customer</th><th>Equipment</th><th>Description</th><th>Technician</th><th>Date</th><th>Amount</th><th>Paid</th><th>Actions</th></tr></thead>
@@ -549,7 +550,7 @@
     </div>
 
     <!-- ADD / EDIT SERVICE HISTORY MODAL -->
-    <div class="modal-overlay" id="history-modal" style="z-index:600;">
+    <div class="modal-overlay" id="history-modal" style="z-index:600;" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
       <div class="modal" style="max-width:600px;max-height:90vh;overflow-y:auto;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
           <h3 id="history-modal-title">Add Service Record</h3>
@@ -558,52 +559,52 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
           <div class="form-group" style="grid-column:1/-1;">
             <label>Customer *</label>
-            <select id="hist-customer" onchange="fillHistCustomer()">
+            <select id="hist-customer" onchange="fillHistCustomer()" aria-label="Customer">
               <option value="">— Select customer —</option>
             </select>
           </div>
           <div class="form-group">
             <label>Equipment</label>
-            <input type="text" id="hist-equipment" placeholder="e.g. Toyota 8FGU25"/>
+            <input type="text" id="hist-equipment" placeholder="e.g. Toyota 8FGU25"/ aria-label="Equipment make and model">
           </div>
           <div class="form-group">
             <label>Technician</label>
-            <input type="text" id="hist-tech" placeholder="Technician name"/>
+            <input type="text" id="hist-tech" placeholder="Technician name"/ aria-label="Technician name">
           </div>
           <div class="form-group">
             <label>Service Date</label>
-            <input type="date" id="hist-date"/>
+            <input type="date" id="hist-date"/ aria-label="Service date">
           </div>
           <div class="form-group">
             <label>Amount Charged ($)</label>
-            <input type="number" id="hist-amount" placeholder="0.00" step="0.01" min="0"/>
+            <input type="number" id="hist-amount" placeholder="0.00" step="0.01" min="0"/ aria-label="Amount charged">
           </div>
           <div class="form-group">
             <label>Payment Status</label>
-            <select id="hist-paid">
+            <select id="hist-paid" aria-label="Payment status">
               <option value="false">Unpaid / Invoiced separately</option>
               <option value="true">Paid in full</option>
             </select>
           </div>
           <div class="form-group" style="grid-column:1/-1;">
-            <label>Description of Work *</label>
+            <label for="hist-desc">Description of Work *</label>
             <textarea id="hist-desc" rows="3" placeholder="Describe the work performed…"></textarea>
           </div>
           <div class="form-group" style="grid-column:1/-1;">
             <label>Internal Notes</label>
-            <textarea id="hist-notes" rows="2" placeholder="Parts used, observations, follow-up needed…"></textarea>
+            <textarea id="hist-notes" rows="2" placeholder="Parts used, observations, follow-up needed…" aria-label="Internal notes"></textarea>
           </div>
         </div>
         <div id="hist-err" class="pw-msg pw-err"></div>
         <div style="display:flex;gap:10px;margin-top:16px;">
           <button class="btn-primary" onclick="saveHistoryRecord()">Save Record</button>
-          <button class="action-btn" onclick="closeHistoryModal()">Cancel</button>
+          <button class="action-btn" onclick="closeHistoryModal()" data-a11y-close>Cancel</button>
         </div>
       </div>
     </div>
 
     <!-- REQUEST DETAIL MODAL -->
-    <div class="modal-overlay" id="req-detail-modal" style="z-index:500;">
+    <div class="modal-overlay" id="req-detail-modal" style="z-index:500;" role="dialog" aria-modal="true" aria-label="Service request detail">
       <div class="modal" style="max-width:680px;max-height:90vh;overflow-y:auto;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
           <h3 id="req-detail-id" style="margin:0;">Request</h3>
@@ -621,7 +622,7 @@
 
 
 <!-- RECORD MANUAL PAYMENT (admin only) -->
-<div class="modal-overlay" id="manual-pay-modal">
+<div class="modal-overlay" id="manual-pay-modal" role="dialog" aria-modal="true" aria-label="Record a manual payment">
   <div class="modal" style="max-width:520px;">
     <h3>Record Offline Payment <span id="mp-inv-id" style="color:var(--red)"></span></h3>
     <p style="color:var(--grey-light);font-size:.9rem;margin:6px 0 18px;line-height:1.6;">
@@ -651,15 +652,16 @@
     <div id="mp-err" role="alert" style="display:none;color:#ff4444;font-family:var(--font-head);font-size:.8rem;font-weight:700;padding:10px;border:1px solid #ff4444;text-align:center;margin-bottom:12px;"></div>
     <div style="display:flex;gap:10px;">
       <button class="btn-primary" id="mp-submit" onclick="submitManualPayment()">Record Offline Payment</button>
-      <button class="action-btn" onclick="closeManualPay()">Cancel</button>
+      <button class="action-btn" onclick="closeManualPay()" data-a11y-close>Cancel</button>
     </div>
   </div>
 </div>
 
 <div class="success-toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="portal-data.js?v=2026-09-07.v24.8-hardening"></script>
-<script src="portal-admin.js?v=2026-09-07.v24.8-hardening"></script>
+<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-08.v24.9-hardening"></script>
+<script src="portal-data.js?v=2026-09-08.v24.9-hardening"></script>
+<script src="a11y.js?v=2026-09-08.v24.9-hardening"></script>
+<script src="portal-admin.js?v=2026-09-08.v24.9-hardening"></script>
 </body>
 </html>

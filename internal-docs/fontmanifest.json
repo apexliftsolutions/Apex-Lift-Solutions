@@ -1,0 +1,89 @@
+{
+ "fonttools": "4.62.1",
+ "files": [
+  {
+   "src": "Barlow-Regular.ttf",
+   "dst": "barlow-regular-400.woff2",
+   "family": "Barlow",
+   "weight": 400,
+   "style": "normal",
+   "ttf": 104068,
+   "woff2": 38604,
+   "sha_ttf": "95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea",
+   "sha_woff2": "5402b3db42e50c8bca6965609ed736b99d750591faefe15e1a3b3e69a1f586b2",
+   "glyphs_preserved": true
+  },
+  {
+   "src": "Barlow-SemiBold.ttf",
+   "dst": "barlow-semibold-600.woff2",
+   "family": "Barlow",
+   "weight": 600,
+   "style": "normal",
+   "ttf": 108348,
+   "woff2": 39780,
+   "sha_ttf": "86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5",
+   "sha_woff2": "16516b6b146d355fcd78ef0627ed30d71c1dbb92288c767ee61ec195eee3165d",
+   "glyphs_preserved": true
+  },
+  {
+   "src": "BarlowCondensed-Regular.ttf",
+   "dst": "barlow-condensed-regular-400.woff2",
+   "family": "Barlow Condensed",
+   "weight": 400,
+   "style": "normal",
+   "ttf": 102480,
+   "woff2": 37276,
+   "sha_ttf": "583cec5da3b84bc4dc7c9c72e2a565c94d34e431518b19d7e250b7830ad5f996",
+   "sha_woff2": "730b2b960f5bdad07f4f74d911777f60618961b526cc1dfbd864065492001e2e",
+   "glyphs_preserved": true
+  },
+  {
+   "src": "BarlowCondensed-SemiBold.ttf",
+   "dst": "barlow-condensed-semibold-600.woff2",
+   "family": "Barlow Condensed",
+   "weight": 600,
+   "style": "normal",
+   "ttf": 109428,
+   "woff2": 39164,
+   "sha_ttf": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9",
+   "sha_woff2": "2a267fba51cb3f37d2e16798b4deedb2d6774429baa3232cac68d6fae608b616",
+   "glyphs_preserved": true
+  },
+  {
+   "src": "BarlowCondensed-Bold.ttf",
+   "dst": "barlow-condensed-bold-700.woff2",
+   "family": "Barlow Condensed",
+   "weight": 700,
+   "style": "normal",
+   "ttf": 109912,
+   "woff2": 39372,
+   "sha_ttf": "e476562ec9c1e16cf16475895b511f08c804f438cc9a9f80a44ea50a0eeb5b65",
+   "sha_woff2": "77d61321484d28d4914c7532d1a9f3b61623aed86295d95719332f8e025021e3",
+   "glyphs_preserved": true
+  },
+  {
+   "src": "BarlowCondensed-Black.ttf",
+   "dst": "barlow-condensed-black-900.woff2",
+   "family": "Barlow Condensed",
+   "weight": 900,
+   "style": "normal",
+   "ttf": 110828,
+   "woff2": 38732,
+   "sha_ttf": "e74b750df582c608f35db467b711b2b60d2217618e85e60b72b42dfd00446cab",
+   "sha_woff2": "e2717596381d5f05871895fe3a3d0f7b343700f8f06100809c154e44fbf6f7c5",
+   "glyphs_preserved": true
+  },
+  {
+   "src": "BarlowCondensed-BoldItalic.ttf",
+   "dst": "barlow-condensed-bold-700-italic.woff2",
+   "family": "Barlow Condensed",
+   "weight": 700,
+   "style": "italic",
+   "ttf": 112196,
+   "woff2": 41640,
+   "sha_ttf": "d8694f65cd70c3e5e600ead37657aab0adb5f63b275d0c1f6f4a7046de222145",
+   "sha_woff2": "d1c5108b953f6a4fc665a0f095065cb2095e949c3093e56398015db9a0d58410",
+   "glyphs_preserved": true
+  }
+ ]
+}

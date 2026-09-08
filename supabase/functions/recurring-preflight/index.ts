@@ -38,7 +38,8 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { helcimCall } from "../_shared/helcim-api.ts";
 
-const FN_VERSION = "2026-09-07.v24.5-preflight";
+const FN_VERSION = "2026-09-07.v24.7-preflight-plan-discovery";
+const APEX_RECURRING_PLAN_NAME = "Apex Fixed-Term Monthly Service";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SB_ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -51,7 +52,7 @@ const cors = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const j = (b: unknown, s = 200) =>
-  new Response(JSON.stringify(b, null, 2), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+new Response(JSON.stringify(b, null, 2), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -67,7 +68,7 @@ Deno.serve(async (req) => {
     const token = Deno.env.get("HELCIM_ADMIN_API_TOKEN") ?? "";
     if (!token) {
       return j({ ok: false, verdict: "STOP", reason: "helcim_not_configured",
-                 detail: "HELCIM_ADMIN_API_TOKEN is not set on this project.", fn_version: FN_VERSION }, 500);
+        detail: "HELCIM_ADMIN_API_TOKEN is not set on this project.", fn_version: FN_VERSION }, 500);
     }
 
     const db = createClient(SB_URL, SB_SERVICE);
@@ -91,83 +92,162 @@ Deno.serve(async (req) => {
     // ── Probe 3: the specific configured plan, with full validation. ────────
     const planId = Number(await cfg(db, "helcim_recurring_plan_id_expires", "")) || null;
     let planReport: any = { configured: false,
-      note: "app_config.helcim_recurring_plan_id_expires is blank. Set it to the Apex Fixed-Term Monthly Service plan id." };
+      note: `app_config.helcim_recurring_plan_id_expires is blank. Looking for an exact-name candidate: ${APEX_RECURRING_PLAN_NAME}.` };
 
-    if (planId) {
-      const one = await helcimCall(`payment-plans/${planId}`, token);
-      probes.push(describe(`GET payment-plans/${planId}`, "configured plan is readable", one));
-      const p = unwrap(one.body);
-      planReport = one.ok
-        ? {
-            configured: true, plan_id: planId,
-            status: p.status, type: p.type, currency: p.currency,
-            billingPeriod: p.billingPeriod, billingPeriodIncrements: p.billingPeriodIncrements,
-            termType: p.termType, termLength: p.termLength,
-            taxType: p.taxType, paymentMethod: p.paymentMethod,
-            recurringAmount: p.recurringAmount, dateBilling: p.dateBilling,
-            activation_would_pass: planVerdict(p),
+      if (!planId) {
+        // Read-only discovery only. Helcim supports filtering the payment-plan
+        // collection by exact plan name. We still verify the returned name
+        // ourselves and NEVER write app_config automatically.
+        const q = `payment-plans?name=${encodeURIComponent(APEX_RECURRING_PLAN_NAME)}`;
+        const candidatesR = await helcimCall(q, token);
+        probes.push(describe(`GET payment-plans?name=${APEX_RECURRING_PLAN_NAME}`,
+                             "exact-name recurring plan discovery", candidatesR));
+
+        if (candidatesR.ok) {
+          const exact = paymentPlans(candidatesR.body)
+          .filter((p: any) => String(p?.name ?? "").trim() === APEX_RECURRING_PLAN_NAME);
+
+          if (exact.length === 1) {
+            const collectionPlan = exact[0];
+            const candidateId = safePositiveInt(collectionPlan.id);
+            if (!candidateId) {
+              planReport = {
+                configured: false,
+           candidate_found: false,
+           exact_name_searched: APEX_RECURRING_PLAN_NAME,
+           note: "An exact-name result was returned without a valid positive integer plan id. No configuration was changed.",
+              };
+            } else {
+              // Read the individual plan too: collection endpoints can return a
+              // reduced representation, while activation validates the full plan.
+              const detailR = await helcimCall(`payment-plans/${candidateId}`, token);
+              probes.push(describe(`GET payment-plans/${candidateId}`,
+                                   "exact-name candidate detail", detailR));
+              const p = detailR.ok ? unwrap(detailR.body) : collectionPlan;
+              planReport = {
+                configured: false,
+           candidate_found: true,
+           candidate_plan_id: candidateId,
+           candidate_name: String(p.name ?? collectionPlan.name ?? ""),
+           candidate_detail_readable: detailR.ok,
+           status: p.status ?? null,
+           type: p.type ?? null,
+           currency: p.currency ?? null,
+           billingPeriod: p.billingPeriod ?? null,
+           billingPeriodIncrements: p.billingPeriodIncrements ?? null,
+           termType: p.termType ?? null,
+           termLength: p.termLength ?? null,
+           taxType: p.taxType ?? null,
+           paymentMethod: p.paymentMethod ?? null,
+           recurringAmount: p.recurringAmount ?? null,
+           activation_would_pass: detailR.ok ? planVerdict(p) : ["candidate detail could not be read; do not configure until it is readable"],
+           note: "Read-only discovery result. Review this candidate, then set app_config manually; this function never writes configuration.",
+              };
+            }
+          } else if (exact.length > 1) {
+            planReport = {
+              configured: false,
+           candidate_found: false,
+           ambiguous_exact_matches: exact.map((p: any) => ({
+             id: safePositiveInt(p.id),
+                                                           name: String(p.name ?? ""),
+                                                           status: p.status ?? null,
+           })),
+           note: "More than one exact-name plan was returned. Select the intended plan manually; no configuration was changed.",
+            };
+          } else {
+            planReport = {
+              configured: false,
+           candidate_found: false,
+           exact_name_searched: APEX_RECURRING_PLAN_NAME,
+           note: "No exact-name plan match was returned. Verify the Helcim plan name exactly; no configuration was changed.",
+            };
           }
+        } else {
+          planReport = {
+            configured: false,
+           candidate_found: false,
+           exact_name_searched: APEX_RECURRING_PLAN_NAME,
+           lookup_http: candidatesR.httpStatus,
+           lookup_category: candidatesR.category,
+           note: "Exact-name plan discovery could not be completed. No configuration was changed.",
+          };
+        }
+      } else {
+        const one = await helcimCall(`payment-plans/${planId}`, token);
+        probes.push(describe(`GET payment-plans/${planId}`, "configured plan is readable", one));
+        const p = unwrap(one.body);
+        planReport = one.ok
+        ? {
+          configured: true, plan_id: planId,
+           status: p.status, type: p.type, currency: p.currency,
+           billingPeriod: p.billingPeriod, billingPeriodIncrements: p.billingPeriodIncrements,
+           termType: p.termType, termLength: p.termLength,
+           taxType: p.taxType, paymentMethod: p.paymentMethod,
+           recurringAmount: p.recurringAmount, dateBilling: p.dateBilling,
+           activation_would_pass: planVerdict(p),
+        }
         : { configured: true, plan_id: planId, readable: false, category: one.category };
-    }
+      }
 
-    // ── Probe 4: Recurring subscription READ. ───────────────────────────────
-    const subCollection = await helcimCall("subscriptions?limit=1", token);
-    probes.push(describe("GET subscriptions", "Recurring API — subscription read", subCollection));
+      // ── Probe 4: Recurring subscription READ. ───────────────────────────────
+      const subCollection = await helcimCall("subscriptions?limit=1", token);
+      probes.push(describe("GET subscriptions", "Recurring API — subscription read", subCollection));
 
-    // ── Probe 5: live object shape. This is what unblocks pause/resume/cancel.
-    // Helcim renders the PATCH body schema client-side, so the writable field
-    // names are not readable from the published docs. A real object tells us
-    // the true field names and the status vocabulary actually in use.
-    let shape: any = { available: false,
-      note: "No subscription exists yet on this account, so the object shape could not be sampled. Re-run this after the first $1 subscription is created." };
+      // ── Probe 5: live object shape. This is what unblocks pause/resume/cancel.
+      // Helcim renders the PATCH body schema client-side, so the writable field
+      // names are not readable from the published docs. A real object tells us
+      // the true field names and the status vocabulary actually in use.
+      let shape: any = { available: false,
+        note: "No subscription exists yet on this account, so the object shape could not be sampled. Re-run this after the first $1 subscription is created." };
 
-    const hint = Number(body.subscription_id_hint ?? 0);
-    const sample = hint
-      ? await helcimCall(`subscriptions/${hint}?includeSubObjects=true`, token)
-      : subCollection;
+        const hint = Number(body.subscription_id_hint ?? 0);
+        const sample = hint
+        ? await helcimCall(`subscriptions/${hint}?includeSubObjects=true`, token)
+        : subCollection;
 
-    const obj = firstSubscription(sample.body);
-    if (sample.ok && obj) {
-      shape = {
-        available: true,
-        top_level_fields: Object.keys(obj).sort(),
-        observed_status_value: obj.status ?? null,
-        has_maxCycles_field: Object.prototype.hasOwnProperty.call(obj, "maxCycles"),
-        maxCycles_value: obj.maxCycles ?? null,
-        timesBilled: obj.timesBilled ?? null,
-        payment_sub_object_fields: Array.isArray(obj.payments) && obj.payments[0]
-          ? Object.keys(obj.payments[0]).sort() : null,
-        observed_payment_statuses: Array.isArray(obj.payments)
-          ? [...new Set(obj.payments.map((x: any) => String(x?.status ?? "")))].filter(Boolean) : null,
-        // Deliberately NOT included: customerCode, amounts, dates, names,
-        // masked card/bank details, addresses. This probe reports STRUCTURE,
-        // never customer or payment data — it is safe to paste into a ticket.
-        _warning: "Field names here are RESPONSE fields. They do not establish which fields PATCH accepts or which are writable.",
-      };
-    }
+        const obj = firstSubscription(sample.body);
+        if (sample.ok && obj) {
+          shape = {
+            available: true,
+           top_level_fields: Object.keys(obj).sort(),
+           observed_status_value: obj.status ?? null,
+           has_maxCycles_field: Object.prototype.hasOwnProperty.call(obj, "maxCycles"),
+           maxCycles_value: obj.maxCycles ?? null,
+           timesBilled: obj.timesBilled ?? null,
+           payment_sub_object_fields: Array.isArray(obj.payments) && obj.payments[0]
+           ? Object.keys(obj.payments[0]).sort() : null,
+           observed_payment_statuses: Array.isArray(obj.payments)
+           ? [...new Set(obj.payments.map((x: any) => String(x?.status ?? "")))].filter(Boolean) : null,
+           // Deliberately NOT included: customerCode, amounts, dates, names,
+           // masked card/bank details, addresses. This probe reports STRUCTURE,
+           // never customer or payment data — it is safe to paste into a ticket.
+           _warning: "Field names here are RESPONSE fields. They do not establish which fields PATCH accepts or which are writable.",
+          };
+        }
 
-    const recurringRead = planCollection.ok || subCollection.ok;
-    const permissionDenied =
-      planCollection.httpStatus === 403 || subCollection.httpStatus === 403;
+        const recurringRead = planCollection.ok || subCollection.ok;
+        const permissionDenied =
+        planCollection.httpStatus === 403 || subCollection.httpStatus === 403;
 
-    if (!stop && permissionDenied) {
-      stop = "The token authenticates but is missing the Recurring API permission.";
-    }
+        if (!stop && permissionDenied) {
+          stop = "The token authenticates but is missing the Recurring API permission.";
+        }
 
-    return j({
-      ok: !stop && recurringRead,
-      verdict: stop ? "STOP" : recurringRead ? "RECURRING API REACHABLE" : "INCONCLUSIVE",
-      reason: stop,
-      what_to_do: stop
-        ? (permissionDenied
-            ? "In the Helcim dashboard: All Tools > Integrations > API Access. Open the API access configuration this token belongs to and enable the Recurring API permissions (read AND write). Save, then re-run this preflight. Do not start the $1 live test until this returns RECURRING API REACHABLE."
-            : "Reissue the API token and set HELCIM_ADMIN_API_TOKEN in Supabase Edge Function secrets.")
-        : "Recurring reads succeed. Note that this proves READ access only — a write permission gap would not surface until the first subscription create.",
-      probes,
-      configured_plan: planReport,
-      subscription_object_shape: shape,
-      fn_version: FN_VERSION,
-    }, stop ? 409 : 200);
+        return j({
+          ok: !stop && recurringRead,
+          verdict: stop ? "STOP" : recurringRead ? "RECURRING API REACHABLE" : "INCONCLUSIVE",
+          reason: stop,
+          what_to_do: stop
+          ? (permissionDenied
+          ? "In the Helcim dashboard: All Tools > Integrations > API Access. Open the API access configuration this token belongs to and enable the Recurring API permissions (read AND write). Save, then re-run this preflight. Do not start the $1 live test until this returns RECURRING API REACHABLE."
+          : "Reissue the API token and set HELCIM_ADMIN_API_TOKEN in Supabase Edge Function secrets.")
+          : "Recurring reads succeed. Note that this proves READ access only — a write permission gap would not surface until the first subscription create.",
+          probes,
+          configured_plan: planReport,
+          subscription_object_shape: shape,
+          fn_version: FN_VERSION,
+        }, stop ? 409 : 200);
 
   } catch (e) {
     console.error("[recurring-preflight]", String(e));   // never logs the token
@@ -183,12 +263,12 @@ function describe(call: string, purpose: string, r: any) {
     category: r.category,
     ok: r.ok,
     meaning:
-      r.httpStatus === 401 ? "401 — NOT AUTHENTICATED. The token is wrong, expired, or revoked."
-      : r.httpStatus === 403 ? "403 — AUTHENTICATED BUT NOT PERMITTED. The token is valid; this API family is not enabled for it."
-      : r.httpStatus === 404 ? "404 — reachable and permitted, but that object does not exist."
-      : r.ok ? "OK"
-      : r.category === "network" ? "Could not reach Helcim."
-      : `HTTP ${r.httpStatus}`,
+    r.httpStatus === 401 ? "401 — NOT AUTHENTICATED. The token is wrong, expired, or revoked."
+    : r.httpStatus === 403 ? "403 — AUTHENTICATED BUT NOT PERMITTED. The token is valid; this API family is not enabled for it."
+    : r.httpStatus === 404 ? "404 — reachable and permitted, but that object does not exist."
+    : r.ok ? "OK"
+    : r.category === "network" ? "Could not reach Helcim."
+    : `HTTP ${r.httpStatus}`,
   };
 }
 
@@ -213,10 +293,21 @@ function unwrap(b: any): any {
   if (b?.data && !Array.isArray(b.data) && typeof b.data === "object") return b.data;
   return b ?? {};
 }
+function paymentPlans(b: any): any[] {
+  if (Array.isArray(b)) return b.filter((x: any) => x && typeof x === "object");
+  for (const k of ["data", "paymentPlans", "plans", "results"]) {
+    if (Array.isArray(b?.[k])) return b[k].filter((x: any) => x && typeof x === "object");
+  }
+  return b && typeof b === "object" && b.id ? [b] : [];
+}
+function safePositiveInt(v: any): number | null {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
 function firstSubscription(b: any): any {
   const list = Array.isArray(b) ? b
-    : Array.isArray(b?.data) ? b.data
-    : Array.isArray(b?.subscriptions) ? b.subscriptions
-    : b && typeof b === "object" ? [b] : [];
+  : Array.isArray(b?.data) ? b.data
+  : Array.isArray(b?.subscriptions) ? b.subscriptions
+  : b && typeof b === "object" ? [b] : [];
   return list.find((x: any) => x && typeof x === "object" && x.id && x.paymentPlanId) ?? null;
 }

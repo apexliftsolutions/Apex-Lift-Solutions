@@ -27,9 +27,8 @@
 // =============================================================================
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { helcimCall, subscriptionIdempotencyKey } from "../_shared/helcim-api.ts";
-import { helcimCall } from "../_shared/helcim-api.ts";
 
-const FN_VERSION = "2026-09-07.v24.7";
+const FN_VERSION = "2026-09-07.v24.7.4-service-plan-runtime-fix";
 const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL") ?? "admin@apexliftsolutionsusa.com";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

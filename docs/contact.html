@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contact — Apex Lift Solutions | Get a Free Quote</title>
+  <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <meta name="description" content="Request a free forklift service quote or schedule a visit. Serving Nassau and Suffolk County, Long Island. Call (516) 644-7187." />
+  <meta name="theme-color" content="#000000" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://apexliftsolutionsusa.com/contact.html" />
+  <meta property="og:image" content="https://apexliftsolutionsusa.com/og-image.jpg" />
+  <meta property="og:title" content="Contact — Apex Lift Solutions | Get a Free Quote" />
+  <meta property="og:description" content="Request a free forklift service quote or schedule a visit. Serving Nassau and Suffolk County, Long Island. Call (516) 644-7187." />
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <!-- NAV -->
+  <nav id="navbar">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <img src="logo.jpg" alt="Apex Lift Solutions" class="nav-logo-img"  width="342" height="120" decoding="async"/>
+      </a>
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="services.html">Services</a></li>
+        <li><a href="plans.html">Service Plans</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="contact.html" class="active">Contact</a></li>
+        <li><a href="careers.html">Careers</a></li>
+        <li><a href="portal-login.html">Client Portal</a></li>
+      </ul>
+      <a href="contact.html" class="nav-cta">Get a Quote</a>
+      <button class="hamburger" id="hamburger" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+    <div class="mobile-menu" id="mobileMenu">
+      <a href="index.html">Home</a>
+      <a href="services.html">Services</a>
+      <a href="plans.html">Service Plans</a>
+      <a href="about.html">About</a>
+      <a href="contact.html">Contact</a>
+      <a href="careers.html">Careers</a>
+      <a href="portal-login.html">Client Portal</a>
+      <a href="contact.html" class="mobile-cta">Get a Quote</a>
+    </div>
+  </nav>
+
+  <main id="main-content" tabindex="-1">
+
+
+  <!-- PAGE HERO -->
+  <section class="page-hero">
+    <div class="hero-bg"><div class="hero-grid"></div><div class="hero-glow"></div></div>
+    <div class="container page-hero-content">
+      <span class="section-tag">GET IN TOUCH</span>
+      <h1>Request a <em>Free Quote</em></h1>
+      <p>Tell us about your fleet and we'll get back to you within one business day.</p>
+    </div>
+  </section>
+
+  <!-- CONTACT SECTION -->
+  <section id="contact" style="padding: 100px 0; background: var(--dark); border-top: 1px solid var(--border);">
+    <div class="container">
+      <div class="contact-inner">
+        <form class="contact-form" id="contactForm"
+              method="POST" data-apex-form="request_service">
+          <input type="hidden" name="_next" value="" />
+          <input type="text" name="_gotcha" style="display:none" />
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="name">Full Name *</label>
+              <input type="text" id="name" name="name" placeholder="John Smith" required />
+            </div>
+            <div class="form-group">
+              <label for="company">Company</label>
+              <input type="text" id="company" name="company" placeholder="Your Company LLC" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="email">Email Address *</label>
+              <input type="email" id="email" name="email" placeholder="john@company.com" required />
+            </div>
+            <div class="form-group">
+              <label for="phone">Phone Number</label>
+              <input type="tel" id="phone" name="Phone Number" placeholder="(555) 000-0000" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="service">Service Needed</label>
+            <select id="service" name="Service Needed">
+              <option value="">Select a service...</option>
+              <option>Emergency Repair</option>
+              <option>Diagnostic Visit</option>
+              <option>Preventive Maintenance</option>
+              <option>Starter Plan (6-Month)</option>
+              <option>Standard Plan (1-Year)</option>
+              <option>Pro Plan (2-Year)</option>
+              <option>Elite Plan (3-Year)</option>
+              <option>Ultimate Plan (4-Year)</option>
+              <option>General Question</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="fleet">Number of Forklifts</label>
+            <select id="fleet" name="Number of Forklifts">
+              <option value="">Select fleet size...</option>
+              <option>1</option>
+              <option>2–5</option>
+              <option>6–10</option>
+              <option>11–25</option>
+              <option>25+</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="message">Message</label>
+            <textarea id="message" name="issue" rows="4" placeholder="Tell us about your equipment, what issues you're experiencing, or any questions you have..."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Photos or Documents <span style="color:var(--grey);font-weight:400;">(optional)</span></label>
+            <div class="file-upload-note">
+              <div class="file-upload-box">
+                <span class="file-icon">📎</span>
+                <div>
+                  <strong>Have photos of the issue?</strong>
+                  <p>After submitting, email any photos or documents to <a href="mailto:info@apexliftsolutionsusa.com" style="color:var(--red);">info@apexliftsolutionsusa.com</a> with your name in the subject line. This helps us diagnose the problem faster.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn-primary form-submit">Send Request</button>
+          <div class="form-success" id="formSuccess">✓ Message sent! If you have photos, email them to info@apexliftsolutionsusa.com — we'll be in touch shortly.</div>
+        </form>
+        <div class="contact-info">
+          <div class="info-block">
+            <div class="info-icon">📍</div>
+            <div>
+              <strong>Service Area</strong>
+              <p>Nassau &amp; Suffolk County, Long Island, NY.<br/>We come to your facility — no need to bring machines to us.</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">📞</div>
+            <div>
+              <strong>Phone</strong>
+              <p><a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">✉️</div>
+            <div>
+              <strong>Email</strong>
+              <p>info@apexliftsolutionsusa.com<br/>service@apexliftsolutionsusa.com<br/>jobs@apexliftsolutionsusa.com</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">🕒</div>
+            <div>
+              <strong>Hours</strong>
+              <p>Mon–Fri: 7am – 6pm<br/>Emergency service: call to confirm availability</p>
+            </div>
+          </div>
+          <div class="info-block">
+            <div class="info-icon">🔧</div>
+            <div>
+              <strong>Emergency Line</strong>
+              <p>Machine down after hours?<br/>Call <a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a> — we have emergency response.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+    </main>
+
+<footer>
+    <div class="container footer-inner">
+      <div class="footer-logo">
+        <img src="logo.jpg" alt="Apex Lift Solutions" class="footer-logo-img"  width="342" height="120" loading="lazy" decoding="async"/>
+      </div>
+      <p class="footer-copy">© 2026 Apex Lift Solutions. All rights reserved.<br/><span style="color:var(--grey);font-size:.82rem;">Serving Nassau &amp; Suffolk County, Long Island, NY · <a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></span></p>
+      <div class="footer-links">
+        <a href="services.html">Services</a>
+        <a href="plans.html">Plans</a>
+        <a href="about.html">About</a>
+        <a href="contact.html">Contact</a>
+        <a href="careers.html">Careers</a>
+        <a href="privacy.html">Privacy</a>
+            <a href="cookie-policy.html">Cookie &amp; Tracking Policy</a>
+            <button type="button" id="apex-cookie-settings" class="footer-link-btn">Cookie Settings</button>
+      </div>
+
+    </div>
+  </footer>
+
+  
+<script>
+(function(){
+  var f = document.getElementById('contactForm'); if (!f) return;
+  f.addEventListener('submit', async function(e){
+    e.preventDefault();
+    var btn = f.querySelector('.form-submit, [type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    var fd = new FormData(f), body = { form: 'request_service' };
+    fd.forEach(function(v,k){ if(k==='_gotcha'){ body._gotcha=v; return; } body[k.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')] = v; });
+    try {
+      var r = await fetch('https://cjtezsgfdfijmdxzzbiq.supabase.co/functions/v1/public-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error(r.status);
+      f.reset(); var ok = document.getElementById('formSuccess'); if (ok) ok.style.display = 'block';
+      if (window.APEX_TRACK) window.APEX_TRACK('request_submit','');
+      if (btn) btn.textContent = 'Sent ✓';
+    } catch(err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Try Again'; }
+      alert('Could not send. Please call (516) 644-7187.');
+    }
+  });
+})();
+</script>
+<script src="consent.js?v=2026-09-08.v24.9-hardening"></script>
+<script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,329 @@
+/* =============================================
+   APEX LIFT SOLUTIONS — portal-auth.css
+   Shared styles for portal-login.html and
+   portal-forgot.html. Tokens from style.css.
+   ============================================= */
+
+/* ── LAYOUT ──────────────────────────────────── */
+.portal-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  position: relative;
+}
+
+.portal-card {
+  background: var(--dark);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--red);
+  width: 100%;
+  max-width: 460px;
+  padding: 48px 40px;
+  animation: fadeUp .5s ease forwards;
+}
+
+.portal-logo {
+  display: block;
+  height: 48px;
+  width: auto;
+  margin: 0 auto 32px;
+  object-fit: contain;
+}
+
+/* ── TABS (login page) ───────────────────────── */
+.portal-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  margin-bottom: 32px;
+}
+.portal-tab {
+  background: var(--dark-2);
+  color: var(--grey);
+  font-family: var(--font-head);
+  font-size: .85rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 12px;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  transition: all .2s;
+}
+.portal-tab.active { background: var(--red); color: #fff; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── HEADINGS ────────────────────────────────── */
+.portal-title {
+  font-family: var(--font-head);
+  font-size: 1.6rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.portal-title em { color: var(--red-text); font-style: normal; }
+.portal-sub { color: var(--grey-light); font-size: .92rem; margin-bottom: 24px; line-height: 1.65; }
+
+/* ── FORM GROUPS ─────────────────────────────── */
+.fg { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.fg label {
+  font-family: var(--font-head);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--grey-light);
+}
+.fg input {
+  background: var(--black);
+  border: 1px solid var(--border);
+  color: var(--white);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: 12px 16px;
+  outline: none;
+  transition: border-color .2s;
+  border-radius: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.fg input:focus { border-color: var(--red-text); }
+
+/* ── PASSWORD TOGGLE ─────────────────────────── */
+.pw-wrap { position: relative; display: flex; align-items: stretch; }
+.pw-wrap input { padding-right: 44px; flex: 1; }
+.pw-eye {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 42px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--grey);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .2s;
+}
+.pw-eye:hover { color: var(--white); }
+
+/* ── PASSWORD STRENGTH ───────────────────────── */
+.str-bar { height: 3px; background: var(--border); margin-top: 5px; border-radius: 2px; overflow: hidden; }
+.str-fill { height: 100%; width: 0; transition: width .3s, background .3s; border-radius: 2px; }
+.str-label { font-family: var(--font-head); font-size: .65rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; margin-top: 3px; color: var(--grey); }
+
+/* ── STATUS MESSAGES ─────────────────────────── */
+.err {
+  color: #ff4444;
+  font-size: .82rem;
+  font-family: var(--font-head);
+  font-weight: 600;
+  letter-spacing: .04em;
+  display: none;
+  padding: 10px;
+  border: 1px solid #ff4444;
+  text-align: center;
+  margin-bottom: 8px;
+}
+.suc {
+  color: #4caf50;
+  font-size: .82rem;
+  font-family: var(--font-head);
+  font-weight: 600;
+  letter-spacing: .04em;
+  display: none;
+  padding: 10px;
+  border: 1px solid #4caf50;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+/* ── LINKS ───────────────────────────────────── */
+.forgot-link {
+  display: block;
+  text-align: center;
+  margin-top: 14px;
+  color: var(--grey);
+  font-family: var(--font-head);
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: color .2s;
+}
+.forgot-link:hover { color: var(--red-text); }
+
+.back-link {
+  display: block;
+  text-align: center;
+  margin-top: 22px;
+  color: var(--grey);
+  font-family: var(--font-head);
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: color .2s;
+}
+.back-link:hover { color: var(--white); }
+
+/* ── LOADING OVERLAY ─────────────────────────── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.78);
+  z-index: 999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-family: var(--font-head);
+  font-size: .88rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--white);
+}
+.loading-overlay.show { display: flex; }
+.spinner {
+  width: 26px; height: 26px;
+  border: 3px solid var(--border);
+  border-top-color: var(--red-text);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── FORGOT-PAGE STEPPER ─────────────────────── */
+.steps { display: flex; align-items: flex-start; margin-bottom: 32px; position: relative; }
+.step-track { position: absolute; top: 13px; left: 14px; right: 14px; height: 2px; background: var(--border); z-index: 0; }
+.step-track-fill { height: 100%; background: var(--red); width: 0%; transition: width .4s ease; }
+.step { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; z-index: 1; }
+.step-circle {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--dark);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-head); font-size: .7rem; font-weight: 700;
+  color: var(--grey);
+  transition: all .35s;
+}
+.step.active .step-circle, .step.done .step-circle { border-color: var(--red-text); background: var(--red); color: #fff; }
+.step-lbl { font-family: var(--font-head); font-size: .58rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--grey); margin-top: 6px; transition: color .3s; }
+.step.active .step-lbl, .step.done .step-lbl { color: var(--white); }
+.step-view { display: none; }
+.step-view.active { display: block; }
+
+/* ── OTP BOXES ───────────────────────────────── */
+.otp-wrap { display: flex; gap: 8px; justify-content: center; margin: 14px 0; }
+.otp-box {
+  width: 48px; height: 56px;
+  background: var(--black);
+  border: 2px solid var(--border);
+  color: var(--white);
+  font-family: var(--font-head);
+  font-size: 1.5rem;
+  font-weight: 900;
+  text-align: center;
+  outline: none;
+  transition: all .2s;
+  border-radius: 0;
+  caret-color: var(--red-text);
+}
+.otp-box:focus { border-color: var(--red-text); background: rgba(204,0,0,.05); }
+.otp-box.filled { border-color: rgba(204,0,0,.4); }
+.otp-box.shake { border-color: #ff4444; animation: shake .4s ease; }
+
+.resend-row { text-align: center; margin-top: 12px; color: var(--grey); font-size: .8rem; font-family: var(--font-head); font-weight: 600; letter-spacing: .05em; }
+.resend-btn { color: var(--red-text); cursor: pointer; text-decoration: underline; display: none; }
+
+/* ── EMAIL CHIP / SENT NOTE ──────────────────── */
+.email-chip { background: var(--dark-2); border: 1px solid var(--border); padding: 10px 14px; font-size: .9rem; color: var(--white); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.sent-note { background: rgba(76,175,80,.07); border: 1px solid rgba(76,175,80,.2); padding: 14px 16px; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 10px; }
+.sent-note p { color: var(--grey-light); font-size: .87rem; line-height: 1.65; margin: 0; }
+
+/* ── STRENGTH BAR (forgot page variant) ─────── */
+.strength-wrap { margin-top: 5px; }
+.strength-bar { height: 3px; background: var(--border); overflow: hidden; }
+.strength-fill { height: 100%; width: 0; transition: all .3s; }
+.strength-hint { font-size: .72rem; color: var(--grey); margin-top: 3px; }
+
+/* ── ANIMATIONS ──────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+
+
+/* Small red text on a dark surface measures 3.36:1 against #0a0a0a and 2.96:1
+   against #1a1a1a — below the 4.5:1 WCAG AA needs. --red is unchanged and is
+   still correct for borders (3.21:1, above the 3:1 UI threshold), for button
+   fills (white on red is 5.40:1) and for large display text. This token is for
+   small red TEXT only. */
+:root { --red-text: #cc6464; }
+
+/* ── Accessibility (Group 3) ──────────────────────────────────────────────
+   A visible keyboard focus ring. Several inputs set `outline: none` and
+   signalled focus only with a red border, which is a colour-only cue and too
+   subtle. :focus-visible keeps mouse clicks clean while making keyboard
+   navigation obvious. The white ring sits on Apex's dark surfaces at well
+   above the 3:1 required for a focus indicator. */
+:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+a:focus-visible, button:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}
+/* Headings and containers receive focus programmatically when a dialog opens;
+   the ring there would be noise, so mark the landing spot without a box. */
+h1:focus, h2:focus, h3:focus, h4:focus, main:focus, [role="dialog"]:focus {
+  outline: none;
+}
+h1:focus-visible, h2:focus-visible, h3:focus-visible, h4:focus-visible {
+  outline: 2px dashed #ffffff;
+  outline-offset: 4px;
+}
+
+/* Skip link: off-screen until focused, then pinned top-left. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 10000;
+  background: #ffffff;
+  color: #0a0a0a;
+  padding: 12px 18px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 8px;
+  top: 8px;
+  outline: 3px solid #cc0000;
+  outline-offset: 2px;
+}
+
+/* Respect a reduced-motion preference. Transitions are reduced to near-zero
+   rather than removed, so state changes still register without animating. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

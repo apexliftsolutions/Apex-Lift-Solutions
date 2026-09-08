@@ -1,6 +1,6 @@
 // Bundle marker. Check this in devtools to confirm which build is live —
 // a stale cached bundle is otherwise invisible and looks like a broken feature.
-const APEX_ADMIN_CLIENT_VERSION = "2026-09-07.v24.8-hardening";
+const APEX_ADMIN_CLIENT_VERSION = "2026-09-08.v24.9-hardening";
 console.info("[Apex] admin client", APEX_ADMIN_CLIENT_VERSION);
 
 // =============================================

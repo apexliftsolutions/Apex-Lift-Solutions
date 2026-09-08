@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cookie &amp; Tracking Policy — Apex Lift Solutions</title>
+  <meta name="description" content="Which cookies and tracking technologies the Apex Lift Solutions website actually uses, and how to change your analytics choice."/>
+  <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <nav id="navbar">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo"><img src="logo.jpg" alt="Apex Lift Solutions" class="nav-logo-img" width="342" height="120" decoding="async"/></a>
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="services.html">Services</a></li>
+        <li><a href="plans.html">Service Plans</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="contact.html">Contact</a></li>
+        <li><a href="careers.html">Careers</a></li>
+        <li><a href="portal-login.html">Client Portal</a></li>
+      </ul>
+      <a href="contact.html" class="nav-cta">Get a Quote</a>
+      <button class="hamburger" id="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
+    </div>
+    <div class="mobile-menu" id="mobileMenu">
+      <a href="index.html">Home</a><a href="services.html">Services</a><a href="plans.html">Service Plans</a>
+      <a href="about.html">About</a><a href="contact.html">Contact</a><a href="careers.html">Careers</a>
+      <a href="portal-login.html">Client Portal</a><a href="contact.html" class="mobile-cta">Get a Quote</a>
+    </div>
+  </nav>
+
+  <main id="main-content" tabindex="-1">
+    <div style="max-width:820px;margin:0 auto;padding:120px 24px 80px;">
+    <div style="background:#3a1414;border:1px solid #7a2b2b;color:#ffb4b4;padding:14px 16px;margin:0 0 20px;font-size:.9rem;line-height:1.6;">
+      <strong>Draft — requires owner and legal review.</strong> This page lists only the technologies
+      this site actually uses. It has not been reviewed by an attorney.
+    </div>
+
+    <h1 style="font-family:var(--font-head);font-size:2.2rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 8px;">Cookie &amp; Tracking Policy</h1>
+    <p style="color:var(--grey);margin:0 0 30px;">Last updated 7 September 2026</p>
+
+    <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">What this covers</h2>
+    <p>Browser storage and third-party requests made by apexliftsolutionsusa.com and the customer and
+    admin portals. We have listed what is genuinely in the code — there is no generic cookie table
+    copied from elsewhere, and nothing below is invented.</p>
+
+    <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">Strictly necessary</h2>
+    <p>These cannot be turned off without breaking sign-in or payment.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 24px;">
+      <thead><tr style="text-align:left;border-bottom:1px solid #333;">
+        <th style="padding:8px 10px 8px 0;">Technology</th><th style="padding:8px 10px;">Provider</th>
+        <th style="padding:8px 10px;">Purpose</th><th style="padding:8px 10px;">Type</th></tr></thead>
+      <tbody style="color:var(--grey-light);">
+        <tr style="border-bottom:1px solid #222;">
+          <td style="padding:10px 10px 10px 0;">Authentication session</td>
+          <td style="padding:10px;">Supabase</td>
+          <td style="padding:10px;">Keeps you signed in to the portal between pages. Created by the Supabase JavaScript SDK using its default persistence.</td>
+          <td style="padding:10px;">First-party browser storage</td></tr>
+        <tr style="border-bottom:1px solid #222;">
+          <td style="padding:10px 10px 10px 0;">Payment checkout</td>
+          <td style="padding:10px;">Helcim</td>
+          <td style="padding:10px;">Runs the secure card and bank payment window. Loaded only on pages where a payment or payment-method setup is started.</td>
+          <td style="padding:10px;">Third-party</td></tr>
+        <tr>
+          <td style="padding:10px 10px 10px 0;"><code>apex.consent</code></td>
+          <td style="padding:10px;">Apex (this site)</td>
+          <td style="padding:10px;">Remembers your analytics choice so you are not asked again. Holds a version number, true/false, and a date. No personal information.</td>
+          <td style="padding:10px;">First-party local storage</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:.86rem;color:var(--grey);">We have not listed individual Supabase or Helcim
+    storage key names. We would only be guessing at their SDKs' internals, and a made-up key name is
+    worse than none.</p>
+
+    <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">Optional — analytics</h2>
+    <p><strong>Off unless you turn it on.</strong> Until you accept, the Google Analytics script is
+    never loaded and no analytics request leaves your browser.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 24px;">
+      <thead><tr style="text-align:left;border-bottom:1px solid #333;">
+        <th style="padding:8px 10px 8px 0;">Technology</th><th style="padding:8px 10px;">Provider</th>
+        <th style="padding:8px 10px;">Purpose</th><th style="padding:8px 10px;">Type</th></tr></thead>
+      <tbody style="color:var(--grey-light);">
+        <tr><td style="padding:10px 10px 10px 0;">Google Analytics 4 (<code>G-7YT8GZS3HH</code>)</td>
+          <td style="padding:10px;">Google</td>
+          <td style="padding:10px;">Which pages get visited and which links get used, so we know what is worth keeping. Loaded only after you accept.</td>
+          <td style="padding:10px;">Third-party</td></tr>
+      </tbody>
+    </table>
+    <p>When it is on we send generic events only: page views, that a quote form was submitted, that a
+    phone or email link was tapped. We do not send your name, email address, phone number, invoice or
+    quote numbers, equipment serial numbers, payment or transaction identifiers, or the contents of
+    any field you type into.</p>
+    <p>Analytics is not loaded on the customer or admin portal at all. Those pages are never tracked,
+    whatever your choice.</p>
+
+    <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">Other external requests</h2>
+    <p>Two more third parties are contacted when a page loads. Neither is a cookie, but both mean a
+    request to a third party:</p>
+    <ul style="color:var(--grey-light);line-height:1.9;">
+      <li><strong>Google Fonts</strong> — page typefaces are fetched from Google, which receives the
+      request and the network address it came from.</li>
+      <li><strong>jsDelivr</strong> — the Supabase JavaScript library is served from this CDN.</li>
+    </ul>
+
+    <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">Changing your mind</h2>
+    <p>Select <strong>Cookie Settings</strong> in the footer of any page. If you switch analytics off
+    after having it on, we stop sending anything further and disable collection for the rest of the
+    visit, and nothing loads on your next visit. We cannot recall data that was already sent — no
+    website can.</p>
+    <p>If you clear your browser storage, your choice is forgotten and you will be asked again.</p>
+
+    <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">Questions</h2>
+    <p>Email <a href="mailto:info@apexliftsolutionsusa.com" style="color:var(--red-text);">info@apexliftsolutionsusa.com</a>
+    or call <a href="tel:+15166447187" style="color:var(--red-text);">(516) 644-7187</a>.</p>
+    </div>
+  </main>
+
+<footer>
+    <div class="container footer-inner">
+      <div class="footer-logo"><img src="logo.jpg" alt="Apex Lift Solutions" class="footer-logo-img" width="342" height="120" loading="lazy" decoding="async"/></div>
+      <p class="footer-copy">© 2026 Apex Lift Solutions. All rights reserved.<br/><span style="color:var(--grey);font-size:.82rem;">Serving Nassau &amp; Suffolk County, Long Island, NY · <a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></span></p>
+      <div class="footer-links">
+        <a href="services.html">Services</a><a href="plans.html">Plans</a>
+        <a href="contact.html">Contact</a><a href="privacy.html">Privacy</a>
+            <a href="cookie-policy.html">Cookie &amp; Tracking Policy</a>
+            <button type="button" id="apex-cookie-settings" class="footer-link-btn">Cookie Settings</button>
+      </div>
+    </div>
+  </footer>
+  <script src="consent.js?v=2026-09-08.v24.9-hardening"></script>
+  <script src="main.js"></script>
+</body>
+</html>
