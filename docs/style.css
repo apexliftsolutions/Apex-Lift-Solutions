@@ -889,56 +889,152 @@ h1:focus-visible, h2:focus-visible, h3:focus-visible, h4:focus-visible {
   }
 }
 
-/* ── Consent (Group 4) ────────────────────────────────────────────────────
-   Accept and Reject are the same size, weight and shape. Only colour differs,
-   and colour is not the only cue — both are plainly worded buttons. */
+/* ── Consent UI (Group 8.1) ───────────────────────────────────────────────
+   Rebuilt on the site's own design tokens instead of hardcoded hex values,
+   which is what made this panel look bolted on.
+
+   Red usage is deliberate and contrast-driven:
+     fills   -> --red, hover --red-dark  (white on #a00000 is 7.72:1)
+     borders -> --red only               (--red-dark as a border is 2.24:1,
+                                          below the 3:1 UI threshold)
+   No new colour token was needed; both already exist. */
 .apex-consent {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 9000;
-  background: #111111; border-top: 3px solid #cc0000;
-  padding: 18px 20px; display: flex; gap: 18px;
+  background: var(--dark);
+  border-top: 3px solid var(--red);
+  padding: 20px 24px;
+  display: flex; gap: 20px;
   align-items: center; justify-content: space-between; flex-wrap: wrap;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, .45);
 }
-.apex-consent-text { color: #f5f5f5; font-size: .92rem; line-height: 1.6; margin: 0; max-width: 720px; }
-.apex-consent-text a { color: #cc6464; }
-.apex-consent-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.apex-consent-text {
+  color: var(--grey-light);
+  font-size: .9rem; line-height: 1.7; margin: 0; max-width: 720px;
+}
+.apex-consent-text a { color: var(--red-text); text-decoration: underline; }
+.apex-consent-text a:hover { color: var(--white); }
+.apex-consent-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+/* Same shape and typography as .btn-secondary so the choices read as site
+   buttons. Accept and Reject are identical but for fill — never size or weight. */
 .apex-consent-btn {
-  /* 44px min height keeps these comfortable on a phone. */
-  min-height: 44px; padding: 11px 20px;
-  background: transparent; color: #f5f5f5;
-  border: 1px solid #f5f5f5; font: inherit; font-weight: 600; cursor: pointer;
+  min-height: 44px;
+  padding: 12px 24px;
+  background: transparent;
+  color: var(--white);
+  border: 1px solid var(--grey);
+  font-family: var(--font-head);
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s;
 }
-.apex-consent-btn.primary { background: #cc0000; border-color: #cc0000; color: #ffffff; }
-.apex-consent-btn.link { border-color: transparent; text-decoration: underline; }
-.apex-consent-btn:hover { opacity: .88; }
+.apex-consent-btn:hover { border-color: var(--white); }
+.apex-consent-btn.primary {
+  background: var(--red); border-color: var(--red); color: #ffffff;
+}
+/* Darker fill on hover (white on #a00000 is 7.72:1) but the border stays
+   --red: --red-dark as a border measures 2.24:1 on --dark, under the 3:1
+   threshold for a UI component. */
+.apex-consent-btn.primary:hover { background: var(--red-dark); border-color: var(--red); }
+.apex-consent-btn.link {
+  border-color: transparent; color: var(--grey);
+  text-decoration: underline; padding-left: 8px; padding-right: 8px;
+}
+.apex-consent-btn.link:hover { color: var(--white); }
 
 .apex-consent-modal {
-  position: fixed; inset: 0; z-index: 9100; background: rgba(0,0,0,.85);
-  display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto;
+  position: fixed; inset: 0; z-index: 9100;
+  background: rgba(0, 0, 0, .82);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; overflow: auto;
 }
 .apex-consent-modal[hidden] { display: none; }
 .apex-consent-card {
-  background: #111111; border: 1px solid #333333; border-top: 3px solid #cc0000;
-  padding: 26px; max-width: 560px; width: 100%; color: #f5f5f5;
+  background: var(--dark);
+  border: 1px solid var(--dark-3);
+  border-top: 3px solid var(--red);
+  padding: 30px;
+  max-width: 560px; width: 100%;
+  color: var(--white);
 }
-.apex-consent-card h2 { margin: 0 0 6px; font-size: 1.25rem; }
-.apex-consent-cat { border-top: 1px solid #2a2a2a; padding-top: 14px; margin-top: 14px; }
-.apex-consent-cat h3 { margin: 0 0 4px; font-size: 1rem; }
-.apex-consent-cat p { margin: 0 0 8px; font-size: .88rem; line-height: 1.6; color: #bbbbbb; }
-.apex-consent-toggle { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
-.apex-consent-toggle input { width: 20px; height: 20px; }
+.apex-consent-card h2 {
+  font-family: var(--font-head);
+  font-size: 1.4rem; font-weight: 900;
+  letter-spacing: .04em; text-transform: uppercase;
+  margin: 0 0 6px;
+}
+.apex-consent-cat {
+  border-top: 1px solid var(--dark-3);
+  padding-top: 18px; margin-top: 18px;
+}
+.apex-consent-cat h3 {
+  font-family: var(--font-head);
+  font-size: .82rem; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--white); margin: 0 0 6px;
+}
+.apex-consent-cat p {
+  margin: 0 0 12px; font-size: .88rem; line-height: 1.7; color: var(--grey-light);
+}
+
+/* Custom control. Still a real <input type="checkbox"> with a real <label for>,
+   so keyboard operation, the accessible name and label-in-name are unchanged —
+   only the painting is ours. */
+.apex-consent-toggle {
+  display: flex; align-items: center; gap: 14px;
+  min-height: 48px; padding: 12px 14px; cursor: pointer;
+  border: 1px solid var(--dark-3); background: var(--dark-2);
+  font-family: var(--font-head); font-size: .8rem; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--white);
+  transition: border-color .2s, background .2s;
+}
+.apex-consent-toggle:hover { border-color: var(--grey); }
+.apex-consent-toggle input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  width: 22px; height: 22px; margin: 0; flex: 0 0 22px;
+  border: 2px solid var(--grey); background: transparent;
+  cursor: pointer; position: relative; transition: border-color .2s, background .2s;
+}
+.apex-consent-toggle input[type="checkbox"]:checked {
+  background: var(--red); border-color: var(--red);
+}
+.apex-consent-toggle input[type="checkbox"]:checked::after {
+  content: ''; position: absolute; left: 6px; top: 1px;
+  width: 5px; height: 11px;
+  border: solid #ffffff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.apex-consent-toggle:has(input:checked) { border-color: var(--red); background: var(--dark-3); }
 
 .footer-link-btn {
-  background: none; border: none; padding: 0; font: inherit;
-  color: inherit; text-decoration: underline; cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--grey);
+  font-family: var(--font-head);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  line-height: inherit;
+  transition: color 0.2s;
 }
+.footer-link-btn:hover { color: var(--white); }
+
 .apex-visually-hidden {
   position: absolute !important; width: 1px; height: 1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 @media (max-width: 640px) {
-  .apex-consent { flex-direction: column; align-items: flex-start; }
+  .apex-consent { flex-direction: column; align-items: flex-start; gap: 14px; }
   .apex-consent-actions { width: 100%; }
   .apex-consent-btn { flex: 1 1 auto; }
+  .apex-consent-card { padding: 22px; }
 }
 
 /* ── Load More (Group 6.1) ────────────────────────────────────────────────

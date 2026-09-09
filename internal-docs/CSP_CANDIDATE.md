@@ -49,6 +49,53 @@ Confirmed **absent**: jsDelivr, `fonts.googleapis.com`, `fonts.gstatic.com`.
 Confirmed **not runtime origins**: `schema.org`, `w3.org`, `tools.google.com` —
 these appear only as link targets or JSON-LD identifiers.
 
+
+## Google reCAPTCHA — RUNTIME OBSERVED, SOURCE OWNER NOT YET ISOLATED
+
+Manual browser verification recorded reCAPTCHA-style requests
+(`api.js?render=…`, `anchor?…`, `webworker.js`, `recaptcha__en.js`).
+
+**What the source audit proves:** Apex code does not load reCAPTCHA. There is no
+`grecaptcha`, no `google.com/recaptcha` and no `gstatic.com` reference anywhere
+in canonical `docs/`. The only Google string in the tree is
+`googletagmanager.com` inside `consent.js`, which is consent-gated, plus a
+`drive.google.com` example inside a careers form field placeholder — not a
+request at all.
+
+**What it does not prove:** that Helcim is the origin. Helcim is a strong
+candidate — it is the only third-party script we hand execution to, it loads on
+`portal-customer.html` alone, and Helcim's own documentation describes a
+*Require Captcha* option that uses Google reCAPTCHA. But "our code doesn't do it"
+and "Helcim does it" are different claims, and only one of them is currently
+evidenced.
+
+**Classification: RUNTIME OBSERVED — SOURCE OWNER NOT YET ISOLATED.**
+
+**Do not add `https://www.google.com` or `https://www.gstatic.com` to
+`script-src` or `frame-src` as proven origins yet.** Adding them on inference
+would either be unnecessary or, worse, mask the real source.
+
+### Isolating it
+
+The discriminator is which page the requests appear on:
+
+1. Fresh private window → load the homepage and one other public page. Filter
+   Network to `recaptcha`. **If anything appears here, it is not Helcim** —
+   Helcim's script is on no public page — and needs investigating before CSP.
+2. Sign in to the customer portal, but do **not** open a payment. Check again.
+3. Open a payment or Add Payment Method and let the Helcim window render. If
+   reCAPTCHA appears only at this step, Helcim is confirmed and the origins go
+   into `script-src` and `frame-src` on that evidence.
+
+Record the page and the step alongside each origin.
+
+### Resolved by browser verification
+
+- **No WebSocket traffic observed in the customer portal.** `connect-src` needs
+  the Supabase HTTPS origin only — **no `wss:`**.
+- **Helcim popup works.** The earlier payment failure was session/auth state,
+  addressed as frontend messaging in Group 8.1, not a Helcim integration bug.
+
 ## Origins that still require browser verification
 
 - **Helcim.** Frame origins, XHR targets, and any asset/font origins the SDK
@@ -56,9 +103,8 @@ these appear only as link targets or JSON-LD identifiers.
 - **Google Analytics collection endpoint.** Modern GA4 usually posts to
   `https://*.google-analytics.com` or a region-specific host. **Do not assume a
   hostname** — observe it.
-- **Supabase realtime.** The SDK may open a WebSocket during auth or session
-  handling. If it does, `connect-src` needs the `wss://` origin. If it never
-  does, do not add it.
+- **Supabase realtime — RESOLVED.** Browser verification observed no WebSocket
+  traffic in the customer portal. `wss:` must NOT be added to `connect-src`.
 
 ## Candidate policy — do not ship unverified
 

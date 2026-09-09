@@ -728,7 +728,7 @@ async function startPay() {
 
   try {
     const { data: { session } } = await sb.auth.getSession();
-    if (!session) { showPayState('error', 'Your session expired. Please sign in again.'); PAY_BUSY = false; return; }
+    if (!session) { showPaySessionExpired(); PAY_BUSY = false; return; }
 
     // Fresh key per attempt. A failed or abandoned attempt never blocks a retry;
     // the server voids stale sessions and lets a new one open.
@@ -895,6 +895,23 @@ function cleanupHelcim() {
 }
 
 // Single place that drives every visual state of the payment modal.
+/**
+ * A session that has expired is not a payment failure, and telling someone
+ * "your session expired" without a way back in leaves them stuck on a page
+ * whose buttons no longer work. Frontend messaging only — no payment logic,
+ * no backend call, and the href is a fixed same-origin path.
+ */
+function showPaySessionExpired() {
+  showPayState('error', 'Your session has expired.');
+  const d = document.getElementById('pay-error-detail');
+  if (d) {
+    d.innerHTML = 'You have been signed out, so this payment could not be started. '
+      + 'Nothing was charged. Sign in again and the invoice will still be here.'
+      + '<a href="portal-login.html" class="approve-btn" '
+      + 'style="display:inline-block;margin-top:14px;text-decoration:none;">Sign in again</a>';
+  }
+}
+
 function showPayState(state, message, result) {
   const ids = ['pay-intro','pay-loading','pay-modal-host','pay-verifying','pay-success-block','pay-pending-block','pay-confirming-block','pay-error-block'];
   ids.forEach(i => { const el = document.getElementById(i); if (el) el.style.display = 'none'; });
@@ -1499,7 +1516,7 @@ const cpDate = d => d ? new Date(String(d).length === 10 ? d + 'T12:00:00Z' : d)
 
 async function cpCall(action, payload) {
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) { alert('Your session expired. Please sign in again.'); return null; }
+  if (!session) { alert('Your session has expired and you have been signed out. Nothing was charged. Please sign in again.'); location.href = 'portal-login.html'; return null; }
   const r = await fetch(`${SB_URL}/functions/v1/service-plans-customer`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
@@ -1653,7 +1670,7 @@ async function cpStartPlanPayment(agreementId) {
   CP_VERIFY_BUSY = true;
   try {
     const { data: { session } } = await sb.auth.getSession();
-    if (!session) { alert('Your session expired. Please sign in again.'); return; }
+    if (!session) { alert('Your session has expired and you have been signed out. Nothing was charged. Please sign in again.'); location.href = 'portal-login.html'; return; }
     const r = await fetch(`${FN_BASE}/subscription-verify-checkout`, {
       method:'POST', headers:{'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json'},
       body:JSON.stringify({agreement_id:agreementId}),
