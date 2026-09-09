@@ -29,7 +29,7 @@
 //    enabled and the template references {{ .Token }} (6-digit).
 //    Auth → Configuration → OTP expiry: 600s recommended.
 //
-//  Depends on: supabase.min.js (CDN), portal-data.js (_sb client)
+//  Depends on: supabase.min.js (pinned local vendor file), portal-data.js (_sb client)
 // =============================================
 
 // Use the _sb client from portal-data.js (loaded before this file)

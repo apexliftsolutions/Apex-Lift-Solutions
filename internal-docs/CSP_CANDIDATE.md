@@ -99,6 +99,26 @@ Notes on specific directives:
 - **No wildcards.** No `https:`, no `*`, no `*.com`. If a directive cannot be
   filled with an exact origin, it stays blocked until observed.
 
+
+## Update — stored XSS found and removed during Group 8 follow-up
+
+The customers table rendered customer-controlled `name`, `company` and `email`
+inside `onclick="…"` attributes, HTML-escaped with `esc()`. That gave no
+protection: the HTML parser decodes `&#39;` back to `'` **before** the inline
+JavaScript is compiled, so a stored name of `');alert(1);//` broke out of the
+string. Customers can edit those fields themselves through `update_my_profile()`,
+so this was a stored-XSS path from a customer into an admin session.
+
+Fixed by removing customer text from executable attributes entirely: the buttons
+now carry `data-customer-action` and `data-customer-id`, a single delegated
+listener resolves the row from an in-memory map, and a fixed `switch` selects the
+handler. The action string is never executed.
+
+**This does not clear the way for `script-src-attr 'none'`.** Legacy inline
+handlers remain elsewhere in both portals — currently carrying only
+server-generated ids, integers and internally-built strings, which the security
+suite classifies and asserts on. Removing them is the Group 8.1 migration.
+
 ## Inline executable scripts still present
 
 `careers.html`, `contact.html`, `index.html` (form handlers) and

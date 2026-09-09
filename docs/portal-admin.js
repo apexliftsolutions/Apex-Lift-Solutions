@@ -6,8 +6,8 @@ console.info("[Apex] admin client", APEX_ADMIN_CLIENT_VERSION);
 // =============================================
 //  APEX LIFT SOLUTIONS — portal-admin.js
 //  Admin portal logic. Depends on:
-//    - supabase.min.js (CDN)
-//    - supabase-js (CDN)
+//    - supabase.min.js (pinned local vendor file)
+//    - supabase-js (pinned local vendor file)
 //    - portal-data.js  (Auth, DB, SB helpers)
 // =============================================
 
@@ -295,9 +295,22 @@ async function renderCustomers() {
     (c.company || '').toLowerCase().includes(search));
   if (status) list = list.filter(c => c.status === status);
 
+  // Customer-controlled text must never reach an inline JavaScript attribute.
+  // esc() is an HTML-context encoder: the parser turns &#39; back into ' BEFORE
+  // the onclick JS is compiled, so a name like  ');alert(1);//  broke out of the
+  // string. Customers can edit name/company/phone themselves, so this was a
+  // stored XSS path into an admin page.
+  //
+  // Only the UUID travels through the DOM now. Display text is recovered from
+  // an in-memory map at click time, so no customer text is ever parsed as code.
+  CUSTOMERS_BY_ID = {};
+  list.forEach(c => { CUSTOMERS_BY_ID[String(c.id)] = c; });
+
   document.getElementById('customers-table').innerHTML = !list.length
     ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No customers match your filters.</td></tr>'
-    : list.map(c => `
+    : list.map(c => {
+      const id = esc(String(c.id));
+      return `
     <tr>
       <td><strong style="color:var(--white)">${esc(c.name || '—')}</strong></td>
       <td>${esc(c.company || '—')}</td>
@@ -306,12 +319,89 @@ async function renderCustomers() {
       <td>${badge(c.status)}</td>
       <td>${esc(c.since || '—')}</td>
       <td>
-        ${c.status !== 'active' ? `<button class="action-btn green" onclick="activateCustomer('${esc(String(c.id))}','${esc(c.email)}','${esc(c.name || '')}')">✓ Activate</button>` : ''}
-        ${c.status === 'active' ? `<button class="action-btn" onclick="setCustomerStatus('${esc(String(c.id))}','inactive','${esc(c.name||'')}','${esc(c.company||'')}')" >Deactivate</button>` : ''}
-        ${c.status === 'pending' ? `<button class="action-btn danger" onclick="setCustomerStatus('${esc(String(c.id))}','inactive','${esc(c.name||'')}','${esc(c.company||'')}')" >Reject</button>` : ''}
-        <button class="action-btn danger" onclick="deleteCustomer('${esc(String(c.id))}','${esc(c.name || c.email)}')">Delete</button>
+        ${c.status !== 'active' ? `<button class="action-btn green" data-customer-action="activate" data-customer-id="${id}">✓ Activate</button>` : ''}
+        ${c.status === 'active' ? `<button class="action-btn" data-customer-action="deactivate" data-customer-id="${id}">Deactivate</button>` : ''}
+        ${c.status === 'pending' ? `<button class="action-btn danger" data-customer-action="reject" data-customer-id="${id}">Reject</button>` : ''}
+        <button class="action-btn danger" data-customer-action="delete" data-customer-id="${id}">Delete</button>
       </td>
-    </tr>`).join('');
+    </tr>`; }).join('');
+
+  wireCustomerActions();
+}
+
+/**
+ * Defence in depth for provider-returned storage URLs.
+ *
+ * A string is not safe merely because a provider returned it. This accepts only
+ * an https URL on the Supabase project origin, on the storage signed-object
+ * route, in one of the two buckets this app uses. Anything else — javascript:,
+ * data:, a protocol-relative //host, another origin, or an unparseable string —
+ * returns null and the caller renders nothing.
+ *
+ * This is URL validation, NOT a substitute for HTML escaping. The result must
+ * still be attribute-escaped at the point of interpolation; the two protect
+ * against different things.
+ */
+function safeStorageUrl(raw) {
+  // Constants live inside the function: portal-admin.js and portal-customer.js
+  // each carry a copy, and top-level consts would collide the moment any page
+  // loaded both. No page does today — this removes the trap rather than
+  // relying on that staying true.
+  const APEX_STORAGE_ORIGIN = 'https://cjtezsgfdfijmdxzzbiq.supabase.co';
+  const APEX_STORAGE_BUCKETS = ['apex-uploads', 'apex-agreements'];
+  try {
+    if (typeof raw !== 'string' || !raw) return null;
+    const u = new URL(raw);                       // throws on malformed input
+    if (u.protocol !== 'https:') return null;
+    if (u.origin !== APEX_STORAGE_ORIGIN) return null;
+    if (!u.pathname.startsWith('/storage/v1/object/sign/')) return null;
+    const bucket = u.pathname.split('/')[5];
+    if (!APEX_STORAGE_BUCKETS.includes(bucket)) return null;
+    return u.href;
+  } catch (e) {
+    return null;                                  // never log the token itself
+  }
+}
+
+let CUSTOMERS_BY_ID = {};
+let _customerActionsWired = false;
+
+/**
+ * One delegated listener for the whole customers table, installed once.
+ * renderCustomers() runs on every search keystroke and after every action, so
+ * adding a listener per render would stack them and fire an action N times.
+ *
+ * The data attribute SELECTS from a fixed switch. It is never executed —
+ * no window[action](), no eval, no new Function.
+ */
+function wireCustomerActions() {
+  if (_customerActionsWired) return;
+  const table = document.getElementById('customers-table');
+  if (!table) return;
+  _customerActionsWired = true;
+
+  table.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-customer-action]');
+    if (!btn || !table.contains(btn)) return;
+    const id = btn.dataset.customerId;
+    const c = CUSTOMERS_BY_ID[id];
+    if (!c) return;
+
+    switch (btn.dataset.customerAction) {
+      case 'activate':
+        activateCustomer(c.id, c.email, c.name || '');
+        break;
+      case 'deactivate':
+      case 'reject':
+        setCustomerStatus(c.id, 'inactive', c.name || '', c.company || '');
+        break;
+      case 'delete':
+        deleteCustomer(c.id, c.name || c.email);
+        break;
+      default:
+        break;   // unknown action strings are ignored, never executed
+    }
+  });
 }
 
 // ── CUSTOMER ACTIONS ──────────────────────────
@@ -1009,14 +1099,17 @@ async function openReqDetail(id, autoQuote) {
   let attHtml = '<p style="color:var(--grey);font-size:.85rem;margin-top:10px;">No attachments.</p>';
   if (r.attachments?.length) {
     const { data: signed } = await _sb.storage.from('apex-uploads').createSignedUrls(r.attachments, 600);
-    const items = (signed || []).filter(s => s.signedUrl).map(s => {
+    const items = (signed || [])
+      .map(s => ({ ...s, safeUrl: safeStorageUrl(s.signedUrl) }))
+      .filter(s => s.safeUrl)
+      .map(s => {
       const raw   = decodeURIComponent(s.path.split('/').pop());
       const name  = raw.replace(/^\d+_/, '');
       const short = name.length > 18 ? name.slice(0, 16) + '…' : name;
       if (/\.(pdf|txt|doc)/.test(s.path.toLowerCase())) {
-        return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="req-att-pdf"><span style="font-size:1.8rem;">📄</span><small style="font-family:var(--font-head);font-size:.58rem;color:var(--grey);margin-top:3px;text-align:center;padding:0 4px;">${esc(short)}</small></a>`;
+        return `<a href="${esc(s.safeUrl)}" target="_blank" rel="noopener" class="req-att-pdf"><span style="font-size:1.8rem;">📄</span><small style="font-family:var(--font-head);font-size:.58rem;color:var(--grey);margin-top:3px;text-align:center;padding:0 4px;">${esc(short)}</small></a>`;
       }
-      return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="req-att-img" title="${esc(name)}"><img src="${s.signedUrl}" alt="${esc(name)}"/></a>`;
+      return `<a href="${esc(s.safeUrl)}" target="_blank" rel="noopener" class="req-att-img" title="${esc(name)}"><img src="${esc(s.safeUrl)}" alt="${esc(name)}"/></a>`;
     }).join('');
     if (items) attHtml = `<div style="margin-top:16px;">
         <div style="font-family:var(--font-head);font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--grey);margin-bottom:8px;">📎 Attachments — click to open</div>
@@ -1448,7 +1541,7 @@ async function printQuotePDF(quoteId) {
   <div class="total-row">Total: $${parseFloat(q.amount).toFixed(2)}</div>
   ${q.notes ? `<div style="background:#fff8e1;border-left:3px solid #ffc107;padding:12px 16px;margin-top:16px;"><strong>Notes:</strong> ${esc(q.notes)}</div>` : ''}
   <div class="footer">
-    <p>This quote is valid for 30 days. Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com</p>
+    <p>Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com.Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com</p>
     <p>apexliftsolutionsusa.com</p>
   </div>
   <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>

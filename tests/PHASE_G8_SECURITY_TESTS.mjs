@@ -147,5 +147,172 @@ console.log("\n═══ FINANCIAL BOUNDARY UNCHANGED ═══");
   ok(/payment-checkout|payment-refund/.test(a), "F3 admin money actions still go through Edge Functions");
 }
 
+
+// =============================================================================
+//  FOLLOW-UP — CONTEXT-AWARE ASSERTIONS
+//
+//  The previous 253-assertion suite passed while a stored XSS existed in the
+//  customers table, because it tested ESCAPER OUTPUT rather than the CONTEXT
+//  the output lands in. HTML escaping is not JS-string escaping.
+// =============================================================================
+console.log("\n═══ HTML ESCAPING IS NOT JS-STRING ESCAPING ═══");
+{
+  const src = read("portal-customer.js");
+  const m = src.match(/function xss\s*\([\s\S]{0,400}?\n\}/);
+  const xss = new Function(m[0] + "; return xss;")();
+  const payload = "');console.log('XSS');//";
+  const escaped = xss(payload);
+  ok(escaped.includes("&#39;"), "X1 esc/xss encodes the apostrophe for HTML");
+  // The HTML parser decodes &#39; back to ' before the inline JS is compiled.
+  const decoded = escaped.replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+                         .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  ok(decoded === payload,
+     "X2 PROOF: the HTML parser decodes it straight back — HTML escaping gives NO protection inside an inline JS attribute");
+  ok(xss("O'Brien").includes("&#39;") && xss("O'Brien").replace(/&#39;/g, "'") === "O'Brien",
+     "X3 an ordinary name like O'Brien decodes to a quote that would break inline JS");
+}
+
+console.log("\n═══ NO CUSTOMER TEXT IN EXECUTABLE ATTRIBUTES ═══");
+{
+  const s = read("portal-admin.js");
+  const start = s.indexOf("async function renderCustomers");
+  const block = s.slice(start, s.indexOf("wireCustomerActions();", start) + 40);
+  ok(!/onclick="[^"]*\$\{esc\(c\.(name|company|email|phone)/.test(block),
+     "C1 no customer name/company/email/phone inside an onclick attribute");
+  ok(!/onclick=/.test(block), "C2 the customers table emits no inline handlers at all");
+  ok(/data-customer-action="(activate|deactivate|reject|delete)"/.test(block),
+     "C3 actions are selected by data attribute");
+  ok(/data-customer-id="\$\{id\}"/.test(block), "C4 only the id travels through the DOM");
+  ok(/CUSTOMERS_BY_ID\[String\(c\.id\)\] = c/.test(block),
+     "C5 display text is recovered from an in-memory map at click time");
+}
+{
+  // The delegated handler must select from a fixed switch, never execute a string.
+  const s = read("portal-admin.js");
+  const h = s.slice(s.indexOf("function wireCustomerActions"), s.indexOf("// ── CUSTOMER ACTIONS"));
+  ok(/switch \(btn\.dataset\.customerAction\)/.test(h), "C6 a fixed switch selects the handler");
+  ok(!/window\s*\[/.test(h) && !/eval|new Function/.test(h),
+     "C7 the action string is never executed as code");
+  ok(/if \(_customerActionsWired\) return/.test(h), "C8 the listener installs exactly once");
+  ok(/default:/.test(h), "C9 unknown action strings fall through harmlessly");
+}
+
+console.log("\n═══ MALICIOUS CUSTOMER NAMES RENDER AS TEXT ═══");
+{
+  const s = read("portal-admin.js");
+  const m = s.match(/function esc\s*\([\s\S]{0,400}?\n\}/) || read("portal-data.js").match(/function esc\s*\([\s\S]{0,400}?\n\}/);
+  const esc = new Function(m[0] + "; return esc;")();
+  const NASTY = ["O'Brien", "Company & Sons <Repair>", "');console.log('XSS');//",
+                 '"><img src=x onerror=alert(1)>', '"><svg onload=alert(1)>'];
+  for (const v of NASTY) {
+    const cell = `<td><strong>${esc(v)}</strong></td>`;
+    // Check the RAW output. Stripping entity references first would rebuild the
+    // markup and flag correctly-escaped, inert text — the same mistake as before.
+    ok(!/<(img|svg|script|iframe)\b/i.test(cell),
+       `M1 ${JSON.stringify(v.slice(0, 26))} produces no raw tag markup in a table cell`);
+    ok(!/[<>]/.test(v) || /&lt;|&gt;/.test(cell),
+       `M1b ${JSON.stringify(v.slice(0, 26))} appears entity-encoded, not dropped`);
+    // And crucially: it never reaches an attribute that is compiled as JS.
+    const btn = `<button data-customer-action="delete" data-customer-id="${esc("uuid-1")}">Delete</button>`;
+    ok(!btn.includes(v), `M2 ${JSON.stringify(v.slice(0, 26))} does not appear in the action button at all`);
+  }
+}
+
+console.log("\n═══ REMAINING INLINE HANDLER INTERPOLATIONS, CLASSIFIED ═══");
+{
+  const free = [], constrained = [];
+  const USER_TEXT = /\b(name|company|email|phone|desc|description|notes?|equipment|serial|title|reason|message|filename|label|tech|address|signer|plan_name)\b/i;
+  for (const f of ["portal-admin.js", "portal-customer.js"]) {
+    for (const line of read(f).split("\n")) {
+      for (const m of line.matchAll(/on(?:click|change|submit|input)="[^"]*?\$\{([^}]{1,70})\}/g)) {
+        const e = m[1].trim();
+        // Numeric, array-index and internally-generated handler strings are not
+        // user text: ${i} is a loop index, ${onclick} is a literal built from
+        // fixed function names plus an escaped id.
+        const numeric = /^(i|idx|n)$/.test(e) || /parseFloat|Number\(|toFixed/.test(e);
+        const internal = /^onclick$/.test(e);
+        const idLike = /\b\w*[Ii]d\b/.test(e) || /^(esc|xss|spEsc)\((?:String\()?\w+\.id/.test(e);
+        (numeric || internal || idLike || !USER_TEXT.test(e) ? constrained : free).push(`${f}: ${e}`);
+      }
+    }
+  }
+  console.log(`     classified: ${constrained.length} constrained (id/int/enum/internal), ${free.length} user-text`);
+  ok(free.length === 0,
+     `H1 no free-form user text in any inline handler (${free.slice(0, 4).join(" | ") || "none"})`);
+  ok(constrained.length > 0, `H2 ${constrained.length} constrained interpolations remain — ids, integers and internal strings, deferred to Group 8.1`);
+}
+
+console.log("\n═══ SIGNED STORAGE URL VALIDATION ═══");
+{
+  const s = read("portal-customer.js");
+  // The constants now live inside the function, so extract to the closing brace
+  // at column 0 and evaluate it exactly as shipped — no external scaffolding.
+  const m = s.match(/function safeStorageUrl\s*\([\s\S]*?\n\}/);
+  ok(!!m, "V1 safeStorageUrl() exists");
+  if (!m) throw new Error("safeStorageUrl not found — cannot verify URL handling");
+  ok(/APEX_STORAGE_ORIGIN/.test(m[0]) && /APEX_STORAGE_BUCKETS/.test(m[0]),
+     "V1b its origin and bucket allow-list are self-contained");
+  const fn = new Function(m[0] + "; return safeStorageUrl;")();
+  const OK_URL = "https://cjtezsgfdfijmdxzzbiq.supabase.co/storage/v1/object/sign/apex-uploads/x/y.pdf?token=abc";
+  ok(fn(OK_URL) === OK_URL, "V2 a genuine signed upload URL is accepted");
+  ok(!!fn(OK_URL.replace("apex-uploads", "apex-agreements")), "V3 the agreements bucket is accepted");
+  for (const [bad, label] of [
+    ["javascript:alert(1)", "javascript:"],
+    ["data:text/html,<script>alert(1)</script>", "data:"],
+    ["vbscript:msgbox(1)", "vbscript:"],
+    ["https://evil.example/storage/v1/object/sign/apex-uploads/x", "another origin"],
+    ["//evil.example/path", "protocol-relative"],
+    ["http://cjtezsgfdfijmdxzzbiq.supabase.co/storage/v1/object/sign/apex-uploads/x", "plain http"],
+    ["https://cjtezsgfdfijmdxzzbiq.supabase.co/storage/v1/object/public/apex-uploads/x", "public (unsigned) route"],
+    ["https://cjtezsgfdfijmdxzzbiq.supabase.co/storage/v1/object/sign/secret-bucket/x", "unexpected bucket"],
+    ["not a url at all", "malformed"],
+    ['" onerror="alert(1)', "attribute injection"],
+    ["", "empty"], [null, "null"], [undefined, "undefined"], [{}, "non-string"],
+  ]) ok(fn(bad) === null, `V4 rejects ${label}`);
+}
+{
+  const s = read("portal-customer.js");
+  ok(/const safe = safeStorageUrl\(res\?\.url\);[\s\S]{0,80}if \(safe\) window\.open\(safe/.test(s),
+     "V5 cpOpenPdf() only opens a validated URL");
+  ok(/href="\$\{xss\(s\.safeUrl\)\}"/.test(s) && /src="\$\{xss\(s\.safeUrl\)\}"/.test(s),
+     "V6 validated URLs are ALSO attribute-escaped — the two protections are separate");
+  const a = read("portal-admin.js");
+  ok(/href="\$\{esc\(s\.safeUrl\)\}"/.test(a), "V7 admin attachments do the same");
+  ok(!/href="\$\{s\.signedUrl\}"/.test(s + a), "V8 no raw provider URL is interpolated anywhere");
+}
+
+console.log("\n═══ REFERRER POLICY ═══");
+for (const f of HTML) {
+  ok(/<meta name="referrer" content="strict-origin-when-cross-origin">/.test(read(f)),
+     `R1 ${f} declares a referrer policy`);
+}
+{
+  const reset = read("portal-reset.html");
+  ok(/portal-forgot\.html/.test(reset), "R2 reset shim still targets one fixed same-origin path");
+  ok(!/https?:\/\//.test(reset.replace(/<meta[^>]*>/g, "")) || !/location\s*=\s*['"`]https?:/.test(reset),
+     "R3 reset shim has no external redirect target");
+}
+
+console.log("\n═══ STALE DEPENDENCY COMMENTS ═══");
+for (const f of JS) {
+  const s = read(f);
+  ok(!/\/\/[^\n]*\b(jsDelivr|Google Fonts)\b/i.test(s), `Q1 ${f} has no stale CDN comment`);
+}
+
+console.log("\n═══ POLICY DRIFT IN PRINTED DOCUMENTS ═══");
+{
+  // Printed quotes/invoices are customer-facing business content and must obey
+  // the same owner-decision discipline as the policy pages. Q1 in the owner
+  // register is still OWNER INPUT REQUIRED, so no validity period may be stated.
+  for (const f of ["portal-admin.js", "portal-customer.js"]) {
+    const s = read(f);
+    ok(!/valid for \d+ days?/i.test(s), `PD1 ${f} states no quote validity period`);
+    ok(!/expires? (after|in) \d+ days?/i.test(s), `PD2 ${f} states no expiry period`);
+  }
+  const reg = readFileSync(new URL("../internal-docs/GROUP7_OWNER_POLICY_DECISIONS.md", import.meta.url).pathname, "utf8");
+  ok(/Q1 \| How long does a quote stay valid/.test(reg),
+     "PD3 quote validity is still an open owner decision, so the absence above is correct");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

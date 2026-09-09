@@ -1,8 +1,8 @@
 // =============================================
 //  APEX LIFT SOLUTIONS — portal-customer.js
 //  Customer portal logic. Depends on:
-//    - supabase.min.js (CDN, loaded before this)
-//    - supabase-js (CDN, loaded before this)
+//    - supabase.min.js (pinned local vendor file, loaded before this)
+//    - supabase-js (pinned local vendor file, loaded before this)
 //  Self-contained — does not use portal-data.js
 //  so it can run independently of the admin flow.
 // =============================================
@@ -129,19 +129,56 @@ async function attHtmlCached(quoteId, paths) {
   return html;
 }
 
+/**
+ * Defence in depth for provider-returned storage URLs.
+ *
+ * A string is not safe merely because a provider returned it. This accepts only
+ * an https URL on the Supabase project origin, on the storage signed-object
+ * route, in one of the two buckets this app uses. Anything else — javascript:,
+ * data:, a protocol-relative //host, another origin, or an unparseable string —
+ * returns null and the caller renders nothing.
+ *
+ * This is URL validation, NOT a substitute for HTML escaping. The result must
+ * still be attribute-escaped at the point of interpolation; the two protect
+ * against different things.
+ */
+function safeStorageUrl(raw) {
+  // Constants live inside the function: portal-admin.js and portal-customer.js
+  // each carry a copy, and top-level consts would collide the moment any page
+  // loaded both. No page does today — this removes the trap rather than
+  // relying on that staying true.
+  const APEX_STORAGE_ORIGIN = 'https://cjtezsgfdfijmdxzzbiq.supabase.co';
+  const APEX_STORAGE_BUCKETS = ['apex-uploads', 'apex-agreements'];
+  try {
+    if (typeof raw !== 'string' || !raw) return null;
+    const u = new URL(raw);                       // throws on malformed input
+    if (u.protocol !== 'https:') return null;
+    if (u.origin !== APEX_STORAGE_ORIGIN) return null;
+    if (!u.pathname.startsWith('/storage/v1/object/sign/')) return null;
+    const bucket = u.pathname.split('/')[5];
+    if (!APEX_STORAGE_BUCKETS.includes(bucket)) return null;
+    return u.href;
+  } catch (e) {
+    return null;                                  // never log the token itself
+  }
+}
+
 async function attHtml(paths) {
   if (!paths?.length) return '';
   // Bucket is PRIVATE. Each path becomes a 10-minute signed URL for the signed-in
   // user; storage RLS decides whether they may have it.
   const { data: signed } = await sb.storage.from('apex-uploads').createSignedUrls(paths, 600);
-  const items = (signed || []).filter(s => s.signedUrl).map(s => {
+  const items = (signed || [])
+    .map(s => ({ ...s, safeUrl: safeStorageUrl(s.signedUrl) }))
+    .filter(s => s.safeUrl)
+    .map(s => {
     const raw   = decodeURIComponent(s.path.split('/').pop());
     const name  = raw.replace(/^\d+_/, '');
     const short = name.length > 18 ? name.slice(0, 16) + '…' : name;
     if (s.path.toLowerCase().endsWith('.pdf')) {
-      return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="att-pdf-box" title="${xss(name)}"><span>📄</span><small>${xss(short)}</small></a>`;
+      return `<a href="${xss(s.safeUrl)}" target="_blank" rel="noopener" class="att-pdf-box" title="${xss(name)}"><span>📄</span><small>${xss(short)}</small></a>`;
     }
-    return `<a href="${s.signedUrl}" target="_blank" rel="noopener" class="att-link" title="${xss(name)}"><img src="${s.signedUrl}" alt="${xss(name)}" loading="lazy"/></a>`;
+    return `<a href="${xss(s.safeUrl)}" target="_blank" rel="noopener" class="att-link" title="${xss(name)}"><img src="${xss(s.safeUrl)}" alt="${xss(name)}" loading="lazy"/></a>`;
   }).join('');
   if (!items) return '';
   return `<div style="margin-top:12px;"><div class="att-label">📎 Attachments — click to view</div><div class="att-grid">${items}</div></div>`;
@@ -1707,7 +1744,11 @@ async function cpDecline(offerId) {
 
 async function cpOpenPdf(agreementId) {
   const res = await cpCall('agreement-url', { agreement_id: agreementId });
-  if (res?.url) window.open(res.url, '_blank', 'noopener');
+  // The agreement URL comes from our own Edge Function, but validate before
+  // navigating: a bad origin must not become a navigation target.
+  const safe = safeStorageUrl(res?.url);
+  if (safe) window.open(safe, '_blank', 'noopener');
+  else if (res?.url) alert('That document link could not be opened. Please contact us and we will send it to you.');
 }
 
 /* ── Review + sign ─────────────────────────────────────────────────────── */
