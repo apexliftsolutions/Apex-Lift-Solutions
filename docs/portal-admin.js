@@ -1400,14 +1400,14 @@ async function printQuotePDF(quoteId) {
     const qty  = parseFloat(i.qty) || 1;
     const unit = parseFloat(i.unit_price || i.amount || 0);
     return `<tr>
-      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.desc || 'Service'}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${esc(i.desc || 'Service')}</td>
       <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:center;">${qty}</td>
-      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.type || ''}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${esc(i.type || '')}</td>
       <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:600;">$${(qty * unit).toFixed(2)}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="4" style="padding:9px 12px;color:#666;">See description for details.</td></tr>';
 
-  win.document.write(`<!DOCTYPE html><html><head><title>Quote ${q.id} — Apex Lift Solutions</title>
+  win.document.write(`<!DOCTYPE html><html><head><title>Quote ${esc(q.id)} — Apex Lift Solutions</title>
   <style>
     *{box-sizing:border-box;} html,body{background:#ffffff !important;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;background:#ffffff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     h1{font-size:28px;margin:0 0 2px;} .red{color:#cc0000;} .grey{color:#666;font-size:13px;}
@@ -1429,24 +1429,24 @@ async function printQuotePDF(quoteId) {
       <div class="grey">Nassau &amp; Suffolk County, Long Island, NY</div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:22px;font-weight:700;color:#111;">${q.id}</div>
+      <div style="font-size:22px;font-weight:700;color:#111;">${esc(q.id)}</div>
       <div class="grey">Quote Date: ${new Date(q.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</div>
-      <div class="badge ${q.status}">${q.status.toUpperCase()}</div>
+      <div class="badge ${esc(q.status)}">${esc(q.status.toUpperCase())}</div>
     </div>
   </div>
   <div class="meta-grid">
-    <div class="meta-item"><label>Customer</label>${q.customer_name || '—'}</div>
-    <div class="meta-item"><label>Company</label>${q.company || '—'}</div>
-    <div class="meta-item"><label>Email</label>${q.customer_email}</div>
-    <div class="meta-item"><label>Equipment</label>${q.equipment || 'Not specified'}</div>
+    <div class="meta-item"><label>Customer</label>${esc(q.customer_name || '—')}</div>
+    <div class="meta-item"><label>Company</label>${esc(q.company || '—')}</div>
+    <div class="meta-item"><label>Email</label>${esc(q.customer_email)}</div>
+    <div class="meta-item"><label>Equipment</label>${esc(q.equipment || 'Not specified')}</div>
   </div>
-  ${q.description ? `<p style="margin:0 0 16px;line-height:1.6;">${q.description}</p>` : ''}
+  ${q.description ? `<p style="margin:0 0 16px;line-height:1.6;">${esc(q.description)}</p>` : ''}
   <table>
     <thead><tr><th>Description</th><th style="text-align:center;">Qty</th><th>Type</th><th style="text-align:right;">Amount</th></tr></thead>
     <tbody>${itemRows}</tbody>
   </table>
   <div class="total-row">Total: $${parseFloat(q.amount).toFixed(2)}</div>
-  ${q.notes ? `<div style="background:#fff8e1;border-left:3px solid #ffc107;padding:12px 16px;margin-top:16px;"><strong>Notes:</strong> ${q.notes}</div>` : ''}
+  ${q.notes ? `<div style="background:#fff8e1;border-left:3px solid #ffc107;padding:12px 16px;margin-top:16px;"><strong>Notes:</strong> ${esc(q.notes)}</div>` : ''}
   <div class="footer">
     <p>This quote is valid for 30 days. Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com</p>
     <p>apexliftsolutionsusa.com</p>
@@ -1471,15 +1471,15 @@ async function printInvoicePDF(invoiceId) {
     const qty  = parseFloat(i.qty) || 1;
     const unit = parseFloat(i.unit_price || i.amount || 0);
     return `<tr>
-      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.desc || 'Service'}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${esc(i.desc || 'Service')}</td>
       <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:center;">${qty}</td>
-      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${i.type || ''}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #eee;">${esc(i.type || '')}</td>
       <td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:600;">$${(qty * unit).toFixed(2)}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="4" style="padding:9px 12px;color:#666;">See description for details.</td></tr>';
 
   const isPaid = inv.status === 'paid';
-  win.document.write(`<!DOCTYPE html><html><head><title>Invoice ${inv.id} — Apex Lift Solutions</title>
+  win.document.write(`<!DOCTYPE html><html><head><title>Invoice ${esc(inv.id)} — Apex Lift Solutions</title>
   <style>
     *{box-sizing:border-box;} html,body{background:#ffffff !important;} body{font-family:Arial,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;background:#ffffff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     h1{font-size:28px;margin:0 0 2px;} .red{color:#cc0000;} .grey{color:#666;font-size:13px;}
@@ -1502,19 +1502,19 @@ async function printInvoicePDF(invoiceId) {
     </div>
     <div style="text-align:right;">
       <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:4px;">INVOICE</div>
-      <div style="font-size:24px;font-weight:700;color:#111;">${inv.id}</div>
+      <div style="font-size:24px;font-weight:700;color:#111;">${esc(inv.id)}</div>
       <div class="grey">Issued: ${new Date(inv.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</div>
-      ${inv.quote_id ? `<div class="grey">Ref: ${inv.quote_id}</div>` : ''}
+      ${inv.quote_id ? `<div class="grey">Ref: ${esc(inv.quote_id)}</div>` : ''}
     </div>
   </div>
   ${isPaid ? `<div class="paid-stamp">✓ PAID — ${new Date(inv.paid_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>` : `<div class="due-box">⚠ Payment Due: ${inv.due ? new Date(inv.due).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : 'Upon receipt'}</div>`}
   <div class="meta-grid">
-    <div class="meta-item"><label>Bill To</label>${inv.customer_name || '—'}</div>
-    <div class="meta-item"><label>Company</label>${inv.company || '—'}</div>
-    <div class="meta-item"><label>Email</label>${inv.customer_email}</div>
+    <div class="meta-item"><label>Bill To</label>${esc(inv.customer_name || '—')}</div>
+    <div class="meta-item"><label>Company</label>${esc(inv.company || '—')}</div>
+    <div class="meta-item"><label>Email</label>${esc(inv.customer_email)}</div>
     <div class="meta-item"><label>Status</label>${isPaid ? '✓ Paid in Full' : 'Unpaid'}</div>
   </div>
-  ${inv.description ? `<p style="margin:0 0 16px;line-height:1.6;"><strong>Description:</strong> ${inv.description}</p>` : ''}
+  ${inv.description ? `<p style="margin:0 0 16px;line-height:1.6;"><strong>Description:</strong> ${esc(inv.description)}</p>` : ''}
   <table>
     <thead><tr><th>Description</th><th style="text-align:center;">Qty</th><th>Type</th><th style="text-align:right;">Amount</th></tr></thead>
     <tbody>${itemRows}</tbody>

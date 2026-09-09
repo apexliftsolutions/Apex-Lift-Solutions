@@ -1,3 +1,4 @@
+<!-- DRAFT — REQUIRES OWNER / LEGAL REVIEW BEFORE PRODUCTION -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -35,15 +36,12 @@
   </nav>
 
   <main id="main-content" tabindex="-1">
-    <div style="background:#3a1414;border:1px solid #7a2b2b;color:#ffb4b4;padding:14px 16px;margin:0 0 20px;font-size:.9rem;line-height:1.6;"><strong>Draft — requires owner and legal review.</strong> This policy describes how the Apex website and customer portal actually work today. It has not been reviewed by an attorney and is not a statement of legal compliance.</div>
-
-
-  <section class="page-hero">
+<section class="page-hero">
     <div class="hero-bg"><div class="hero-grid"></div><div class="hero-glow"></div></div>
     <div class="container page-hero-content">
       <span class="section-tag">LEGAL</span>
       <h1>Privacy <em>Policy</em></h1>
-      <p>Last updated: May 2026</p>
+      <p>Last updated: 8 September 2026</p>
     </div>
   </section>
 
@@ -58,7 +56,7 @@
         <p style="margin-bottom:12px;">We collect information you give us directly, including:</p>
         <ul style="margin:0 0 28px;padding-left:24px;">
           <li style="margin-bottom:8px;">Name, company name, email address, and phone number when you fill out a contact or quote request form</li>
-          <li style="margin-bottom:8px;">Account credentials (email and password) when you register for our Client Portal</li>
+          <li style="margin-bottom:8px;">Your email address and the authentication credentials you use to sign in to the portal, which are processed through our authentication provider.</li>
           <li style="margin-bottom:8px;">Service request details, equipment information, and any photos you upload</li>
           <li style="margin-bottom:8px;">Payment information processed securely through Helcim, our payment processor (we never see or store your full card or bank account number)</li>
         </ul>
@@ -78,12 +76,13 @@
         <p style="margin-bottom:12px;">We use the following trusted third-party services to operate our platform:</p>
         <ul style="margin:0 0 28px;padding-left:24px;">
           <li style="margin-bottom:8px;"><strong style="color:var(--white);">Supabase</strong> — database and authentication. Your account credentials and portal data are stored securely on Supabase's infrastructure.</li>
-          <li style="margin-bottom:8px;"><strong style="color:var(--white);">Google Analytics 4 (GA4)</strong> — anonymous website analytics. We track page views and interactions (button clicks, form submissions) to understand how visitors use the site. No personally identifiable information is sent to Google Analytics. You can opt out via <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener" style="color:var(--red);">Google's opt-out tool</a>.</li>
+          <li style="margin-bottom:8px;"><strong style="color:var(--white);">Google Analytics 4</strong> &mdash; optional website usage analytics, covering which pages are viewed and which links are used. <strong>It is off unless you choose to allow it</strong>, and it is never loaded in the customer or admin portal. We deliberately exclude identifying values from the events we send &mdash; names, email addresses, phone numbers, invoice and quote numbers, equipment serial numbers and payment references are filtered out before an event is sent. We cannot guarantee that usage analytics is anonymous in every circumstance. You can change your choice at any time using Cookie Settings in the footer.</li>
           <li style="margin-bottom:8px;"><strong style="color:var(--white);">Helcim</strong> — payment processing. Card and bank details are entered directly into Helcim's secure payment window and are never transmitted to or stored by Apex Lift Solutions.</li>
           <li style="margin-bottom:8px;"><strong style="color:var(--white);">Resend</strong> — delivers transactional email (quotes, invoices, payment receipts, service-request notifications) from our servers. Message content and your email address only.</li>
           </ul>
 
         <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">5. Data Security</h2>
+        <p>Authentication is handled by Supabase, our authentication provider. Apex does not store plaintext passwords in its application database.</p>
         <p style="margin-bottom:28px;">Your portal data is protected by Supabase's Row Level Security (RLS), which ensures each customer can only access their own records — even at the database level. All data is transmitted over HTTPS. Passwords are hashed and never stored in plain text.</p>
 
         <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">6. Your Rights</h2>
@@ -91,7 +90,7 @@
         <ul style="margin:0 0 28px;padding-left:24px;">
           <li style="margin-bottom:8px;">Request a copy of the personal information we hold about you</li>
           <li style="margin-bottom:8px;">Request correction of inaccurate information via your portal Account tab</li>
-          <li style="margin-bottom:8px;">Request deletion of your account by contacting us at info@apexliftsolutionsusa.com</li>
+          <li style="margin-bottom:8px;">Ask us to close your account and delete personal information where we are able to. Some records must stay &mdash; invoices, payments, refunds, signed agreements and related business and tax records &mdash; because we need them for legal, accounting, contractual and security reasons. We will tell you what we can and cannot remove. Contact info@apexliftsolutionsusa.com</li>
         </ul>
 
         <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">7. Cookies</h2>
@@ -131,10 +130,8 @@
         invoices, payments, refunds, and signed service plan agreements — are retained because we are
         required to keep accurate business and tax records and because they are the record of what
         was agreed.</p>
-        <p>[OWNER DECISION REQUIRED — DATA RETENTION] Specific retention periods have not been set
-        for: customer account data, service request history, contact and quote enquiries from people
-        who never became customers, and system/audit logs. These need to be decided by Apex and
-        reviewed against applicable record-keeping requirements before this section is published.</p>
+        <p>We keep information for as long as it is reasonably necessary for the purposes described in this policy &mdash; providing and supporting service, maintaining accurate business and financial records, resolving disputes, and meeting legal and tax obligations. Financial and contractual records, including invoices, payments, refunds and signed service plan agreements, are kept longer than an ordinary enquiry because they are the record of what was agreed and paid.</p>
+        <!-- OWNER DECISION REQUIRED — DATA RETENTION: specific periods for customer account records, non-converting enquiries, service history and audit logs are not set. See internal-docs/GROUP7_OWNER_POLICY_DECISIONS.md -->
 
         <h2 style="font-family:var(--font-head);font-size:1.3rem;font-weight:900;text-transform:uppercase;color:var(--white);margin:0 0 12px;">8. Changes to This Policy</h2>
         <p style="margin-bottom:28px;">We may update this Privacy Policy from time to time. When we do, we'll update the "last updated" date at the top of this page. Continued use of our services after changes constitutes acceptance of the updated policy.</p>
@@ -153,8 +150,11 @@
       <p class="footer-copy">© 2026 Apex Lift Solutions. All rights reserved.<br/><span style="color:var(--grey);font-size:.82rem;">Serving Nassau &amp; Suffolk County, Long Island, NY · <a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></span></p>
       <div class="footer-links">
         <a href="services.html">Services</a><a href="plans.html">Plans</a>
-        <a href="contact.html">Contact</a><a href="privacy.html">Privacy</a>
+        <a href="contact.html">Contact</a><a href="privacy.html">Privacy Policy</a>
+            <a href="terms.html">Terms &amp; Conditions</a>
+            <a href="refund-policy.html">Refund &amp; Cancellation</a>
             <a href="cookie-policy.html">Cookie &amp; Tracking Policy</a>
+            <a href="accessibility.html">Accessibility</a>
             <button type="button" id="apex-cookie-settings" class="footer-link-btn">Cookie Settings</button>
       </div>
     </div>

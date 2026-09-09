@@ -79,7 +79,7 @@
    * JavaScript, so each candidate is attempted across the plausible
    * combinations. Anything set HttpOnly, or held on another domain such as
    * google.com, cannot be removed from here by anyone. And none of this
-   * retracts data already transmitted — no website can do that.
+   * retracts data already transmitted to a third party.
    */
   function clearGACookies() {
     var removed = [];
