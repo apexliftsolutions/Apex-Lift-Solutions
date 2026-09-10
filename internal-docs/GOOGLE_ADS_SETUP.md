@@ -1,51 +1,39 @@
-# Google Ads & Conversion Tracking — Setup
+# Google Ads — current guidance (v25.0)
 
-The homepage already fires `window.APEX_TRACK(event, href)` on every tracked
-element. No account IDs are in the code. You wire them in one place.
+**There is no production Google Ads (`AW-`) id configured.** Nothing in the
+codebase references one, and none should be invented.
 
-## Events already instrumented
-| Event | Fires when |
-|---|---|
-| `call_click` | any `tel:` link with `data-track="call_click"` (hero, form, sticky bar) |
-| `request_submit` | the homepage service-request form submits |
-| `email_click` | the service@ mailto link |
+## The rule
 
-## 1. Install the tag
-Create a Google Ads account → **Tools → Conversions → New → Website** → get your
-`AW-XXXXXXXXXX` tag. Add to `<head>` of every public page:
-```html
-<script async src="https://www.googletagmanager.com/gtag/js?id=AW-XXXXXXXXXX"></script>
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','AW-XXXXXXXXXX');</script>
-```
+**No Google tag — Ads or Analytics — may load outside the consent architecture.**
+`docs/consent.js` is the only place a Google script is injected, and only after
+the visitor accepts analytics. Pasting a `gtag` snippet into a page bypasses
+consent and contradicts the published Cookie Policy. Do not do it.
 
-## 2. Connect the events
-Create three conversion actions in Ads (Phone call, Submit lead form, Contact),
-note each label, then define `APEX_TRACK` once in `main.js`:
-```js
-window.APEX_TRACK = function(ev){
-  var labels = { call_click:'AW-XXXXXXXXXX/CALL_LABEL', request_submit:'AW-XXXXXXXXXX/FORM_LABEL', email_click:'AW-XXXXXXXXXX/EMAIL_LABEL' };
-  if (window.gtag && labels[ev]) gtag('event','conversion',{ send_to: labels[ev] });
-};
-```
-Also turn on **call reporting** in Ads so calls placed directly from the ad's
-call extension are counted without touching the website.
+## The analytics path
 
-## 3. First campaign
-**Geo:** Nassau County + Suffolk County only. Expand later, on data.
-**Budget:** $30–50/day to start.
-**Bidding:** Maximize conversions once you have ~15 conversions; manual CPC before.
+`window.ApexConsent.track(name, meta)` is the single consent-aware API. It is a
+no-op until consent is given and filters identifying fields before sending.
+Every call site guards with `typeof window.ApexConsent.track === 'function'`.
 
-| Ad group | Keywords (phrase match) |
-|---|---|
-| Forklift Repair | "forklift repair", "forklift repair near me", "forklift mechanic", "forklift service" |
-| Emergency | "emergency forklift repair", "forklift won't start", "mobile forklift repair" |
-| Maintenance | "forklift maintenance", "forklift preventive maintenance", "forklift service contract" |
+## What the events mean
 
-**Negative keywords (campaign level):** jobs, salary, hiring, training, school,
-certification, certified, license, operator, manual, pdf, toy, rental, rent,
-for sale, used, buy, parts (unless you sell parts), diy, how to.
+| Event | Meaning | Emitted by |
+|---|---|---|
+| `request_submit_attempt` | A service-request form was submitted | `public-forms.js`, before fetch |
+| `request_submit` | **The server confirmed** the service request was stored | `public-forms.js`, only after `r.ok` |
+| `job_application_submit_attempt` | A careers form was submitted | `public-forms.js`, before fetch |
+| `job_application_submit` | **The server confirmed** the application was stored | `public-forms.js`, only after `r.ok` |
 
-## 4. Don't launch until
-- The homepage form and call buttons are live (they are, in this build).
-- `APEX_TRACK` is wired and you've watched a test conversion land in Ads.
-- Google Business Profile exists — it drives more calls than the website.
+**A failed submission is not a conversion.** The `_attempt` events exist so
+funnel drop-off is visible; they must never be wired to an Ads conversion.
+
+## If Ads is added later
+
+1. The `AW-` id goes into `consent.js` alongside the GA id, loaded on the same
+   consent gate.
+2. The conversion action maps to `request_submit` (service leads) and, if
+   wanted, `job_application_submit` — never to the `_attempt` events, and never
+   to a click-level `data-track` event.
+3. Verify in a fresh private window that **zero** Google requests occur before
+   the banner is answered.

@@ -1,6 +1,6 @@
 /* ============================================================================
    Apex — accessibility helper (Group 3)
-   2026-09-08.v24.9-hardening
+   2026-09-09.v25.0
 
    Dialog semantics, focus management and Escape handling for every modal in
    both portals.

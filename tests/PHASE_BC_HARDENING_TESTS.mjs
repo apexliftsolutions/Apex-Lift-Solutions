@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
-import { execFileSync } from "node:child_process";
+import { buildSync } from "esbuild";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const customerPath = path.join(root, "supabase/functions/service-plans-customer/index.ts");
@@ -29,17 +29,40 @@ ok("H5 admin send-offer loads owner and requires active status",
   admin.includes('equipment_id, customer_id') && admin.includes('customer.status !== "active"') && admin.includes('account_not_active'));
 
 // Execute the actual shipping render() function without contacting Resend.
-// TypeScript is transpiled only; Deno.env is polyfilled for SITE/FROM helpers.
+//
+// Transpile with the esbuild API from package.json — NOT a global `tsc`. An
+// earlier version spawned `tsc`, which happened to exist on the authoring
+// machine via a global npm prefix and does not exist after a clean `npm ci`.
+// A release gate must depend only on what the lockfile installs.
+//
+// esbuild strips types without type-checking, which is exactly right here: the
+// module targets Deno, whose globals are not typed for Node, and we only need
+// the emitted JS to run render().
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "apex-email-test-"));
-try {
-  execFileSync("tsc", [emailPath, "--target", "ES2022", "--module", "ES2022", "--skipLibCheck",
-    "--noEmitOnError", "false", "--outDir", tmpDir], { stdio: "ignore" });
-} catch {
-  // tsc returns non-zero because Deno globals are not typed in Node, but with
-  // --noEmitOnError false it still emits the JS we need for this renderer test.
-}
 const tmp = path.join(tmpDir, "email.js");
-ok("H6 email.ts transpiled for smoke test", fs.existsSync(tmp));
+let transpiled = false, transpileError = "";
+try {
+  buildSync({
+    entryPoints: [emailPath],
+    outfile: tmp,
+    bundle: false,          // single file; keep its imports (none are used by render())
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    logLevel: "silent",
+  });
+  transpiled = fs.existsSync(tmp);
+} catch (e) {
+  transpileError = String(e && e.message || e).slice(0, 160);
+}
+ok("H6 email.ts transpiled for smoke test via esbuild", transpiled);
+if (!transpiled) {
+  // Do not fall through to `await import(nonexistent)` — that would replace a
+  // clean, attributable failure with a confusing module-not-found stack.
+  console.error(`FAIL H6 detail: ${transpileError || "no output file"}`);
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  process.exit(1);
+}
 globalThis.Deno = { env: { get: () => undefined } };
 const { render } = await import(pathToFileURL(tmp).href + `?v=${Date.now()}`);
 

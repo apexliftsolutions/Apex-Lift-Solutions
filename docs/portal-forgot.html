@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Reset Password — Apex Lift Solutions</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css"/>
-  <link rel="stylesheet" href="portal-auth.css"/>
+  <link rel="stylesheet" href="style.css?v=2026-09-09.v25.0"/>
+  <link rel="stylesheet" href="portal-auth.css?v=2026-09-09.v25.0"/>
   <link rel="icon" type="image/x-icon" href="favicon.ico"/>
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png"/>
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png"/>
@@ -35,11 +36,11 @@
       <div class="portal-title">Forgot <em>Password</em></div>
       <p class="portal-sub">Enter the email address on your account and we'll send you a one-time verification code.</p>
       <div class="fg">
-        <label>Email Address</label>
+        <label for="s1-email">Email Address</label>
         <input type="email" id="s1-email" placeholder="you@company.com" autocomplete="email"/>
       </div>
       <div class="err" id="s1-err"></div>
-      <button class="btn-primary" onclick="step1()" style="width:100%;">Send Verification Code</button>
+      <button class="btn-primary" data-action="send-code" style="width:100%;">Send Verification Code</button>
     </div>
 
     <!-- STEP 2: VERIFY OTP -->
@@ -49,18 +50,18 @@
       <div class="email-chip">✉️ <strong id="v2-email"></strong></div>
       <div class="sent-note"><p>Check your inbox — may take 1–2 minutes. If you don't see it, check your spam folder.</p></div>
       <div class="otp-wrap">
-        <input class="otp-box" maxlength="1" id="o0" oninput="otpIn(this,0)" onkeydown="otpKey(event,0)" inputmode="numeric"/>
-        <input class="otp-box" maxlength="1" id="o1" oninput="otpIn(this,1)" onkeydown="otpKey(event,1)" inputmode="numeric"/>
-        <input class="otp-box" maxlength="1" id="o2" oninput="otpIn(this,2)" onkeydown="otpKey(event,2)" inputmode="numeric"/>
-        <input class="otp-box" maxlength="1" id="o3" oninput="otpIn(this,3)" onkeydown="otpKey(event,3)" inputmode="numeric"/>
-        <input class="otp-box" maxlength="1" id="o4" oninput="otpIn(this,4)" onkeydown="otpKey(event,4)" inputmode="numeric"/>
-        <input class="otp-box" maxlength="1" id="o5" oninput="otpIn(this,5)" onkeydown="otpKey(event,5)" inputmode="numeric"/>
+        <input class="otp-box" maxlength="1" id="o0" data-action="otp" data-index="0" inputmode="numeric" aria-label="Verification code digit 1 of 6" autocomplete="one-time-code" />
+        <input class="otp-box" maxlength="1" id="o1" data-action="otp" data-index="1" inputmode="numeric" aria-label="Verification code digit 2 of 6" />
+        <input class="otp-box" maxlength="1" id="o2" data-action="otp" data-index="2" inputmode="numeric" aria-label="Verification code digit 3 of 6" />
+        <input class="otp-box" maxlength="1" id="o3" data-action="otp" data-index="3" inputmode="numeric" aria-label="Verification code digit 4 of 6" />
+        <input class="otp-box" maxlength="1" id="o4" data-action="otp" data-index="4" inputmode="numeric" aria-label="Verification code digit 5 of 6" />
+        <input class="otp-box" maxlength="1" id="o5" data-action="otp" data-index="5" inputmode="numeric" aria-label="Verification code digit 6 of 6" />
       </div>
       <div class="err" id="s2-err"></div>
-      <button class="btn-primary" onclick="step2()" style="width:100%;">Verify Code</button>
+      <button class="btn-primary" data-action="verify-code" style="width:100%;">Verify Code</button>
       <div class="resend-row">
         Didn't get it? <span id="resend-cd"></span>
-        <span class="resend-btn" id="resend-btn" onclick="resendCode()">Resend code</span>
+        <button type="button" class="resend-btn" id="resend-btn" data-action="resend">Resend code</button>
       </div>
     </div>
 
@@ -69,28 +70,28 @@
       <div class="portal-title">New <em>Password</em></div>
       <p class="portal-sub">Almost done — choose a strong new password.</p>
       <div class="fg">
-        <label>New Password</label>
-        <input type="password" id="s3-pass" placeholder="Min 8 characters" oninput="strengthCheck()" autocomplete="new-password"/>
+        <label for="s3-pass">New Password</label>
+        <input type="password" id="s3-pass" placeholder="Min 8 characters" data-action="strength" autocomplete="new-password"/>
         <div class="strength-wrap">
           <div class="strength-bar"><div class="strength-fill" id="sf"></div></div>
           <div class="strength-hint" id="sh">Enter a password</div>
         </div>
       </div>
       <div class="fg">
-        <label>Confirm New Password</label>
+        <label for="s3-pass2">Confirm New Password</label>
         <input type="password" id="s3-pass2" placeholder="Repeat password" autocomplete="new-password"/>
       </div>
       <div class="err" id="s3-err"></div>
       <div class="suc" id="s3-suc"></div>
-      <button class="btn-primary" id="s3-btn" onclick="step3()" style="width:100%;">Set New Password</button>
+      <button class="btn-primary" id="s3-btn" data-action="reset-password" style="width:100%;">Set New Password</button>
     </div>
 
     <a href="portal-login.html" class="back-link">← Back to Sign In</a>
   </div>
 </div>
 
-<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="portal-data.js"></script>
-<script src="portal-forgot.js"></script>
+<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-09.v25.0"></script>
+<script src="portal-data.js?v=2026-09-09.v25.0"></script>
+<script src="portal-forgot.js?v=2026-09-09.v25.0"></script>
 </body>
 </html>

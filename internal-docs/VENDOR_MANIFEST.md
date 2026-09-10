@@ -1,6 +1,11 @@
 # Vendored third-party assets
 
-## @supabase/supabase-js — STAGED, NOT WIRED IN
+> **Reading order.** The first section below is the HISTORICAL staging note
+> from Group 5, written while the site still loaded the SDK from jsDelivr.
+> The "WIRED IN" section further down is the current state: the SDK is
+> served from `docs/vendor/` and no page references jsDelivr.
+
+## @supabase/supabase-js — STAGED, NOT WIRED IN (historical, Group 5)
 
 | | |
 |---|---|

@@ -222,7 +222,8 @@ console.log("\n═══ FOLLOW-UP: SITEMAP ═══");
                         "portal-forgot.html", "portal-reset.html"]) {
     ok(!sm.includes(portal), `SM2 sitemap excludes the authenticated page ${portal}`);
   }
-  ok(/<lastmod>2026-09-08<\/lastmod>/.test(sm), "SM3 lastmod reflects the current revision");
+  ok(/<lastmod>2026-09-09<\/lastmod>/.test(sm) && !/<lastmod>2026-09-0[1-8]<\/lastmod>/.test(sm),
+     "SM3 lastmod reflects the v25 revision on every public page");
   const locs = (sm.match(/<loc>/g) || []).length;
   ok(locs === 11, `SM4 sitemap has 11 public URLs (${locs})`);
 }

@@ -1,6 +1,6 @@
 // Bundle marker. Check this in devtools to confirm which build is live —
 // a stale cached bundle is otherwise invisible and looks like a broken feature.
-const APEX_ADMIN_CLIENT_VERSION = "2026-09-08.v24.9-hardening";
+const APEX_ADMIN_CLIENT_VERSION = "2026-09-09.v25.0";
 console.info("[Apex] admin client", APEX_ADMIN_CLIENT_VERSION);
 
 // =============================================
@@ -99,7 +99,12 @@ async function renderStats() {
   const pending     = quotes.filter(q => q.status === 'pending').length;
   const unpaid      = invoices.filter(i => i.status === 'unpaid').length;
   const activeCustomers = customers.filter(c => c.status === 'active').length;
-  const revenue     = invoices.filter(i => i.status === 'paid')
+  // Sum of PAID INVOICE face values. It does not consult the payments ledger,
+  // so refunds and reversals are not deducted and it is not net revenue. The
+  // label says so rather than the number quietly meaning something else.
+  // A true net figure would derive from succeeded payments minus succeeded
+  // corrections — see internal-docs/ADMIN_KPI_FOLLOWUP.md.
+  const invoicedPaid = invoices.filter(i => i.status === 'paid')
     .reduce((s, i) => s + parseFloat(i.amount), 0);
   const outstanding = invoices.filter(i => i.status === 'unpaid')
     .reduce((s, i) => s + parseFloat(i.amount), 0);
@@ -113,7 +118,7 @@ async function renderStats() {
     <div class="stat-card"><div class="label">Open Quotes</div><div class="value ${pending > 0 ? 'red' : ''}">${pending}</div></div>
     <div class="stat-card"><div class="label">Outstanding</div><div class="value ${outstanding > 0 ? 'red' : ''}">$${outstanding.toFixed(2)}</div></div>
     <div class="stat-card"><div class="label">Unpaid Invoices</div><div class="value ${unpaid > 0 ? 'red' : ''}">${unpaid}</div></div>
-    <div class="stat-card"><div class="label">Revenue Collected</div><div class="value">$${revenue.toFixed(2)}</div></div>`;
+    <div class="stat-card" title="Face value of invoices marked paid. Refunds and reversals are not deducted, so this is not net revenue."><div class="label">Invoiced &amp; Paid</div><div class="value">$${invoicedPaid.toFixed(2)}</div><div class="stat-note" style="font-size:.68rem;color:var(--grey);margin-top:4px;">gross &middot; refunds not deducted</div></div>`;
 
   const changed = quotes.filter(q => {
     const prev = lastQuoteStatuses[q.id];
@@ -135,14 +140,14 @@ async function renderDashQuotes() {
     <tr>
       <td><strong style="color:var(--white)">${esc(q.id)}</strong></td>
       <td>${esc(q.customer_name)} — <span style="color:var(--grey);font-size:.8rem;">${esc(q.company || '')}</span></td>
-      <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
+      <td><strong style="color:var(--red-text)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
       <td>${badge(q.status)}</td>
       <td>${fmtDate(q.created_at)}</td>
       <td>
-        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` :
+        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" data-action="quote-convert" data-id="${q.id}">→ Invoice</button>` :
           q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
-        <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
-        <button class="action-btn" onclick="printQuotePDF('${q.id}')">🖨 PDF</button>
+        <button class="action-btn" data-action="quote-view" data-id="${q.id}">View</button>
+        <button class="action-btn" data-action="quote-print" data-id="${q.id}">🖨 PDF</button>
       </td>
     </tr>`).join('');
 }
@@ -172,15 +177,15 @@ async function renderAllQuotes() {
       <td><strong style="color:var(--white)">${esc(q.id)}</strong></td>
       <td>${esc(q.customer_name)}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(q.customer_email)}</span></td>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem;">${esc(q.description || '')}</td>
-      <td><strong style="color:var(--red)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
+      <td><strong style="color:var(--red-text)">$${parseFloat(q.amount).toFixed(2)}</strong></td>
       <td>${badge(q.status)}</td>
       <td>${fmtDate(q.responded_at)}</td>
       <td>
-        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" onclick="convertToInvoice('${q.id}')">→ Invoice</button>` :
+        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" data-action="quote-convert" data-id="${q.id}">→ Invoice</button>` :
           q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
-        <button class="action-btn" onclick="viewQuoteDetail('${q.id}')">View</button>
-        <button class="action-btn" onclick="printQuotePDF('${q.id}')">🖨 PDF</button>
-        <button class="action-btn danger" onclick="deleteQuote('${q.id}')">Delete</button>
+        <button class="action-btn" data-action="quote-view" data-id="${q.id}">View</button>
+        <button class="action-btn" data-action="quote-print" data-id="${q.id}">🖨 PDF</button>
+        <button class="action-btn danger" data-action="quote-delete" data-id="${q.id}">Delete</button>
       </td>
     </tr>`).join('');
 }
@@ -267,17 +272,17 @@ async function renderInvoices() {
     <tr>
       <td><strong style="color:var(--white)">${esc(i.id)}</strong></td>
       <td>${esc(i.customer_name || '')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company || '')}</span></td>
-      <td>${!i.customer_id ? '<div style="color:#f0a500;font-size:.68rem;font-family:var(--font-head);font-weight:700;letter-spacing:.06em;">⚠ NO PORTAL LINK — customer cannot see or pay this</div>' : ''}<strong style="color:var(--red)">$${parseFloat(i.amount).toFixed(2)}</strong>${i.tax_exempt ? '<br><span style="font-size:.68rem;color:var(--grey);">TAX EXEMPT</span>' : (Number(i.tax_cents) > 0 ? `<br><span style="font-size:.68rem;color:var(--grey);">incl. $${(i.tax_cents/100).toFixed(2)} tax</span>` : '')}</td>
+      <td>${!i.customer_id ? '<div style="color:#f0a500;font-size:.68rem;font-family:var(--font-head);font-weight:700;letter-spacing:.06em;">⚠ NO PORTAL LINK — customer cannot see or pay this</div>' : ''}<strong style="color:var(--red-text)">$${parseFloat(i.amount).toFixed(2)}</strong>${i.tax_exempt ? '<br><span style="font-size:.68rem;color:var(--grey);">TAX EXEMPT</span>' : (Number(i.tax_cents) > 0 ? `<br><span style="font-size:.68rem;color:var(--grey);">incl. $${(i.tax_cents/100).toFixed(2)} tax</span>` : '')}</td>
       <td>${badge(i.status)}</td>
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
       <td>
         ${(i.status === 'unpaid' || i.status === 'payment_pending') ? `${payActionHtml(i, _live[i.id], _paymentSummary[i.id])}` : ''}
         ${refundActionHtml(i, _paymentSummary[i.id])}
-        <button class="action-btn" onclick="printInvoicePDF('${i.id}')">🖨 PDF</button>
-        ${i.status !== 'hidden' ? `<button class="action-btn" onclick="hideInvoice('${i.id}')">Hide</button>`
-          : `<button class="action-btn green" onclick="unhideInvoice('${i.id}')">Unhide</button>`}
-        <button class="action-btn danger" onclick="deleteInvoice('${i.id}')">Delete</button>
+        <button class="action-btn" data-action="invoice-print" data-id="${i.id}">🖨 PDF</button>
+        ${i.status !== 'hidden' ? `<button class="action-btn" data-action="invoice-hide" data-id="${i.id}">Hide</button>`
+          : `<button class="action-btn green" data-action="invoice-unhide" data-id="${i.id}">Unhide</button>`}
+        <button class="action-btn danger" data-action="invoice-delete" data-id="${i.id}">Delete</button>
       </td>
     </tr>`).join('');
 }
@@ -455,7 +460,7 @@ function payActionHtml(inv, live, summary) {
     // blocks this invoice from being paid again or recorded offline.
     return `<span class="badge badge-declined">Previous payment reversed</span>
             <div style="font-size:.66rem;color:#f0a500;margin-top:3px;">Invoice is unpaid again</div>
-            <button class="action-btn green" style="margin-top:5px;" onclick="markPaid('${esc(inv.id)}')">Record Offline Payment</button>`;
+            <button class="action-btn green" style="margin-top:5px;" data-action="invoice-mark-paid" data-id="${esc(inv.id)}">Record Offline Payment</button>`;
   }
 
   if (live && live.status === 'succeeded') {
@@ -466,9 +471,9 @@ function payActionHtml(inv, live, summary) {
   }
   if (live && (live.status === 'initiated' || live.status === 'unknown')) {
     return `<span class="badge badge-pending">Online payment being confirmed</span>
-            <button class="action-btn" style="margin-top:5px;font-size:.66rem;" onclick="reviewOnlinePayment('${esc(inv.id)}')">Review</button>`;
+            <button class="action-btn" style="margin-top:5px;font-size:.66rem;" data-action="payment-review" data-id="${esc(inv.id)}">Review</button>`;
   }
-  return `<button class="action-btn green" onclick="markPaid('${esc(inv.id)}')">Record Offline Payment</button>`;
+  return `<button class="action-btn green" data-action="invoice-mark-paid" data-id="${esc(inv.id)}">Record Offline Payment</button>`;
 }
 
 function refundActionHtml(inv, summary) {
@@ -495,7 +500,7 @@ function refundActionHtml(inv, summary) {
 
   return `<button class="action-btn danger"
             title="Full card cancellations are voided when the batch is still open; otherwise Helcim processes a refund."
-            onclick="refundPayment('${esc(summary.original.id)}','${esc(inv.id)}',${summary.remainingCents})">${label}</button>`;
+            data-action="payment-refund" data-id="${esc(summary.original.id)}" data-invoice="${esc(inv.id)}" data-remaining="${summary.remainingCents}">${label}</button>`;
 }
 
 // Shows the admin what the processor actually has, and offers the verified
@@ -738,13 +743,51 @@ async function viewQuoteDetail(id) {
 }
 
 // ── FILE HANDLING ─────────────────────────────
+
+/* ── Upload contract (P1-A) ────────────────────────────────────────────────
+   Mirrors the apex-uploads bucket exactly: five MIME types and 10 MB. Storage
+   stays authoritative — this only stops a file the server would reject anyway,
+   so the customer finds out before submitting rather than after.
+
+   An empty MIME type is REJECTED rather than waved through. Browsers report ''
+   for types they do not recognise, and Storage matches on MIME, so accepting it
+   would guarantee a server-side rejection later. Extension is not trusted on its
+   own; it is only used to explain the refusal. */
+function apexCheckFile(file) {
+  // Declared inside the function on purpose: portal-customer.js and
+  // portal-admin.js each carry a copy, and top-level consts would collide if
+  // anything ever loaded both.
+  const APEX_UPLOAD_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'];
+  const APEX_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+  if (!file) return { ok: false, reason: 'unsupported' };
+  if (!APEX_UPLOAD_MIME.includes(file.type)) return { ok: false, reason: 'unsupported' };
+  if (file.size > APEX_UPLOAD_MAX_BYTES) return { ok: false, reason: 'too_large' };
+  return { ok: true };
+}
+function apexUploadError(rejected) {
+  const bad = rejected.filter(r => r.reason === 'unsupported').map(r => r.name);
+  const big = rejected.filter(r => r.reason === 'too_large').map(r => r.name);
+  const parts = [];
+  if (bad.length) parts.push(`${bad.join(', ')} — that file type isn't supported. Please upload JPG, PNG, WebP, HEIC, or PDF.`);
+  if (big.length) parts.push(`${big.join(', ')} — files must be 10 MB or smaller.`);
+  return parts.join(' ');
+}
+
 function handleFileSelect(input) {
-  _pendingFiles = Array.from(input.files);
+  // Same contract as the customer portal: valid files kept, rejected files named.
+  const picked = Array.from(input.files || []);
+  const rejected = [];
+  _pendingFiles = picked.filter(f => {
+    const v = apexCheckFile(f);
+    if (!v.ok) rejected.push({ name: f.name, reason: v.reason });
+    return v.ok;
+  });
+  if (rejected.length) alert(apexUploadError(rejected));
   const list = document.getElementById('uploaded-files-list');
   list.innerHTML = _pendingFiles.map((f, i) => `
     <div class="file-chip">
       📎 ${esc(f.name)}
-      <button onclick="removeFile(${i})" title="Remove">×</button>
+      <button data-action="remove-quote-file" data-index="${i}" title="Remove">×</button>
     </div>`).join('');
 }
 
@@ -804,10 +847,10 @@ function lineItemHTML() {
   return `
     <div class="line-item">
       <input type="text" placeholder="Description" class="item-desc" style="${style}"/>
-      <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" style="${style}" oninput="updateTotal()"/>
+      <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" style="${style}" data-action="update-total"/>
       <select class="item-type" style="${style}"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
-      <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()" style="${style}"/>
-      <button class="remove-line" onclick="removeLine(this)">×</button>
+      <input type="number" placeholder="0.00" class="item-unit" step="0.01" data-action="update-total" style="${style}"/>
+      <button class="remove-line" data-action="remove-line">×</button>
     </div>`;
 }
 
@@ -972,10 +1015,10 @@ document.addEventListener('DOMContentLoaded', () => {
       showView(item.dataset.view, item);
     });
   }
-  // Sidebar overlay close (overlay has no onclick in HTML so this is needed)
-  document.getElementById('sidebar-overlay')?.addEventListener('click', closeMobileSidebar);
-  // NOTE: mobile-menu-btn uses onclick="toggleMobileSidebar()" in HTML — no addEventListener needed
-  // NOTE: logout-btn uses onclick="logout()" in HTML — no addEventListener needed
+  // The overlay, the menu button and logout are all routed by the delegated
+  // data-action switch in wireAdminPortal(). An explicit overlay listener used
+  // to live here alongside the old onclick attribute, so one click closed the
+  // sidebar twice; there is exactly one route for each of them now.
 });
 
 function showView(v, el) {
@@ -1011,12 +1054,14 @@ function toggleMobileSidebar() {
   sidebar.classList.toggle('mobile-open', !isOpen);
   overlay.classList.toggle('open', !isOpen);
   btn.classList.toggle('open', !isOpen);
+  btn.setAttribute('aria-expanded', String(!isOpen));
 }
 
 function closeMobileSidebar() {
   document.getElementById('admin-sidebar-el')?.classList.remove('mobile-open');
   document.getElementById('sidebar-overlay')?.classList.remove('open');
   document.getElementById('mobile-menu-btn')?.classList.remove('open');
+  document.getElementById('mobile-menu-btn')?.setAttribute('aria-expanded', 'false');
 }
 
 async function refreshAll() {
@@ -1071,7 +1116,7 @@ async function renderRequests() {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--grey);padding:32px;">No service requests yet.</td></tr>';
     return;
   }
-  const urgencyColor = { normal: 'var(--grey)', urgent: 'orange', emergency: '#ff4444' };
+  const urgencyColor = { normal: 'var(--grey)', urgent: 'orange', emergency: 'var(--red-danger)' };
   tbody.innerHTML = requests.map(r => `
     <tr>
       <td><strong style="color:var(--white)">${esc(r.id)}</strong></td>
@@ -1082,9 +1127,9 @@ async function renderRequests() {
       <td style="font-size:.82rem;">${fmtDate(r.created_at)}</td>
       <td>${badge(r.status)}</td>
       <td>
-        <button class="action-btn primary" onclick="openReqDetail('${esc(r.id)}')">View</button>
-        <button class="action-btn green" onclick="openReqDetailAndQuote('${esc(r.id)}')">→ Quote</button>
-        <button class="action-btn" onclick="setReqStatus('${esc(r.id)}','closed')">Close</button>
+        <button class="action-btn primary" data-action="req-open" data-id="${esc(r.id)}">View</button>
+        <button class="action-btn green" data-action="req-quote" data-id="${esc(r.id)}">→ Quote</button>
+        <button class="action-btn" data-action="req-close" data-id="${esc(r.id)}">Close</button>
       </td>
     </tr>`).join('');
 }
@@ -1094,7 +1139,7 @@ async function openReqDetail(id, autoQuote) {
   const r = requests[0]; if (!r) return;
   _currentRequest = r;
   document.getElementById('req-detail-id').textContent = r.id;
-  const urgencyColor = { normal: 'var(--grey)', urgent: 'orange', emergency: '#ff4444' };
+  const urgencyColor = { normal: 'var(--grey)', urgent: 'orange', emergency: 'var(--red-danger)' };
   // Private bucket: mint 10-minute signed URLs for the admin session.
   let attHtml = '<p style="color:var(--grey);font-size:.85rem;margin-top:10px;">No attachments.</p>';
   if (r.attachments?.length) {
@@ -1131,8 +1176,8 @@ async function openReqDetail(id, autoQuote) {
     </div>
     ${attHtml}
     <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="action-btn green" onclick="quoteFromRequest()">✏️ Create Quote from This Request</button>
-      <button class="action-btn" onclick="setReqStatus('${esc(r.id)}','closed');closeReqModal();">✓ Mark Closed</button>
+      <button class="action-btn green" data-action="quote-from-request">✏️ Create Quote from This Request</button>
+      <button class="action-btn" data-action="req-close-and-dismiss" data-id="${esc(r.id)}">✓ Mark Closed</button>
     </div>`;
 
   document.getElementById('req-detail-modal').className = 'modal-overlay open';
@@ -1216,18 +1261,18 @@ async function renderHistory() {
       <td style="font-size:.85rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.description || '')}">${esc(r.description || '—')}</td>
       <td style="font-size:.85rem;">${esc(r.tech || '—')}</td>
       <td style="font-size:.82rem;">${r.date ? new Date(r.date).toLocaleDateString('en-US') : '—'}</td>
-      <td style="color:var(--red);font-family:var(--font-head);font-weight:700;">${r.amount ? '$' + parseFloat(r.amount).toFixed(2) : '—'}</td>
+      <td style="color:var(--red-text);font-family:var(--font-head);font-weight:700;">${r.amount ? '$' + parseFloat(r.amount).toFixed(2) : '—'}</td>
       <td>
         ${r.paid
           ? '<span style="color:#4caf50;font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;">✓ PAID</span>'
           : r.amount
             ? '<span style="color:orange;font-family:var(--font-head);font-size:.72rem;font-weight:700;letter-spacing:.08em;">UNPAID</span>'
             : '<span style="color:var(--grey);font-family:var(--font-head);font-size:.72rem;">—</span>'}
-        ${!r.paid && r.amount ? `<button class="action-btn green" style="margin-top:4px;display:block;" onclick="markHistPaid('${esc(r.id)}')">Record Payment</button>` : ''}
+        ${!r.paid && r.amount ? `<button class="action-btn green" style="margin-top:4px;display:block;" data-action="hist-mark-paid" data-id="${esc(r.id)}">Record Payment</button>` : ''}
       </td>
       <td>
-        <button class="action-btn" onclick="openEditHistory('${esc(r.id)}')">Edit</button>
-        <button class="action-btn danger" onclick="deleteHistory('${esc(r.id)}')">Delete</button>
+        <button class="action-btn" data-action="hist-edit" data-id="${esc(r.id)}">Edit</button>
+        <button class="action-btn danger" data-action="hist-delete" data-id="${esc(r.id)}">Delete</button>
       </td>
     </tr>`).join('');
 }
@@ -1473,7 +1518,7 @@ async function renderActivityLog() {
         <td style="font-size:.88rem;color:var(--grey-light);">${esc(r.description)}</td>
       </tr>`).join('');
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#ff4444;padding:24px;">Error loading activity log: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--red-danger);padding:24px;">Error loading activity log: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1541,12 +1586,18 @@ async function printQuotePDF(quoteId) {
   <div class="total-row">Total: $${parseFloat(q.amount).toFixed(2)}</div>
   ${q.notes ? `<div style="background:#fff8e1;border-left:3px solid #ffc107;padding:12px 16px;margin-top:16px;"><strong>Notes:</strong> ${esc(q.notes)}</div>` : ''}
   <div class="footer">
-    <p>Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com.Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com</p>
+    <p>Questions? Call (516) 644-7187 or email info@apexliftsolutionsusa.com</p>
     <p>apexliftsolutionsusa.com</p>
   </div>
-  <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>
+  <button data-action="print-now" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>
   </body></html>`);
   win.document.close();
+  // Same-origin print document: its button is wired from here rather than with
+  // an inline handler. Nothing executable is written into it.
+  try {
+    const pb = win.document.querySelector('[data-action="print-now"]');
+    if (pb) pb.addEventListener('click', () => win.print());
+  } catch (e) { /* blocked pop-up already handled above */ }
 }
 
 // ── PDF PRINT — INVOICE ───────────────────────
@@ -1617,9 +1668,15 @@ async function printInvoicePDF(invoiceId) {
     <p>${isPaid ? 'Thank you for your payment!' : 'Please remit payment to info@apexliftsolutionsusa.com or call (516) 644-7187.'}</p>
     <p>apexliftsolutionsusa.com · Nassau &amp; Suffolk County, Long Island, NY</p>
   </div>
-  <button onclick="window.print()" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>
+  <button data-action="print-now" style="margin-top:20px;padding:10px 24px;background:#cc0000;color:#fff;border:none;font-size:14px;cursor:pointer;display:block;">🖨 Print / Save as PDF</button>
   </body></html>`);
   win.document.close();
+  // Same-origin print document: its button is wired from here rather than with
+  // an inline handler. Nothing executable is written into it.
+  try {
+    const pb = win.document.querySelector('[data-action="print-now"]');
+    if (pb) pb.addEventListener('click', () => win.print());
+  } catch (e) { /* blocked pop-up already handled above */ }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1737,7 +1794,7 @@ async function spLoadCustomer(customerId) {
 
   if (cust.error) {
     console.error('[Service Plans] customer load failed:', cust.error);
-    body.innerHTML = `<div class="empty-state" style="color:#ff4444;">Could not load this customer: ${spEsc(cust.error.message)}</div>`;
+    body.innerHTML = `<div class="empty-state" style="color:var(--red-danger);">Could not load this customer: ${spEsc(cust.error.message)}</div>`;
     return;
   }
 
@@ -1767,7 +1824,7 @@ function spRender() {
   let html = `<div class="sp-card"><div class="sp-row">
       <div><h4>${spEsc(SP.customer?.company || SP.customer?.name || 'Customer')}</h4>
         <div class="sp-meta">${spEsc(SP.customer?.email || '')}<br>${taxLine}</div></div>
-      <div class="sp-actions"><button class="approve-btn" type="button" onclick="spOpenEquip()">Add forklift</button></div>
+      <div class="sp-actions"><button class="approve-btn" type="button" data-action="sp-equip">Add forklift</button></div>
     </div></div>`;
 
   if (!SP.equipment.length) {
@@ -1792,10 +1849,10 @@ function spRender() {
           </div>
         </div>
         <div class="sp-actions">
-          <button class="btn-secondary" type="button" onclick="spOpenEquip('${eq.id}')">Edit</button>
+          <button class="btn-secondary" type="button" data-action="sp-equip" data-id="${eq.id}">Edit</button>
           ${live || agreement
             ? ''
-            : `<button class="approve-btn" type="button" onclick="spOpenOffer(null,'${eq.id}')">New offer</button>`}
+            : `<button class="approve-btn" type="button" data-action="sp-offer-new" data-equipment="${eq.id}">New offer</button>`}
         </div>
       </div>`;
 
@@ -1810,8 +1867,8 @@ function spRender() {
           ${sub.next_billing_date ? ` Next billing ${spDate(sub.next_billing_date)}.` : ''}
           ${Number(sub.times_billed || 0)} of ${Number(sub.max_cycles || agreement.term_months)} payments recorded.
           <div class="sp-actions" style="margin-top:10px;">
-            ${sub.status === 'method_verified' ? `<button class="approve-btn" type="button" onclick="spActivateSubscription('${sub.id}')">Activate billing</button>` : ''}
-            ${!['cancelled','completed','failed_setup'].includes(sub.status) ? `<button class="btn-secondary" type="button" onclick="showView('subscriptions')">Manage subscription</button>` : ''}
+            ${sub.status === 'method_verified' ? `<button class="approve-btn" type="button" data-action="sp-activate" data-id="${sub.id}">Activate billing</button>` : ''}
+            ${!['cancelled','completed','failed_setup'].includes(sub.status) ? `<button class="btn-secondary" type="button" data-action="view" data-view="subscriptions">Manage subscription</button>` : ''}
           </div>`
               : 'No subscription yet.'}
       </div>`;
@@ -1829,10 +1886,10 @@ function spRender() {
             ${o.declined_reason ? `<br>Declined: ${spEsc(o.declined_reason)}` : ''}
           </div>
           <div class="sp-actions">
-            ${o.status === 'draft' ? `<button class="btn-secondary" type="button" onclick="spOpenOffer('${o.id}')">Edit</button>
-              <button class="approve-btn" type="button" onclick="spSendOffer('${o.id}')">Send</button>` : ''}
+            ${o.status === 'draft' ? `<button class="btn-secondary" type="button" data-action="sp-offer-edit" data-id="${o.id}">Edit</button>
+              <button class="approve-btn" type="button" data-action="sp-offer-send" data-id="${o.id}">Send</button>` : ''}
             ${['draft', 'sent'].includes(o.status)
-              ? `<button class="btn-secondary" type="button" onclick="spCancelOffer('${o.id}')">Cancel</button>` : ''}
+              ? `<button class="btn-secondary" type="button" data-action="sp-offer-cancel" data-id="${o.id}">Cancel</button>` : ''}
           </div>
         </div>`;
       }
@@ -2163,7 +2220,7 @@ function rsPaint() {
             ${s.has_failed_payments ? '<span class="rs-pill past_due" style="margin-left:6px;">failed payment</span>' : ''}
             <div class="sp-meta">${esc(label)}${eq.serial_number ? ` · serial ${esc(eq.serial_number)}` : ''}</div>
           </div>
-          <button class="approve-btn" type="button" onclick="rsOpenDetail('${s.id}')">Manage</button>
+          <button class="approve-btn" type="button" data-action="rs-detail" data-id="${s.id}">Manage</button>
         </div>
         <div class="rs-grid">
           <div class="rs-f"><div class="k">Monthly</div><div class="v">${rsUsd(s.recurring_total_cents)}</div></div>
@@ -2231,12 +2288,12 @@ function rsPaintDetail() {
   </div>
 
   <div class="sp-modal-actions" style="justify-content:flex-start;margin-top:16px;">
-    <button class="btn-secondary" type="button" onclick="rsSync('${s.id}')"
+    <button class="btn-secondary" type="button" data-action="rs-sync" data-id="${s.id}"
       ${cap.sync ? '' : 'disabled title="Not created at Helcim yet."'}>Sync with Helcim</button>
-    ${rsBtn('Pause', cap.pause, cap.reasons?.pause, `rsPause('${s.id}')`)}
-    ${rsBtn('Resume', cap.resume, cap.reasons?.resume, `rsResume('${s.id}')`)}
-    ${rsBtn('Change term', cap.change_term, cap.reasons?.change_term, `rsChangeTerm('${s.id}')`)}
-    ${rsBtn('Cancel future billing', cap.cancel_provider, cap.reasons?.cancel_provider, `rsCancel('${s.id}')`)}
+    ${rsBtn('Pause', cap.pause, cap.reasons?.pause, 'rs-pause', s.id)}
+    ${rsBtn('Resume', cap.resume, cap.reasons?.resume, 'rs-resume', s.id)}
+    ${rsBtn('Change term', cap.change_term, cap.reasons?.change_term, 'rs-term', s.id)}
+    ${rsBtn('Cancel future billing', cap.cancel_provider, cap.reasons?.cancel_provider, 'rs-cancel', s.id)}
   </div>
   ${s.status === 'cancelled' ? `<div class="rs-blocked">This subscription is cancelled. Future billing has stopped.
     Past months were <b>not</b> refunded by the cancellation — refund individual cycles below if that is intended.
@@ -2272,9 +2329,9 @@ function rsPaintDetail() {
         </div>
         <div class="sp-actions">
           ${c.refundable ? `<button class="btn-secondary" type="button"
-              onclick="rsOpenRefund('${p.id}','${c.invoice_id}',${c.refundable_cents},${c.original_cents},${c.refunded_cents},${c.cycle ?? 'null'})">Refund</button>` : ''}
+              data-action="rs-refund" data-id="${p.id}" data-invoice="${c.invoice_id}" data-refundable="${c.refundable_cents}" data-original="${c.original_cents}" data-refunded="${c.refunded_cents}"${c.cycle == null ? '' : ` data-cycle="${c.cycle}"`}>Refund</button>` : ''}
           ${c.retry_eligible ? `<button class="approve-btn" type="button"
-              onclick="rsRetry('${s.id}',${c.cycle})">Retry payment</button>` : ''}
+              data-action="rs-retry" data-id="${s.id}" data-cycle="${c.cycle}">Retry payment</button>` : ''}
         </div>
       </div>`;
     }
@@ -2388,10 +2445,18 @@ async function rsDoRefund() {
    the contract rules all live on the server; this file only collects a reason
    and shows what came back. It never decides whether an action is allowed. */
 
-function rsBtn(label, enabled, reason, onclick) {
+/**
+ * Subscription control button.
+ *
+ * This previously took a string of JavaScript ("rsPause('uuid')") and dropped it
+ * into an onclick attribute. It now takes an ACTION NAME and an id, and emits
+ * constrained data attributes. No data attribute ever contains JavaScript
+ * source, and the action is resolved by the fixed switch in wireAdminPortal().
+ */
+function rsBtn(label, enabled, reason, action, id) {
   return enabled
-    ? `<button class="btn-secondary" type="button" onclick="${onclick}">${label}</button>`
-    : `<button class="btn-secondary" type="button" disabled title="${esc(reason || 'Not available in this state.')}">${label}</button>`;
+    ? `<button class="btn-secondary" type="button" data-action="${esc(action)}" data-id="${esc(id)}">${esc(label)}</button>`
+    : `<button class="btn-secondary" type="button" disabled title="${esc(reason || 'Not available in this state.')}">${esc(label)}</button>`;
 }
 
 async function rsProviderAction(action, payload, confirmText, busyLabel) {
@@ -2485,3 +2550,158 @@ async function rsChangeTerm(id) {
   alert(`Term updated. Total ${out.max_cycles} cycles, ${out.times_billed} billed, ${out.remaining} remaining.`);
   await rsOpenDetail(id); await renderSubscriptions();
 }
+
+/* ── Event wiring (CSP readiness, Surface D) ───────────────────────────────
+   All 98 inline handlers in the admin portal are gone. Behaviour is unchanged:
+   the same functions receive the same arguments with the same TYPES.
+
+   One delegated click listener plus one input and one change listener on
+   <body>, installed once behind a guard. Admin views re-render on every
+   keystroke in a filter box, so a listener added per render would multiply
+   every action — including refunds.
+
+   data-action SELECTS from the fixed switch below. It is never executed: no
+   window[action](), no globalThis lookup, no eval, no Function constructor.
+   Data attributes carry ids, enums and numbers only — never JavaScript source
+   and never free-form customer text. */
+function wireAdminPortal() {
+  const root = document.body;
+  if (!root || root.dataset.apexAdminWired === '1') return;
+  root.dataset.apexAdminWired = '1';
+
+  // Numbers must arrive as numbers and an absent cycle must stay null, exactly
+  // as the original inline calls passed them.
+  const num = (v) => Number(v);
+  const cycleOf = (d) => (d.cycle === undefined || d.cycle === '' ? null : Number(d.cycle));
+
+  root.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el || !root.contains(el)) return;
+    const d = el.dataset;
+
+    switch (d.action) {
+      // navigation and general UI
+      case 'view':                 showView(d.view, el); break;
+      case 'toggle-sidebar':       toggleMobileSidebar(); break;
+      case 'close-sidebar':        closeMobileSidebar(); break;
+      case 'logout':               logout(); break;
+      case 'refresh-all':          refreshAll(); break;
+      case 'refresh-activity':     renderActivityLog(); break;
+
+      // quotes
+      case 'add-line':             addLine(); break;
+      case 'remove-line':          removeLine(el); break;
+      case 'pick-quote-files':     document.getElementById('quote-files')?.click(); break;
+      case 'remove-quote-file':    removeFile(num(d.index)); break;
+      case 'save-quote':           saveQuote(); break;
+      case 'quote-view':           viewQuoteDetail(d.id); break;
+      case 'quote-print':          printQuotePDF(d.id); break;
+      case 'quote-delete':         deleteQuote(d.id); break;
+      case 'quote-convert':        convertToInvoice(d.id); break;
+      case 'quote-from-request':   quoteFromRequest(); break;
+
+      // invoices and payments
+      case 'invoice-print':        printInvoicePDF(d.id); break;
+      case 'invoice-hide':         hideInvoice(d.id); break;
+      case 'invoice-unhide':       unhideInvoice(d.id); break;
+      case 'invoice-delete':       deleteInvoice(d.id); break;
+      case 'invoice-mark-paid':    markPaid(d.id); break;
+      case 'payment-review':       reviewOnlinePayment(d.id); break;
+      case 'payment-refund':       refundPayment(d.id, d.invoice, num(d.remaining)); break;
+      case 'close-manual-pay':     closeManualPay(); break;
+      case 'submit-manual-pay':    submitManualPayment(); break;
+
+      // service requests
+      case 'req-open':             openReqDetail(d.id); break;
+      case 'req-quote':            openReqDetailAndQuote(d.id); break;
+      case 'req-close':            setReqStatus(d.id, 'closed'); break;
+      case 'req-close-and-dismiss': setReqStatus(d.id, 'closed'); closeReqModal(); break;
+      case 'close-req-modal':      closeReqModal(); break;
+
+      // service history
+      case 'open-add-history':     openAddHistoryModal(); break;
+      case 'save-history':         saveHistoryRecord(); break;
+      case 'close-history-modal':  closeHistoryModal(); break;
+      case 'hist-edit':            openEditHistory(d.id); break;
+      case 'hist-delete':          deleteHistory(d.id); break;
+      case 'hist-mark-paid':       markHistPaid(d.id); break;
+
+      // customers and exports
+      case 'export-customers':     exportCustomersCSV(); break;
+      case 'export-invoices':      exportInvoicesCSV(); break;
+      case 'export-quotes':        exportQuotesCSV(); break;
+      case 'export-history':       exportServiceHistoryCSV(); break;
+      case 'change-admin-password': changeAdminPassword(); break;
+
+      // service plans
+      case 'sp-equip':             spOpenEquip(d.id); break;
+      case 'sp-close-equip':       spCloseEquip(); break;
+      case 'sp-offer-new':         spOpenOffer(null, d.equipment); break;
+      case 'sp-offer-edit':        spOpenOffer(d.id); break;
+      case 'sp-offer-send':        spSendOffer(d.id); break;
+      case 'sp-offer-cancel':      spCancelOffer(d.id); break;
+      case 'sp-close-offer':       spCloseOffer(); break;
+      case 'sp-activate':          spActivateSubscription(d.id); break;
+
+      // recurring subscriptions
+      case 'rs-detail':            rsOpenDetail(d.id); break;
+      case 'rs-close-detail':      rsCloseDetail(); break;
+      case 'rs-sync':              rsSync(d.id); break;
+      case 'rs-pause':             rsPause(d.id); break;
+      case 'rs-resume':            rsResume(d.id); break;
+      case 'rs-term':              rsChangeTerm(d.id); break;
+      case 'rs-cancel':            rsCancel(d.id); break;
+      case 'rs-retry':             rsRetry(d.id, num(d.cycle)); break;
+      case 'rs-refund':            rsOpenRefund(d.id, d.invoice, num(d.refundable),
+                                                num(d.original), num(d.refunded), cycleOf(d)); break;
+      case 'rs-close-refund':      rsCloseRefund(); break;
+
+      // Refresh BUTTONS only. Filter controls are deliberately absent here:
+      // clicking a select must not render before its value has changed.
+      case 'refresh-quotes':       renderAllQuotes(); break;
+      case 'refresh-invoices':     renderInvoices(); break;
+      case 'refresh-requests':     renderRequests(); break;
+
+      default: break;   // unknown action values are ignored, never executed
+    }
+  });
+
+  // Separate maps per event type, matching the pre-migration semantics exactly.
+  // A <select>, checkbox and file input each fire BOTH input and change, so a
+  // single shared handler invoked the action twice for one user interaction.
+  const ON_INPUT = {
+    'filter-quotes-search':    renderAllQuotes,
+    'filter-invoices-search':  renderInvoices,
+    'filter-customers-search': renderCustomers,
+    'filter-history-search':   renderHistory,
+    'filter-requests-search':  renderRequests,
+    'update-total':            updateTotal,
+  };
+  const ON_CHANGE = {
+    'filter-quotes':    renderAllQuotes,
+    'filter-invoices':  renderInvoices,
+    'filter-customers': renderCustomers,
+    'filter-history':   renderHistory,
+    'filter-requests':  renderRequests,
+    'select-customer':  selectCustomer,
+    'toggle-exempt':    toggleExempt,
+  };
+
+  root.addEventListener('input', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el || !root.contains(el)) return;
+    const fn = ON_INPUT[el.dataset.action];
+    if (typeof fn === 'function') fn();
+  });
+
+  root.addEventListener('change', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el || !root.contains(el)) return;
+    if (el.dataset.action === 'quote-files') { handleFileSelect(el); return; }
+    const fn = ON_CHANGE[el.dataset.action];
+    if (typeof fn === 'function') fn();
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireAdminPortal);
+else wireAdminPortal();

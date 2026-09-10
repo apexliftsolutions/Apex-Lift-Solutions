@@ -7,16 +7,18 @@
   <title>Careers — Apex Lift Solutions | Join the Team</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=2026-09-09.v25.0" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
   <meta name="description" content="Join the Apex Lift Solutions team. We're hiring forklift service technicians and service coordinators on Long Island, NY. Ground-floor opportunity." />
+  <link rel="canonical" href="https://apexliftsolutionsusa.com/careers.html">
   <meta name="theme-color" content="#000000" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://apexliftsolutionsusa.com/careers.html" />
   <meta property="og:image" content="https://apexliftsolutionsusa.com/og-image.jpg" />
+  <meta name="twitter:card" content="summary_large_image">
   <meta property="og:title" content="Careers — Apex Lift Solutions | Join the Team" />
   <meta property="og:description" content="Join the Apex Lift Solutions team. We're hiring forklift service technicians and service coordinators on Long Island, NY. Ground-floor opportunity." />
 </head>
@@ -179,7 +181,7 @@
               </div>
               <div class="form-group">
                 <label for="a-position">Position of Interest *</label>
-                <select id="a-position" name="Position" required>
+                <select id="a-position" name="position" required>
                   <option value="">Select a position...</option>
                   <option>Forklift Service Technician</option>
                   <option>Service Coordinator</option>
@@ -209,7 +211,7 @@
             </div>
             <div class="form-group">
               <label for="a-avail">Availability</label>
-              <select id="a-avail" name="Availability">
+              <select id="a-avail" name="availability">
                 <option value="">Select...</option>
                 <option>Immediately</option>
                 <option>Within 2 weeks</option>
@@ -224,14 +226,14 @@
                   <span class="file-icon">📎</span>
                   <div>
                     <strong>Attach Your Resume</strong>
-                    <p>After submitting this form, please email your resume or any supporting files to <a href="mailto:jobs@apexliftsolutionsusa.com" style="color:var(--red);">jobs@apexliftsolutionsusa.com</a> with your name in the subject line. We'll match it to your application.</p>
+                    <p>After submitting this form, please email your resume or any supporting files to <a href="mailto:jobs@apexliftsolutionsusa.com" style="color:var(--red-text);">jobs@apexliftsolutionsusa.com</a> with your name in the subject line. We'll match it to your application.</p>
                   </div>
                 </div>
               </div>
             </div>
             <div class="form-group">
               <label for="a-portfolio">Portfolio / Work Samples Link <span style="color:var(--grey);font-weight:400;">(optional)</span></label>
-              <input type="url" id="a-portfolio" name="Portfolio Link" placeholder="https://drive.google.com/... or any link to your work" />
+              <input type="url" id="a-portfolio" name="portfolio_link" placeholder="https://drive.google.com/... or any link to your work" />
             </div>
             <button type="submit" class="btn-primary form-submit">Submit Application</button>
             <div class="form-success" id="applySuccess">✓ Application received! Please email your resume to jobs@apexliftsolutionsusa.com — we'll be in touch soon.</div>
@@ -269,28 +271,8 @@
   </footer>
 
   
-<script>
-(function(){
-  var f = document.getElementById('applyForm'); if (!f) return;
-  f.addEventListener('submit', async function(e){
-    e.preventDefault();
-    var btn = f.querySelector('.form-submit, [type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-    var fd = new FormData(f), body = { form: 'careers' };
-    fd.forEach(function(v,k){ if(k==='_gotcha'){ body._gotcha=v; return; } body[k.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')] = v; });
-    try {
-      var r = await fetch('https://cjtezsgfdfijmdxzzbiq.supabase.co/functions/v1/public-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(r.status);
-      f.reset(); var ok = document.getElementById('applySuccess'); if (ok) ok.style.display = 'block';
-      if (window.APEX_TRACK) window.APEX_TRACK('request_submit','');
-      if (btn) btn.textContent = 'Sent ✓';
-    } catch(err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Try Again'; }
-      alert('Could not send. Please call (516) 644-7187.');
-    }
-  });
-})();
-</script>
-<script src="consent.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="main.js"></script>
+<script src="consent.js?v=2026-09-09.v25.0"></script>
+<script src="main.js?v=2026-09-09.v25.0"></script>
+  <script src="public-forms.js?v=2026-09-09.v25.0"></script>
 </body>
 </html>

@@ -231,9 +231,9 @@ async function loadQuotes(append) {
     if (append) return { error };
 
     console.error('[Apex] quote query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
-    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+    wrap.innerHTML = `<div class="empty-state" style="color:var(--red-danger);">
       Couldn't load your quotes.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
-      <button class="approve-btn" style="margin-top:12px;" onclick="loadQuotes()">Try Again</button>
+      <button class="approve-btn" style="margin-top:12px;" data-action="reload" data-list="Quotes">Try Again</button>
       <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
     return { error };
   }
@@ -257,17 +257,17 @@ async function loadQuotes(append) {
       ${q.status === 'pending' ? `
         <p style="color:var(--grey-light);font-size:.88rem;margin-bottom:12px;">Please review and approve or decline this quote.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button class="approve-btn" onclick="respondQuote('${xss(q.id)}','approved')">✓ Approve — $${parseFloat(q.amount).toFixed(2)}</button>
-          <button class="decline-btn" onclick="respondQuote('${xss(q.id)}','declined')">✗ Decline</button>
+          <button class="approve-btn" data-action="quote-respond" data-id="${xss(q.id)}" data-response="approved">✓ Approve — $${parseFloat(q.amount).toFixed(2)}</button>
+          <button class="decline-btn" data-action="quote-respond" data-id="${xss(q.id)}" data-response="declined">✗ Decline</button>
         </div>` :
         q.status === 'approved'
           ? `<p style="color:#4caf50;font-size:.88rem;font-weight:600;margin-top:6px;">✓ Approved on ${bdate(q.responded_at)}${q.invoiced ? ' — invoiced.' : " — we'll contact you to schedule."}</p>
              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
-               <button class="print-btn" onclick="printQuote('${xss(q.id)}')">🖨 View / Print Quote</button>
+               <button class="print-btn" data-action="print-quote" data-id="${xss(q.id)}">🖨 View / Print Quote</button>
              </div>`
           : `<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px;">
-               <p style="color:#ff4444;font-size:.88rem;margin:0;">Declined on ${bdate(q.responded_at)}.</p>
-               <button class="decline-btn" style="padding:6px 14px;font-size:.72rem;" onclick="removeQuote('${xss(q.id)}')">🗑 Remove</button>
+               <p style="color:var(--red-danger);font-size:.88rem;margin:0;">Declined on ${bdate(q.responded_at)}.</p>
+               <button class="decline-btn" style="padding:6px 14px;font-size:.72rem;" data-action="remove-quote" data-id="${xss(q.id)}">🗑 Remove</button>
              </div>`
       }
     </div>`));
@@ -354,9 +354,9 @@ async function loadInvoices(append) {
     if (append) return { error };
 
     console.error('[Apex] invoice query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
-    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+    wrap.innerHTML = `<div class="empty-state" style="color:var(--red-danger);">
       Couldn't load your invoices.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
-      <button class="approve-btn" style="margin-top:12px;" onclick="loadInvoices()">Try Again</button>
+      <button class="approve-btn" style="margin-top:12px;" data-action="reload" data-list="Invoices">Try Again</button>
       <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
     return { error };
   }
@@ -426,9 +426,9 @@ async function loadInvoices(append) {
           </div>
           ${workSummary}
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
-            ${i.payment_id ? `<button class="print-btn" onclick="printPaymentReceipt('${xss(i.payment_id)}')">🧾 Payment Receipt</button>` : ''}
-            ${i.quote_id ? `<button class="print-btn" onclick="printQuote('${xss(i.quote_id)}')">📄 Original Quote</button>` : ''}
+            <button class="print-btn" data-action="print-invoice" data-id="${xss(i.id)}">🖨 View / Print Invoice</button>
+            ${i.payment_id ? `<button class="print-btn" data-action="print-receipt" data-id="${xss(i.payment_id)}">🧾 Payment Receipt</button>` : ''}
+            ${i.quote_id ? `<button class="print-btn" data-action="print-quote" data-id="${xss(i.quote_id)}">📄 Original Quote</button>` : ''}
           </div>
           <p style="color:var(--grey);font-size:.8rem;">Questions? Call (516) 644-7187.</p>
          </div>`
@@ -475,9 +475,9 @@ async function loadHistory(append) {
     if (append) return { error };
 
     console.error('[Apex] service history query failed', { code: error.code, message: error.message, details: error.details, hint: error.hint, customer_id: USER.id });
-    wrap.innerHTML = `<div class="empty-state" style="color:#ff4444;">
+    wrap.innerHTML = `<div class="empty-state" style="color:var(--red-danger);">
       Couldn't load your service history.<br/><span style="font-size:.82rem;color:var(--grey);">${xss(error.message)}</span><br/>
-      <button class="approve-btn" style="margin-top:12px;" onclick="loadHistory()">Try Again</button>
+      <button class="approve-btn" style="margin-top:12px;" data-action="reload" data-list="History">Try Again</button>
       <p style="font-size:.8rem;color:var(--grey);margin-top:10px;">If this keeps happening, call (516) 644-7187.</p></div>`;
     return { error };
   }
@@ -492,7 +492,7 @@ async function loadHistory(append) {
         <div class="q-meta-item">Date<span>${h.date ? new Date(h.date).toLocaleDateString('en-US') : '—'}</span></div>
         <div class="q-meta-item">Technician<span>${xss(h.tech || 'Apex Tech')}</span></div>
         ${h.equipment ? `<div class="q-meta-item">Equipment<span>${xss(h.equipment)}</span></div>` : ''}
-        ${h.amount ? `<div class="q-meta-item">Amount<span style="color:var(--red);font-size:.95rem;">$${parseFloat(h.amount).toFixed(2)}</span></div>` : ''}
+        ${h.amount ? `<div class="q-meta-item">Amount<span style="color:var(--red-text);font-size:.95rem;">$${parseFloat(h.amount).toFixed(2)}</span></div>` : ''}
         <div class="q-meta-item">Payment<span style="color:${h.paid ? '#4caf50' : 'orange'};font-weight:700;">${h.paid ? '✓ Paid' : 'Unpaid'}</span></div>
       </div>
       ${h.notes ? `<p style="color:var(--grey-light);font-size:.86rem;margin-top:6px;">${xss(h.notes)}</p>` : ''}
@@ -541,7 +541,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-08.v24.9-hardening";
+const APEX_CLIENT_VERSION = "2026-09-09.v25.0";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -615,9 +615,9 @@ function normalizeHelcimPay(input) {
 // invoice that must never be paid again.
 function invoiceActionHtml(i, workSummary, correction = null) {
   const docs = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
-      <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
-      ${i.payment_id ? `<button class="print-btn" onclick="printPaymentReceipt('${xss(i.payment_id)}')">🧾 Payment Receipt</button>` : ''}
-      ${i.quote_id ? `<button class="print-btn" onclick="printQuote('${xss(i.quote_id)}')">📄 Original Quote</button>` : ''}
+      <button class="print-btn" data-action="print-invoice" data-id="${xss(i.id)}">🖨 View / Print Invoice</button>
+      ${i.payment_id ? `<button class="print-btn" data-action="print-receipt" data-id="${xss(i.payment_id)}">🧾 Payment Receipt</button>` : ''}
+      ${i.quote_id ? `<button class="print-btn" data-action="print-quote" data-id="${xss(i.quote_id)}">📄 Original Quote</button>` : ''}
     </div>`;
 
   switch (i.status) {
@@ -660,9 +660,9 @@ function invoiceActionHtml(i, workSummary, correction = null) {
             <br/>This invoice is unpaid again and may be paid securely.
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
-            <button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
-            <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
-            ${i.quote_id ? `<button class="print-btn" onclick="printQuote('${xss(i.quote_id)}')">📄 Original Quote</button>` : ''}
+            <button class="approve-btn" data-action="open-pay" data-id="${xss(i.id)}" data-amount="${parseFloat(i.amount)}">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
+            <button class="print-btn" data-action="print-invoice" data-id="${xss(i.id)}">🖨 View / Print Invoice</button>
+            ${i.quote_id ? `<button class="print-btn" data-action="print-quote" data-id="${xss(i.quote_id)}">📄 Original Quote</button>` : ''}
           </div>`;
       }
 
@@ -673,8 +673,8 @@ function invoiceActionHtml(i, workSummary, correction = null) {
 
       return `${workSummary}${taxRows(i)}
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button class="approve-btn" onclick="openPay('${xss(i.id)}',${parseFloat(i.amount)})">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
-          <button class="print-btn" onclick="printInvoice('${xss(i.id)}')">🖨 View / Print Invoice</button>
+          <button class="approve-btn" data-action="open-pay" data-id="${xss(i.id)}" data-amount="${parseFloat(i.amount)}">Pay Securely — $${parseFloat(i.amount).toFixed(2)}</button>
+          <button class="print-btn" data-action="print-invoice" data-id="${xss(i.id)}">🖨 View / Print Invoice</button>
         </div>`;
     }
 
@@ -969,7 +969,7 @@ async function lookupInv() {
   const box = document.getElementById('lookup-result');
   box.style.display = 'block';
   box.innerHTML = '<p style="color:var(--grey);">Looking up…</p>';
-  if (!USER || !id) { box.innerHTML = '<p style="color:#ff4444;font-family:var(--font-head);font-size:.85rem;">Please enter an invoice number.</p>'; return; }
+  if (!USER || !id) { box.innerHTML = '<p style="color:var(--red-danger);font-family:var(--font-head);font-size:.85rem;">Please enter an invoice number.</p>'; return; }
   const { data: row } = await sb.from('invoices').select('*').eq('customer_id', USER.id).eq('id', id).single();
   if (row) {
     // Invoice history is paginated, so a looked-up invoice may not be on any
@@ -991,7 +991,7 @@ async function lookupInv() {
       : row.status === 'unpaid'
       ? ((LOCKED_INVOICES.has(row.id) && !reversed)
           ? `<span style="color:#f0a500;font-weight:700;font-family:var(--font-head);font-size:.82rem;">⏳ Payment being confirmed</span>`
-          : `<button class="approve-btn" style="margin-top:8px;" onclick="openPay('${xss(row.id)}',${parseFloat(row.amount)})">Pay Securely</button>`)
+          : `<button class="approve-btn" style="margin-top:8px;" data-action="open-pay" data-id="${xss(row.id)}" data-amount="${parseFloat(row.amount)}">Pay Securely</button>`)
       : `<span style="color:#4caf50;font-weight:700;font-family:var(--font-head);font-size:.88rem;">${xss(String(row.status).replace(/_/g,' '))}</span>`;
 
     box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
@@ -1007,7 +1007,7 @@ async function lookupInv() {
       </div>
     </div>`;
   } else {
-    box.innerHTML = '<p style="color:#ff4444;font-family:var(--font-head);font-weight:700;font-size:.85rem;">Invoice not found on your account. Call (516) 644-7187 for help.</p>';
+    box.innerHTML = '<p style="color:var(--red-danger);font-family:var(--font-head);font-weight:700;font-size:.85rem;">Invoice not found on your account. Call (516) 644-7187 for help.</p>';
   }
 }
 
@@ -1036,7 +1036,7 @@ async function loadPayments(append) {
   const { error } = await ApexPage.loadPage(sb, PAYMENTS_PAGE);
   if (error) {
     // Same rule: never wipe loaded payments because a later page failed.
-    if (!append && !PAYMENTS_PAGE.items.length) wrap.innerHTML = '<div class="empty-state" style="color:#ff4444;">Could not load payments.</div>';
+    if (!append && !PAYMENTS_PAGE.items.length) wrap.innerHTML = '<div class="empty-state" style="color:var(--red-danger);">Could not load payments.</div>';
     return { error };
   }
   const shown = PAYMENTS_PAGE.items;
@@ -1074,7 +1074,7 @@ async function loadPayments(append) {
       ${r.status === 'pending' && r.method === 'ach'
         ? `<p style="color:#f0a500;font-size:.86rem;margin-top:4px;">Bank payment processing — this usually clears in a few business days.</p>`
         : (r.kind === 'payment' && r.status === 'succeeded')
-          ? `<button class="approve-btn" style="padding:8px 16px;font-size:.76rem;" onclick="printPaymentReceipt('${xss(r.id)}')">Print Receipt</button>` : ''}
+          ? `<button class="approve-btn" style="padding:8px 16px;font-size:.76rem;" data-action="print-receipt" data-id="${xss(r.id)}">Print Receipt</button>` : ''}
     </div>`).join('') + '</div>';
   wrap.insertAdjacentHTML('beforeend', ApexPage.moreButtonHtml(PAYMENTS_PAGE, 'morePayments'));
 }
@@ -1124,9 +1124,15 @@ function printDoc(title, bodyHtml) {
     ${bodyHtml}
     <div class="ft">Apex Lift Solutions &middot; (516) 644-7187 &middot; service@apexliftsolutionsusa.com<br>
       Nassau &amp; Suffolk County, NY &middot; apexliftsolutionsusa.com</div>
-    <button class="noprint" onclick="window.print()">Print / Save as PDF</button>
+    <button class="noprint" data-action="print-now">Print / Save as PDF</button>
     </body></html>`);
   w.document.close();
+  // The print document is same-origin, so its button is wired from here rather
+  // than with an inline handler. Nothing executable is written into it.
+  try {
+    const btn = w.document.querySelector('[data-action="print-now"]');
+    if (btn) btn.addEventListener('click', () => w.print());
+  } catch (e) { /* a blocked pop-up is already handled above */ }
 }
 
 const money = (cents) => '$' + (Number(cents || 0) / 100).toFixed(2);
@@ -1246,16 +1252,63 @@ async function printPaymentReceipt(paymentId) {
 }
 
 // ── SERVICE REQUEST ───────────────────────────
+
+/* ── Upload contract (P1-A) ────────────────────────────────────────────────
+   Mirrors the apex-uploads bucket exactly: five MIME types and 10 MB. Storage
+   stays authoritative — this only stops a file the server would reject anyway,
+   so the customer finds out before submitting rather than after.
+
+   An empty MIME type is REJECTED rather than waved through. Browsers report ''
+   for types they do not recognise, and Storage matches on MIME, so accepting it
+   would guarantee a server-side rejection later. Extension is not trusted on its
+   own; it is only used to explain the refusal. */
+function apexCheckFile(file) {
+  // Declared inside the function on purpose: portal-customer.js and
+  // portal-admin.js each carry a copy, and top-level consts would collide if
+  // anything ever loaded both.
+  const APEX_UPLOAD_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'];
+  const APEX_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+  if (!file) return { ok: false, reason: 'unsupported' };
+  if (!APEX_UPLOAD_MIME.includes(file.type)) return { ok: false, reason: 'unsupported' };
+  if (file.size > APEX_UPLOAD_MAX_BYTES) return { ok: false, reason: 'too_large' };
+  return { ok: true };
+}
+function apexUploadError(rejected) {
+  const bad = rejected.filter(r => r.reason === 'unsupported').map(r => r.name);
+  const big = rejected.filter(r => r.reason === 'too_large').map(r => r.name);
+  const parts = [];
+  if (bad.length) parts.push(`${bad.join(', ')} — that file type isn't supported. Please upload JPG, PNG, WebP, HEIC, or PDF.`);
+  if (big.length) parts.push(`${big.join(', ')} — files must be 10 MB or smaller.`);
+  return parts.join(' ');
+}
+
 function handleReqFiles(input) {
-  REQ_FILES = Array.from(input.files);
+  // Valid files are kept, rejected ones are named. Never silently dropped, and
+  // never listed as attached — that is the same truthfulness rule as the
+  // partial-upload warning in submitRequest().
+  const picked = Array.from(input.files || []);
+  const rejected = [];
+  REQ_FILES = picked.filter(f => {
+    const v = apexCheckFile(f);
+    if (!v.ok) rejected.push({ name: f.name, reason: v.reason });
+    return v.ok;
+  });
   document.getElementById('req-file-list').innerHTML = REQ_FILES.map((f, i) =>
-    `<div class="file-chip">📎 ${xss(f.name)}<button onclick="removeReqFile(${i})">×</button></div>`
+    `<div class="file-chip">📎 ${xss(f.name)}<button data-action="remove-file" data-index="${i}">×</button></div>`
   ).join('');
+  const msgEl = document.getElementById('req-msg');
+  if (rejected.length && msgEl) {
+    msgEl.textContent = apexUploadError(rejected);
+    msgEl.className = 'banner banner-err';
+    msgEl.style.display = 'block';
+  } else if (msgEl && msgEl.className === 'banner banner-err') {
+    msgEl.style.display = 'none';
+  }
 }
 
 function removeReqFile(idx) {
   REQ_FILES.splice(idx, 1);
-  handleReqFiles({ files: REQ_FILES });
+  handleReqFiles({ files: REQ_FILES });   // already-validated files re-render unchanged
 }
 
 async function submitRequest() {
@@ -1276,8 +1329,13 @@ async function submitRequest() {
   const btn = document.getElementById('req-btn');
   btn.disabled = true; btn.textContent = 'Sending…';
 
+  // NOTE: attachments upload BEFORE the request row is inserted, so a failed
+  // insert can leave orphaned objects in the private bucket. The error copy is
+  // deliberately about the FORM, not about storage — we must not claim files
+  // were removed. See internal-docs/SERVICE_REQUESTS_2_FOLLOWUP.md.
   try {
     const urls = [];
+    let failedUploads = 0;
     if (REQ_FILES.length) {
       for (const file of REQ_FILES) {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -1286,6 +1344,9 @@ async function submitRequest() {
         if (!upErr) {
           urls.push(safePath);   // private bucket: store the PATH, mint signed URLs on read
         } else {
+          // Counted, not swallowed: telling someone a photo was received when
+          // it was not is worse than telling them it failed.
+          failedUploads++;
           console.error('Upload failed:', upErr.message);
         }
       }
@@ -1304,11 +1365,19 @@ async function submitRequest() {
       attachments: urls.length ? urls : null
     }).select().single();
 
-    if (reqErr) console.error('Service request save error:', reqErr);
+    // The request row is the thing that matters. If it did not save, the
+    // customer must not be told it was sent and must not lose what they
+    // typed — this previously logged the error and showed success anyway.
+    if (reqErr || !savedReq) {
+      console.error('Service request save error:', reqErr);
+      throw new Error('request_not_saved');
+    }
 
-    const fileLinks = urls.length ? '\n\nPhoto attachments:\n' + urls.map((u, i) => `${i + 1}. ${u}`).join('\n') : '';
+    const warn = failedUploads
+      ? `<br>Your request was sent, but ${failedUploads} attachment${failedUploads === 1 ? '' : 's'} could not be uploaded. Reply to our email with the photo${failedUploads === 1 ? '' : 's'} and we will add it.`
+      : '';
 
-    msgEl.innerHTML = `✓ Request sent! We'll contact you at <strong>${xss(USER.email)}</strong> within 1 business day.<br>Emergency? Call <strong><a href="tel:+15166447187" style="color:inherit;">(516) 644-7187</a></strong>.`;
+    msgEl.innerHTML = `✓ Request sent! We'll contact you at <strong>${xss(USER.email)}</strong> within 1 business day.${warn}<br>Emergency? Call <strong><a href="tel:+15166447187" style="color:inherit;">(516) 644-7187</a></strong>.`;
     msgEl.className = 'banner banner-ok';
     msgEl.style.display = 'block';
 
@@ -1322,7 +1391,15 @@ async function submitRequest() {
 
   } catch (e) {
     console.error('Request error:', e);
-    msgEl.textContent = 'Failed to send. Please call <a href="tel:+15166447187" style="color:inherit;">(516) 644-7187</a> directly.';
+    // Was textContent holding literal <a> markup, so the customer saw raw
+    // HTML. Rebuilt from static nodes; no exception text reaches innerHTML.
+    msgEl.textContent = 'Your service request was not saved, so your form details are still here. Please call ';
+    const tel = document.createElement('a');
+    tel.href = 'tel:+15166447187';
+    tel.style.color = 'inherit';
+    tel.textContent = '(516) 644-7187';
+    msgEl.appendChild(tel);
+    msgEl.appendChild(document.createTextNode(' and we will take the details over the phone.'));
     msgEl.className = 'banner banner-err';
     msgEl.style.display = 'block';
   } finally {
@@ -1377,12 +1454,14 @@ function toggleMobileSidebar() {
   sidebar.classList.toggle('mobile-open', !isOpen);
   overlay.classList.toggle('open', !isOpen);
   btn.classList.toggle('open', !isOpen);
+  btn.setAttribute('aria-expanded', String(!isOpen));
 }
 
 function closeMobileSidebar() {
   document.getElementById('portal-sidebar')?.classList.remove('mobile-open');
   document.getElementById('sidebar-overlay')?.classList.remove('open');
   document.getElementById('mobile-menu-btn')?.classList.remove('open');
+  document.getElementById('mobile-menu-btn')?.setAttribute('aria-expanded', 'false');
 }
 
 // ── REMOVE DECLINED QUOTE ─────────────────────
@@ -1619,8 +1698,8 @@ function cpOfferCard(o) {
     </div>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
-      <button class="approve-btn" type="button" onclick="cpReview('${o.id}')">Review agreement</button>
-      <button class="btn-secondary" type="button" onclick="cpDecline('${o.id}')">Not right now</button>
+      <button class="approve-btn" type="button" data-action="plan-review" data-id="${o.id}">Review agreement</button>
+      <button class="btn-secondary" type="button" data-action="plan-decline" data-id="${o.id}">Not right now</button>
     </div>
   </div>`;
 }
@@ -1632,11 +1711,11 @@ function cpAgreementCard(a) {
   let setup = '';
   if (!sub || ['setup_pending','failed_setup'].includes(st)) {
     setup = `<div class="cp-meta cp-sec"><b>Payment setup required.</b> Nothing has been charged yet.</div>
-      <button class="approve-btn" type="button" onclick="cpStartPlanPayment('${a.id}')">Add payment method</button>`;
+      <button class="approve-btn" type="button" data-action="plan-pay" data-id="${a.id}">Add payment method</button>`;
   } else if (st === 'method_verified') {
     setup = `<div class="cp-meta cp-sec"><b>Payment method verified.</b> ${esc(sub.payment_method_display || '')}<br>
       The recurring subscription has not been activated yet.</div>
-      <button class="approve-btn" type="button" onclick="cpActivatePlan('${sub.id}')">Activate service plan</button>`;
+      <button class="approve-btn" type="button" data-action="plan-activate" data-id="${sub.id}">Activate service plan</button>`;
   } else if (st === 'active' || st === 'past_due') {
     setup = `<div class="cp-meta cp-sec"><b>${st === 'active' ? 'Active service plan' : 'Payment issue — plan is past due'}</b><br>
       ${esc(sub.payment_method_display || '')}${sub.next_billing_date ? ` · Next billing ${cpDate(sub.next_billing_date)}` : ''}<br>
@@ -1656,7 +1735,7 @@ function cpAgreementCard(a) {
     </div>
     ${setup}
     <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
-      <button class="btn-secondary" type="button" onclick="cpOpenPdf('${a.id}')"
+      <button class="btn-secondary" type="button" data-action="open-pdf" data-id="${a.id}"
         ${a.pdf_path ? '' : 'disabled title="Your PDF is still being prepared"'}>View signed agreement (PDF)</button>
     </div>
   </div>`;
@@ -1788,13 +1867,13 @@ function cpRenderChooser() {
       <h3>${esc(o.plan_name)}</h3>
       <div class="cp-meta">${esc(u.title)}${u.meta ? `<br>${u.meta}` : ''}</div>
       <div class="cp-rails">
-        <button class="cp-rail" type="button" id="cp-rail-ach" onclick="cpPick('ach')">
+        <button class="cp-rail" type="button" id="cp-rail-ach" data-action="plan-pick" data-method="ach">
           <div class="lbl">Bank transfer (ACH)</div>
           <div class="big">${cpUsd(o.ach_monthly_total_cents)}<span style="font-size:.8rem;font-weight:400;">/month</span></div>
           <div class="sub">Service ${cpUsd(o.ach_monthly_subtotal_cents)}${o.tax_exempt ? ' · tax exempt' : ` · tax ${cpUsd(o.ach_monthly_tax_cents)}`}</div>
           ${saving > 0 ? `<div class="save">Saves ${cpUsd(saving)} a month</div>` : ''}
         </button>
-        <button class="cp-rail" type="button" id="cp-rail-card" onclick="cpPick('card')">
+        <button class="cp-rail" type="button" id="cp-rail-card" data-action="plan-pick" data-method="card">
           <div class="lbl">Card</div>
           <div class="big">${cpUsd(o.card_monthly_total_cents)}<span style="font-size:.8rem;font-weight:400;">/month</span></div>
           <div class="sub">Service ${cpUsd(o.card_monthly_subtotal_cents)}${o.tax_exempt ? ' · tax exempt' : ` · tax ${cpUsd(o.card_monthly_tax_cents)}`}</div>
@@ -1844,7 +1923,7 @@ function cpRenderAgreement() {
         Total across the whole term: <b>${cpUsd(auth.total_over_term_cents)}</b>
       </div>
       <p class="cp-meta" style="margin-top:10px;">
-        <button class="btn-secondary" type="button" onclick="cpRenderChooser()">Change payment method</button>
+        <button class="btn-secondary" type="button" data-action="plan-chooser">Change payment method</button>
       </p>
     </div>
 
@@ -1917,9 +1996,9 @@ async function cpSign() {
       have been collected yet. We will be in touch with the next step before your first billing date.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
         ${res.pdf_ready
-          ? `<button class="approve-btn" type="button" onclick="cpOpenPdf('${res.agreement_id}')">View signed agreement (PDF)</button>`
+          ? `<button class="approve-btn" type="button" data-action="open-pdf" data-id="${res.agreement_id}">View signed agreement (PDF)</button>`
           : '<span class="cp-meta">Your PDF is being prepared and will appear in Service Plans shortly.</span>'}
-        <button class="btn-secondary" type="button" onclick="showView('service-plans')">Back to Service Plans</button>
+        <button class="btn-secondary" type="button" data-action="view" data-view="service-plans">Back to Service Plans</button>
       </div>
     </div>`;
   await loadServicePlans();
@@ -1934,3 +2013,96 @@ function moreQuotes()   { return ApexPage.handleMore(document.getElementById('qu
 function moreInvoices() { return ApexPage.handleMore(document.getElementById('invoices-wrap'), () => loadInvoices(true)); }
 function moreHistory()  { return ApexPage.handleMore(document.getElementById('history-wrap'),  () => loadHistory(true)); }
 function morePayments() { return ApexPage.handleMore(document.getElementById('payments-wrap'), () => loadPayments(true)); }
+
+/* ── Event wiring (CSP readiness, Surface C) ───────────────────────────────
+   Every inline handler in the customer portal is gone. Behaviour is unchanged:
+   the same functions run with the same arguments, only the route differs.
+
+   ONE delegated click listener plus one change listener on <body>, installed
+   once behind a guard flag. The portal re-renders constantly — quotes,
+   invoices, payments, service plans — and a listener added per render would
+   fire an action N times after N renders.
+
+   `data-action` SELECTS from the fixed switch below. It is never executed:
+   no window[action](), no eval, no Function constructor. An unrecognised value
+   falls through `default` and does nothing.
+
+   Data attributes carry only constrained values — record ids, an enum, a
+   numeric index, an amount. Customer names, companies, descriptions and notes
+   stay out of executable context, preserving the Group 8 stored-XSS fix. */
+function wireCustomerPortal() {
+  const root = document.body;
+  if (!root || root.dataset.apexWired === '1') return;
+  root.dataset.apexWired = '1';
+
+  // Resolved at click time, not at install time. Building these maps eagerly
+  // meant one missing function threw a ReferenceError while the listener was
+  // being installed, taking the whole portal's wiring down with it. Looked up
+  // lazily, a missing loader disables one button instead of every button.
+  const LOADERS = { Quotes: 'loadQuotes', Invoices: 'loadInvoices', History: 'loadHistory' };
+  const MORE = { quotes: 'moreQuotes', invoices: 'moreInvoices',
+                 service_history: 'moreHistory', payments: 'morePayments' };
+  // Fixed name -> function resolution. The NAME comes from the table above,
+  // never from the DOM, so a data attribute still cannot select arbitrary code.
+  const call = (name) => { const f = name && globalThis[name]; if (typeof f === 'function') f(); };
+
+  root.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el || !root.contains(el)) return;
+    const d = el.dataset;
+
+    switch (d.action) {
+      // navigation
+      case 'view':            showView(d.view, el); break;
+      case 'toggle-sidebar':  toggleMobileSidebar(); break;
+      case 'close-sidebar':   closeMobileSidebar(); break;
+      case 'logout':          doLogout(); break;
+
+      // quotes
+      case 'quote-respond':   respondQuote(d.id, d.response); break;
+      case 'remove-quote':    removeQuote(d.id); break;
+      case 'print-quote':     printQuote(d.id); break;
+
+      // invoices and payment
+      case 'print-invoice':   printInvoice(d.id); break;
+      case 'print-receipt':   printPaymentReceipt(d.id); break;
+      case 'lookup-invoice':  lookupInv(); break;
+      case 'open-pay':        openPay(d.id, parseFloat(d.amount)); break;
+      case 'start-pay':       startPay(); break;
+      case 'close-pay':       closePayModal(); break;
+      case 'close-confirm':   closeConfirm(); break;
+
+      // service requests
+      case 'pick-files':      document.getElementById('req-files')?.click(); break;
+      case 'remove-file':     removeReqFile(Number(d.index)); break;
+      case 'submit-request':  submitRequest(); break;
+
+      // account
+      case 'save-profile':    saveProfile(); break;
+      case 'change-password': changePassword(); break;
+
+      // service plans
+      case 'plan-review':     cpReview(d.id); break;
+      case 'plan-decline':    cpDecline(d.id); break;
+      case 'plan-chooser':    cpRenderChooser(); break;
+      case 'plan-pick':       cpPick(d.method); break;
+      case 'plan-pay':        cpStartPlanPayment(d.id); break;
+      case 'plan-activate':   cpActivatePlan(d.id); break;
+      case 'open-pdf':        cpOpenPdf(d.id); break;
+
+      // lists
+      case 'reload':          call(LOADERS[d.list]); break;
+      case 'load-more':       call(MORE[d.list]); break;
+
+      default: break;   // unknown action values are ignored, never executed
+    }
+  });
+
+  root.addEventListener('change', (e) => {
+    const el = e.target.closest('[data-action="req-files"]');
+    if (el) handleReqFiles(el);
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireCustomerPortal);
+else wireCustomerPortal();

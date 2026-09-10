@@ -37,6 +37,13 @@ const SVG_EYE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" str
 const SVG_OFF = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
 
 function togglePw(inputId, btn) {
+  // The name must follow the state: a button that always says
+  // "Show password" is wrong half the time for a screen reader.
+  try {
+    const _i = document.getElementById(id);
+    if (btn && _i) btn.setAttribute('aria-label', _i.type === 'password' ? 'Show password' : 'Hide password');
+  } catch (e) {}
+
   const inp = document.getElementById(inputId);
   const show = inp.type === 'password';
   inp.type = show ? 'text' : 'password';
@@ -237,3 +244,35 @@ document.addEventListener('keydown', e => {
     }
   } catch (e) { /* stay on page */ }
 })();
+
+
+/* ── Event wiring (CSP readiness) ──────────────────────────────────────────
+   Inline on* attributes are gone; behaviour is identical. One delegated click
+   listener plus one delegated input listener, installed once at DOMContentLoaded.
+   `data-action` SELECTS from a fixed switch — it is never executed, so there is
+   no window[action](), no eval and no Function constructor. */
+function wireLoginPage() {
+  const root = document.body;
+  if (!root || root.dataset.apexWired === '1') return;
+  root.dataset.apexWired = '1';
+
+  root.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    switch (el.dataset.action) {
+      case 'tab':       switchTab(el.dataset.tab, el); break;
+      case 'toggle-pw': togglePw(el.dataset.target, el); break;
+      case 'login':     handleLogin(); break;
+      case 'register':  handleRegister(); break;
+      default: break;                       // unknown values are ignored
+    }
+  });
+
+  root.addEventListener('input', (e) => {
+    const el = e.target.closest('[data-action="strength"]');
+    if (el) checkStrength(el.value);
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireLoginPage);
+else wireLoginPage();

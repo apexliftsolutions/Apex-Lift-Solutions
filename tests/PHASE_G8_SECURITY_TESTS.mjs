@@ -239,7 +239,11 @@ console.log("\n═══ REMAINING INLINE HANDLER INTERPOLATIONS, CLASSIFIED ═
   console.log(`     classified: ${constrained.length} constrained (id/int/enum/internal), ${free.length} user-text`);
   ok(free.length === 0,
      `H1 no free-form user text in any inline handler (${free.slice(0, 4).join(" | ") || "none"})`);
-  ok(constrained.length > 0, `H2 ${constrained.length} constrained interpolations remain — ids, integers and internal strings, deferred to Group 8.1`);
+  // This previously asserted that constrained interpolations REMAINED, which was
+  // true while the inline-handler migration was still outstanding. Surfaces A-D
+  // completed it, so the correct assertion is now the goal state: none at all.
+  ok(constrained.length === 0,
+     `H2 zero inline handler interpolations of any kind remain (${constrained.slice(0, 3).join(" | ") || "none"})`);
 }
 
 console.log("\n═══ SIGNED STORAGE URL VALIDATION ═══");

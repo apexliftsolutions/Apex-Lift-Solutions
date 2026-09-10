@@ -219,7 +219,7 @@ function strengthCheck() {
   if (/[0-9]/.test(p))        score++;
   if (/[^A-Za-z0-9]/.test(p)) score++;
   const lvl = [
-    { w: '20%',  c: '#ff4444', t: 'Too weak' },
+    { w: '20%',  c: 'var(--red-danger)', t: 'Too weak' },
     { w: '40%',  c: '#ff7700', t: 'Weak'     },
     { w: '60%',  c: '#ffaa00', t: 'Fair'     },
     { w: '80%',  c: '#88cc00', t: 'Good'     },
@@ -264,3 +264,42 @@ async function step3() {
 }
 
 document.getElementById('s1-email')?.addEventListener('keydown', e => { if (e.key === 'Enter') step1(); });
+
+
+/* ── Event wiring (CSP readiness) ──────────────────────────────────────────
+   Same shape as the login page. The six OTP boxes carry their position in
+   data-index rather than in a generated function call, so no index is ever
+   compiled as code. keydown is delegated too, which keeps the arrow/backspace
+   behaviour identical. */
+function wireForgotPage() {
+  const root = document.body;
+  if (!root || root.dataset.apexWired === '1') return;
+  root.dataset.apexWired = '1';
+
+  root.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    switch (el.dataset.action) {
+      case 'send-code':      step1(); break;
+      case 'verify-code':    step2(); break;
+      case 'resend':         resendCode(); break;
+      case 'reset-password': step3(); break;
+      default: break;
+    }
+  });
+
+  root.addEventListener('input', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    if (el.dataset.action === 'otp') otpIn(el, Number(el.dataset.index));
+    else if (el.dataset.action === 'strength') strengthCheck();
+  });
+
+  root.addEventListener('keydown', (e) => {
+    const el = e.target.closest('[data-action="otp"]');
+    if (el) otpKey(e, Number(el.dataset.index));
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireForgotPage);
+else wireForgotPage();

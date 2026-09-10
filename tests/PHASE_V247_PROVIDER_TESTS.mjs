@@ -15,7 +15,7 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("PASS " + m); } else { fail++; console.log("FAIL " + m); } };
 
 const ROOT = new URL("../", import.meta.url).pathname;
-const ESB = "/home/claude/node_modules/.bin/esbuild";
+const ESB = new URL("../node_modules/.bin/esbuild", import.meta.url).pathname;
 const SUB_ID = "aaaaaaaa-1111-4111-8111-000000000001";
 const PROVIDER_ID = 123456;
 

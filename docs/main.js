@@ -1,6 +1,6 @@
 // =============================================
 //  APEX LIFT SOLUTIONS — main.js
-//  Public site JS: nav, scroll reveal, forms.
+//  Public site JS: nav, scroll reveal, click-level analytics. Form submission is owned by public-forms.js.
 //  Used by: index, about, services, plans,
 //           contact, careers.
 // =============================================
@@ -57,7 +57,7 @@ const revealObserver = new IntersectionObserver((entries) => {
 document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
 
 // ── PUBLIC FORMS ──────────────────────────────
-// Submission is handled by the inline script on each page, which POSTs to the
+// Submission is owned by public-forms.js (attempt + success tracking live there too), which POSTs to the
 // public-contact Edge Function (validation, honeypot, rate limiting, outbox).
 // No handler here — a native POST would bypass all of that.
 
@@ -173,27 +173,10 @@ document.querySelectorAll('.footer-copy').forEach(el => {
     });
   });
 
-  // ── Contact form submit ───────────────────────
-  const contactForm = document.getElementById('contactForm');
-  if (contactForm) {
-    contactForm.addEventListener('submit', () => {
-      track('quote_request_submit', {
-        event_category: 'lead',
-        event_label: (document.getElementById('service')?.value || 'unknown service')
-      });
-    });
-  }
-
-  // ── Apply form submit ─────────────────────────
-  const applyForm = document.getElementById('applyForm');
-  if (applyForm) {
-    applyForm.addEventListener('submit', () => {
-      track('job_application_submit', {
-        event_category: 'careers',
-        event_label: (document.getElementById('a-position')?.value || 'unknown role')
-      });
-    });
-  }
+  // Form submit tracking used to live here and fired on SUBMIT — before the
+  // server had confirmed anything, so a failed submission looked like a lead.
+  // Attempt and success events are now emitted by public-forms.js, where the
+  // success event can be gated on the actual r.ok response.
 
   // ── Page-level tracking (which pages get traffic) ──
   track('page_view_custom', {

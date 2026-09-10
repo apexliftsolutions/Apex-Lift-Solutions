@@ -1,6 +1,6 @@
 /* ============================================================================
    Apex — keyset pagination (Group 6.1)
-   2026-09-08.v24.9-hardening
+   2026-09-09.v25.0
 
    WHY KEYSET AND NOT range()
    ---------------------------------------------------------------------------
@@ -136,6 +136,9 @@
    * Load More button markup. A real <button>, so it is keyboard reachable and
    * activates on Enter and Space with no extra handling.
    */
+  /* handlerName is retained for call-site clarity but is NO LONGER
+     interpolated into markup — the button carries data-action instead, so
+     nothing here can become an inline handler. */
   function moreButtonHtml(st, handlerName, label) {
     // When the list is exhausted there is no button, but the live region must
     // still exist — otherwise handleMore() has nothing to write "All records
@@ -147,7 +150,7 @@
     }
     return '<div class="apex-more-wrap">' +
       '<button type="button" class="btn-secondary apex-more" ' +
-      'onclick="' + handlerName + '()" data-list="' + st.table + '">' +
+      'data-action="load-more" data-list="' + st.table + '">' +
       (label || "Load older") + '</button>' +
       '<span class="apex-more-status" role="status" aria-live="polite"></span>' +
       '</div>';

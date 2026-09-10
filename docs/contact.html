@@ -7,16 +7,18 @@
   <title>Contact — Apex Lift Solutions | Get a Free Quote</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=2026-09-09.v25.0" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
   <meta name="description" content="Request a free forklift service quote or schedule a visit. Serving Nassau and Suffolk County, Long Island. Call (516) 644-7187." />
+  <link rel="canonical" href="https://apexliftsolutionsusa.com/contact.html">
   <meta name="theme-color" content="#000000" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://apexliftsolutionsusa.com/contact.html" />
   <meta property="og:image" content="https://apexliftsolutionsusa.com/og-image.jpg" />
+  <meta name="twitter:card" content="summary_large_image">
   <meta property="og:title" content="Contact — Apex Lift Solutions | Get a Free Quote" />
   <meta property="og:description" content="Request a free forklift service quote or schedule a visit. Serving Nassau and Suffolk County, Long Island. Call (516) 644-7187." />
 </head>
@@ -74,7 +76,6 @@
       <div class="contact-inner">
         <form class="contact-form" id="contactForm"
               method="POST" data-apex-form="request_service">
-          <input type="hidden" name="_next" value="" />
           <input type="text" name="_gotcha" style="display:none" />
 
           <div class="form-row">
@@ -93,13 +94,18 @@
               <input type="email" id="email" name="email" placeholder="john@company.com" required />
             </div>
             <div class="form-group">
-              <label for="phone">Phone Number</label>
-              <input type="tel" id="phone" name="Phone Number" placeholder="(555) 000-0000" />
+              <label for="phone">Phone Number *</label>
+              <input type="tel" id="phone" name="phone" placeholder="(555) 000-0000" required />
             </div>
+              <div class="form-group">
+                <label for="zip">Service ZIP *</label>
+                <input type="text" id="zip" name="zip" inputmode="numeric" autocomplete="postal-code"
+                       maxlength="10" placeholder="11801" required />
+              </div>
           </div>
           <div class="form-group">
             <label for="service">Service Needed</label>
-            <select id="service" name="Service Needed">
+            <select id="service" name="service_needed">
               <option value="">Select a service...</option>
               <option>Emergency Repair</option>
               <option>Diagnostic Visit</option>
@@ -115,7 +121,7 @@
           </div>
           <div class="form-group">
             <label for="fleet">Number of Forklifts</label>
-            <select id="fleet" name="Number of Forklifts">
+            <select id="fleet" name="number_of_forklifts">
               <option value="">Select fleet size...</option>
               <option>1</option>
               <option>2–5</option>
@@ -125,8 +131,8 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="message">Message</label>
-            <textarea id="message" name="issue" rows="4" placeholder="Tell us about your equipment, what issues you're experiencing, or any questions you have..."></textarea>
+            <label for="message">Message *</label>
+            <textarea id="message" name="issue" rows="4" placeholder="Tell us about your equipment, what issues you're experiencing, or any questions you have..." required></textarea>
           </div>
           <div class="form-group">
             <label>Photos or Documents <span style="color:var(--grey);font-weight:400;">(optional)</span></label>
@@ -135,7 +141,7 @@
                 <span class="file-icon">📎</span>
                 <div>
                   <strong>Have photos of the issue?</strong>
-                  <p>After submitting, email any photos or documents to <a href="mailto:info@apexliftsolutionsusa.com" style="color:var(--red);">info@apexliftsolutionsusa.com</a> with your name in the subject line. This helps us diagnose the problem faster.</p>
+                  <p>After submitting, email any photos or documents to <a href="mailto:info@apexliftsolutionsusa.com" style="color:var(--red-text);">info@apexliftsolutionsusa.com</a> with your name in the subject line. This helps us diagnose the problem faster.</p>
                 </div>
               </div>
             </div>
@@ -211,28 +217,8 @@
   </footer>
 
   
-<script>
-(function(){
-  var f = document.getElementById('contactForm'); if (!f) return;
-  f.addEventListener('submit', async function(e){
-    e.preventDefault();
-    var btn = f.querySelector('.form-submit, [type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-    var fd = new FormData(f), body = { form: 'request_service' };
-    fd.forEach(function(v,k){ if(k==='_gotcha'){ body._gotcha=v; return; } body[k.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')] = v; });
-    try {
-      var r = await fetch('https://cjtezsgfdfijmdxzzbiq.supabase.co/functions/v1/public-contact', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(r.status);
-      f.reset(); var ok = document.getElementById('formSuccess'); if (ok) ok.style.display = 'block';
-      if (window.APEX_TRACK) window.APEX_TRACK('request_submit','');
-      if (btn) btn.textContent = 'Sent ✓';
-    } catch(err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Try Again'; }
-      alert('Could not send. Please call (516) 644-7187.');
-    }
-  });
-})();
-</script>
-<script src="consent.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="main.js"></script>
+<script src="consent.js?v=2026-09-09.v25.0"></script>
+<script src="main.js?v=2026-09-09.v25.0"></script>
+  <script src="public-forms.js?v=2026-09-09.v25.0"></script>
 </body>
 </html>

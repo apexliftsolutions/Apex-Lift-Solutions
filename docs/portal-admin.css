@@ -117,7 +117,7 @@ body { background: var(--black); }
   gap: 14px;
 }
 .admin-header h1 { font-family: var(--font-head); font-size: 2rem; font-weight: 900; text-transform: uppercase; }
-.admin-header h1 em { color: var(--red-text); font-style: normal; }
+.admin-header h1 em { color: var(--red); font-style: normal; }
 
 /* ── VIEWS ───────────────────────────────────── */
 .view { display: none; }
@@ -143,7 +143,7 @@ body { background: var(--black); }
   margin-bottom: 8px;
 }
 .stat-card .value { font-family: var(--font-head); font-size: 2.2rem; font-weight: 900; color: var(--white); line-height: 1; }
-.stat-card .value.red { color: var(--red-text); }
+.stat-card .value.red { color: var(--red); }
 
 /* ── TABLE ───────────────────────────────────── */
 .table-header {
@@ -185,7 +185,7 @@ body { background: var(--black); }
 }
 .badge-pending  { background: rgba(255,165,0,.15); color: orange; border: 1px solid rgba(255,165,0,.3); }
 .badge-approved { background: rgba(76,175,80,.15); color: #4caf50; border: 1px solid rgba(76,175,80,.3); }
-.badge-declined { background: rgba(255,68,68,.15);  color: #ff4444; border: 1px solid rgba(255,68,68,.3); }
+.badge-declined { background: rgba(255,68,68,.15);  color: var(--red-danger); border: 1px solid rgba(255,68,68,.3); }
 .badge-paid     { background: rgba(76,175,80,.15); color: #4caf50; border: 1px solid rgba(76,175,80,.3); }
 .badge-unpaid   { background: rgba(255,165,0,.15); color: orange; border: 1px solid rgba(255,165,0,.3); }
 .badge-active   { background: rgba(76,175,80,.15); color: #4caf50; border: 1px solid rgba(76,175,80,.3); }
@@ -212,7 +212,7 @@ body { background: var(--black); }
 .action-btn.primary:hover { background: #a00000; }
 .action-btn.green   { background: #1a3a1a; border-color: #4caf50; color: #4caf50; }
 .action-btn.green:hover { background: #4caf50; color: #fff; }
-.action-btn.danger  { border-color: rgba(255,68,68,.4); color: #ff4444; }
+.action-btn.danger  { border-color: rgba(255,68,68,.4); color: var(--red-danger); }
 .action-btn.danger:hover { background: rgba(255,68,68,.1); }
 
 /* ── FILTERS ─────────────────────────────────── */
@@ -327,7 +327,7 @@ body { background: var(--black); }
 .remove-line {
   background: transparent;
   border: 1px solid var(--border);
-  color: #ff4444;
+  color: var(--red-danger);
   font-size: 1rem;
   width: 36px; height: 36px;
   cursor: pointer;
@@ -337,7 +337,7 @@ body { background: var(--black); }
   flex-shrink: 0;
 }
 .quote-total { text-align: right; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
-.quote-total span { font-family: var(--font-head); font-size: 1.8rem; font-weight: 900; color: var(--red-text); }
+.quote-total span { font-family: var(--font-head); font-size: 1.8rem; font-weight: 900; color: var(--red); }
 
 /* ── FILE UPLOAD ─────────────────────────────── */
 .file-upload-area {
@@ -371,7 +371,7 @@ body { background: var(--black); }
   align-items: center;
   gap: 6px;
 }
-.file-chip button { background: none; border: none; color: #ff4444; cursor: pointer; font-size: .9rem; padding: 0; }
+.file-chip button { background: none; border: none; color: var(--red-danger); cursor: pointer; font-size: .9rem; padding: 0; }
 
 /* ── MODAL ───────────────────────────────────── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; padding: 20px; }
@@ -401,7 +401,7 @@ body { background: var(--black); }
 .refresh-btn:hover { border-color: var(--white); color: var(--white); }
 .success-toast { position: fixed; bottom: 24px; right: 24px; background: #1a3a1a; border: 1px solid #4caf50; color: #4caf50; font-family: var(--font-head); font-size: .85rem; font-weight: 700; letter-spacing: .05em; padding: 16px 24px; display: none; z-index: 9999; animation: fadeUp .3s ease; }
 .pw-msg { font-size: .82rem; font-family: var(--font-head); font-weight: 600; display: none; padding: 10px; text-align: center; margin-bottom: 10px; }
-.pw-err { color: #ff4444; border: 1px solid #ff4444; }
+.pw-err { color: var(--red-danger); border: 1px solid var(--red-danger); }
 .pw-suc { color: #4caf50; border: 1px solid #4caf50; }
 
 /* ── MOBILE TOPBAR ───────────────────────────── */
@@ -465,7 +465,14 @@ body { background: var(--black); }
    still correct for borders (3.21:1, above the 3:1 UI threshold), for button
    fills (white on red is 5.40:1) and for large display text. This token is for
    small red TEXT only. */
-:root { --red-text: #cc6464; }
+/* Must match style.css. Small/normal red text only — large display
+   accents use --red. See the palette note in style.css. */
+:root {
+  --red-text: #ff2b2b;
+  /* Destructive/declined status red. Deliberately distinct from the brand
+     accent so a status signal is never confused with branding. */
+  --red-danger: #ff4444;
+}
 
 /* ── Accessibility (Group 3) ──────────────────────────────────────────────
    A visible keyboard focus ring. Several inputs set `outline: none` and

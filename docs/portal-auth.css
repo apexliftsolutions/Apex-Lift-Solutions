@@ -67,7 +67,7 @@
   text-transform: uppercase;
   margin-bottom: 8px;
 }
-.portal-title em { color: var(--red-text); font-style: normal; }
+.portal-title em { color: var(--red); font-style: normal; }
 .portal-sub { color: var(--grey-light); font-size: .92rem; margin-bottom: 24px; line-height: 1.65; }
 
 /* ── FORM GROUPS ─────────────────────────────── */
@@ -120,14 +120,14 @@
 
 /* ── STATUS MESSAGES ─────────────────────────── */
 .err {
-  color: #ff4444;
+  color: var(--red-danger);
   font-size: .82rem;
   font-family: var(--font-head);
   font-weight: 600;
   letter-spacing: .04em;
   display: none;
   padding: 10px;
-  border: 1px solid #ff4444;
+  border: 1px solid var(--red-danger);
   text-align: center;
   margin-bottom: 8px;
 }
@@ -237,11 +237,11 @@
   outline: none;
   transition: all .2s;
   border-radius: 0;
-  caret-color: var(--red-text);
+  caret-color: var(--red);
 }
 .otp-box:focus { border-color: var(--red-text); background: rgba(204,0,0,.05); }
 .otp-box.filled { border-color: rgba(204,0,0,.4); }
-.otp-box.shake { border-color: #ff4444; animation: shake .4s ease; }
+.otp-box.shake { border-color: var(--red-danger); animation: shake .4s ease; }
 
 .resend-row { text-align: center; margin-top: 12px; color: var(--grey); font-size: .8rem; font-family: var(--font-head); font-weight: 600; letter-spacing: .05em; }
 .resend-btn { color: var(--red-text); cursor: pointer; text-decoration: underline; display: none; }
@@ -269,7 +269,11 @@
    still correct for borders (3.21:1, above the 3:1 UI threshold), for button
    fills (white on red is 5.40:1) and for large display text. This token is for
    small red TEXT only. */
-:root { --red-text: #cc6464; }
+/* Must match style.css. Small/normal red text only — large display
+   accents use --red. See the palette note in style.css. */
+:root {
+  /* Mirrors style.css so auth pages resolve the token even in isolation. */
+  --red-danger: #ff4444; --red-text: #ff2b2b; }
 
 /* ── Accessibility (Group 3) ──────────────────────────────────────────────
    A visible keyboard focus ring. Several inputs set `outline: none` and

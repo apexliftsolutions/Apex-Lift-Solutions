@@ -61,7 +61,7 @@ body {
 
 .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 .red { color: var(--red-text); }
-em { color: var(--red-text); font-style: normal; }
+em { color: var(--red); font-style: normal; }
 
 /* ——— BUTTONS ——— */
 .btn-primary {
@@ -168,7 +168,7 @@ em { color: var(--red-text); font-style: normal; }
   font-family: var(--font-head);
   font-size: 1.5rem;
   font-weight: 900;
-  color: var(--red-text);
+  color: var(--red);
   letter-spacing: 0.05em;
   line-height: 1;
 }
@@ -325,7 +325,7 @@ em { color: var(--red-text); font-style: normal; }
   animation: fadeUp 0.6s 1.1s forwards;
 }
 .stat { display: flex; flex-direction: column; gap: 4px; }
-.stat-num { font-family: var(--font-head); font-size: 2.5rem; font-weight: 900; color: var(--red-text); line-height: 1; }
+.stat-num { font-family: var(--font-head); font-size: 2.5rem; font-weight: 900; color: var(--red); line-height: 1; }
 .stat-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--grey); }
 .stat-divider { width: 1px; height: 40px; background: var(--border); }
 
@@ -504,7 +504,7 @@ em { color: var(--red-text); font-style: normal; }
 .pricing-card h3 { font-family: var(--font-head); font-size: 2rem; font-weight: 900; text-transform: uppercase; line-height: 1.05; margin-bottom: 16px; }
 .pricing-price { margin-bottom: 16px; }
 .price-from { display: block; font-size: 0.8rem; color: var(--grey); text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--font-head); font-weight: 600; }
-.price-amount { display: block; font-family: var(--font-head); font-size: 2rem; font-weight: 900; color: var(--red-text); line-height: 1.1; }
+.price-amount { display: block; font-family: var(--font-head); font-size: 2rem; font-weight: 900; color: var(--red); line-height: 1.1; }
 .price-per { font-size: 0.8rem; color: var(--grey); }
 .pricing-desc { color: var(--grey-light); font-size: 0.9rem; line-height: 1.6; }
 .pricing-body { padding: 32px 40px 40px; flex: 1; display: flex; flex-direction: column; }
@@ -662,7 +662,7 @@ em { color: var(--red-text); font-style: normal; }
 .mission-block p { color: var(--grey-light); }
 .mission-stats { display: flex; flex-direction: column; gap: 32px; align-items: flex-end; }
 .mission-stat { text-align: right; }
-.mission-stat .stat-num { font-family: var(--font-head); font-size: 2.5rem; font-weight: 900; color: var(--red-text); line-height: 1; }
+.mission-stat .stat-num { font-family: var(--font-head); font-size: 2.5rem; font-weight: 900; color: var(--red); line-height: 1; }
 .mission-stat .stat-label { font-family: var(--font-head); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--grey); }
 
 /* ——— CAREERS ——— */
@@ -798,7 +798,7 @@ footer {
 /* ——— TEAM CARDS ——— */
 .team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); margin-bottom: 80px; }
 .team-card { background: var(--dark); padding: 36px 32px; }
-.team-avatar { width: 64px; height: 64px; background: var(--dark-3); border: 2px solid var(--red); display: flex; align-items: center; justify-content: center; font-family: var(--font-head); font-size: 1.4rem; font-weight: 900; color: var(--red-text); margin-bottom: 20px; }
+.team-avatar { width: 64px; height: 64px; background: var(--dark-3); border: 2px solid var(--red); display: flex; align-items: center; justify-content: center; font-family: var(--font-head); font-size: 1.4rem; font-weight: 900; color: var(--red); margin-bottom: 20px; }
 .team-card h3 { font-family: var(--font-head); font-size: 1.2rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
 .team-card .team-title { font-family: var(--font-head); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--red-text); margin-bottom: 14px; }
 .team-card p { color: var(--grey-light); font-size: 1rem; line-height: 1.7; }
@@ -819,7 +819,7 @@ footer {
 
 /* ——— 404 PAGE ——— */
 .error-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; }
-.error-code { font-family: var(--font-head); font-size: clamp(6rem, 20vw, 12rem); font-weight: 900; color: var(--red-text); line-height: 1; opacity: 0.15; }
+.error-code { font-family: var(--font-head); font-size: clamp(6rem, 20vw, 12rem); font-weight: 900; color: var(--red); line-height: 1; opacity: 0.15; }
 .error-content { position: absolute; }
 .error-page-wrap { position: relative; display: flex; flex-direction: column; align-items: center; }
 
@@ -830,7 +830,18 @@ footer {
    still correct for borders (3.21:1, above the 3:1 UI threshold), for button
    fills (white on red is 5.40:1) and for large display text. This token is for
    small red TEXT only. */
-:root { --red-text: #cc6464; }
+:root {
+  /* Destructive / declined status red. Distinct from the brand accent so a
+     status signal is never confused with branding. Defined here so both
+     portals share one value; portal-admin.css carries the same literal. */
+  --red-danger: #ff4444;
+  /* Small/normal red text only. Needs 4.5:1, which rules out the brand
+     #cc0000 (2.96 on --dark-2). The previous #cc6464 met the ratio but
+     read as salmon — and still failed on --dark-3 (4.22). This is the most
+     saturated PURE red that clears 4.5:1 on black, --dark and --dark-2:
+     5.31 / 5.06 / 4.67. Large display text uses --red instead. */
+  --red-text: #ff2b2b;
+}
 
 /* ── Accessibility (Group 3) ──────────────────────────────────────────────
    A visible keyboard focus ring. Several inputs set `outline: none` and
@@ -1058,3 +1069,33 @@ h1:focus-visible, h2:focus-visible, h3:focus-visible, h4:focus-visible {
 .apex-more-status { font-size: .82rem; color: var(--grey); }
 .apex-more-status:empty { display: none; }
 @media (max-width: 560px) { .apex-more { width: 100%; } }
+
+
+/* ── 404 quick links (Group 8.2) ──────────────────────────────────────────
+   Replaces onmouseover/onmouseout attributes. The presentation lives here
+   rather than in a style attribute: an inline style outranks a class selector,
+   so .e404-link:hover could never have overridden it. Behaviour is the original
+   grey -> white, not a new red treatment. */
+.e404-link {
+  color: var(--grey);
+  font-family: var(--font-head);
+  font-size: .8rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: color .2s;
+}
+.e404-link:hover,
+.e404-link:focus-visible {
+  color: var(--white);
+}
+/* The global :focus-visible ring already applies, but state it here too so the
+   keyboard indicator does not depend on rule order elsewhere. */
+.e404-link:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* Upload areas became native buttons (keyboard-reachable); reset UA button chrome. */
+button.drop-zone, button.file-upload-area { display:block; width:100%; text-align:inherit; font:inherit; color:inherit; background:inherit; border-style:dashed; cursor:pointer; }

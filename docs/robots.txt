@@ -1,12 +1,14 @@
 User-agent: *
 Allow: /
 
-# Private portal — no SEO value, and shouldn't appear in search
-Disallow: /portal-admin.html
-Disallow: /portal-customer.html
-Disallow: /portal-login.html
-Disallow: /portal-forgot.html
-Disallow: /portal-reset.html
-
+# The portal pages are NOT disallowed on purpose. A disallowed URL is never
+# fetched, so a crawler never sees the noindex directive on it — and a
+# disallowed URL can still be listed from inbound links. Each portal page now
+# declares <meta name="robots" content="noindex,nofollow,noarchive"> instead,
+# which is what actually removes it from results.
+#
+# Nothing confidential depends on this either way. robots.txt is crawler
+# guidance, not access control; customer and admin data is protected by
+# authentication and row-level security regardless of what any crawler does.
 
 Sitemap: https://apexliftsolutionsusa.com/sitemap.xml

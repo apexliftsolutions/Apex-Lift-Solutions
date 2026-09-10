@@ -1,4 +1,43 @@
-# CSP CANDIDATE — NOT ENFORCED
+# CSP CANDIDATE — CURRENT STATE (v25.0, 2026-09-09)
+
+**Not enforced.** No CSP meta tag exists in `docs/`.
+
+| Precondition | State |
+|---|---|
+| Inline event attributes | 0 site-wide |
+| Executable inline scripts | 0 (one JSON-LD block, hashable) |
+| `'unsafe-eval'` needed | No — verified across all first-party JS and the vendored SDK |
+| `'unsafe-inline'` for scripts | No |
+| First-party origins | `'self'` only — SDK, fonts, all assets self-hosted |
+| Third-party script origins | `https://secure.helcim.app` (payments, one page) |
+| Consent-gated | `https://www.googletagmanager.com` (after opt-in only) |
+| **Blocking activation** | Helcim frame/XHR origins not captured; reCAPTCHA origin RUNTIME OBSERVED, OWNER NOT ISOLATED |
+
+Everything below this line is the working history that led here. Statements in
+it about inline handlers "remaining" or `script-src-attr` being blocked describe
+states that no longer exist; the table above is authoritative.
+
+## JSON-LD — the sole inline script block
+
+`index.html` carries one `<script type="application/ld+json">` block, an
+**Organization** (not LocalBusiness). Over its literal element content
+(538 bytes) as shipped in v25.0:
+
+```
+sha256-kMBpeRUMW6zrwziy8n2dcRQapQGwwjtkc6UCJwvlg9c=
+```
+
+Exact for these bytes; any edit — including whitespace — invalidates it.
+
+---
+
+<details><summary>Archived working history (superseded)</summary>
+
+Everything below this line is the working history that led here.
+
+---
+
+# (original) CSP CANDIDATE — NOT ENFORCED
 
 **Nothing in this file is deployed.** No CSP meta tag was added to any page. This
 is a candidate to be proven in a browser first, then activated separately.
@@ -96,6 +135,45 @@ Record the page and the step alongside each origin.
 - **Helcim popup works.** The earlier payment failure was session/auth state,
   addressed as frontend messaging in Group 8.1, not a Helcim integration bug.
 
+
+## Update — Surfaces A–E complete (inline code eliminated)
+
+**Site-wide inline event attributes: 0.** `setAttribute("on*"): 0.`
+**Executable inline `<script>` blocks: 0.**
+
+All 98 admin handlers, 53 customer handlers, 25 auth handlers and the 8 404
+hover attributes are gone, replaced by delegated `addEventListener` wiring with
+fixed switches over constrained `data-*` values. The four remaining inline
+application blocks were externalised to `public-forms.js`, `index-tracking.js`
+and `portal-reset.js`.
+
+**`script-src-attr 'none'` is now viable from first-party code**, and neither
+`'unsafe-inline'` nor `'unsafe-eval'` is required by anything Apex ships.
+
+### The one inline exception
+
+`index.html` carries a single `<script type="application/ld+json">`
+LocalBusiness block. It is structured data, not executable code, but
+`script-src` still governs it. Measured over the literal element content:
+
+```
+sha256-DVVlGJkrLQnE1PT2P9coo1h/rrRJc1r4ZtUHpPcHC6o=
+```
+
+(1768 bytes; hex `0d556518992b2d09c4d4f4f63fd728a3587faeb449735af866d507a4f7070baa`.)
+
+**The hash is exact for the current bytes and breaks on any edit** — including
+whitespace. If the structured data is ever changed, recompute it. Whether the
+hash is needed at all depends on the final delivery mechanism, which is still
+open.
+
+### Still blocking activation
+
+Unchanged: the reCAPTCHA origin ownership is **RUNTIME OBSERVED, SOURCE OWNER
+NOT ISOLATED**, and the Helcim frame/XHR origins have not been captured from a
+browser. Those two remain the only things between this candidate and a policy
+that can be enforced.
+
 ## Origins that still require browser verification
 
 - **Helcim.** Frame origins, XHR targets, and any asset/font origins the SDK
@@ -182,3 +260,6 @@ duplicated across three pages and consolidating them safely is its own task.
 5. Ship the meta CSP **without** `script-src-attr 'none'` first, verify, then
    tighten.
 6. Revisit header-only protections only if hosting changes.
+
+
+</details>

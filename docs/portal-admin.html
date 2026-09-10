@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Admin Portal — Apex Lift Solutions</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=2026-09-08.v24.9-hardening" />
-  <link rel="stylesheet" href="portal-admin.css?v=2026-09-08.v24.9-hardening" />
+  <link rel="stylesheet" href="style.css?v=2026-09-09.v25.0" />
+  <link rel="stylesheet" href="portal-admin.css?v=2026-09-09.v25.0" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
 <style>
 /* ── Service Plans (Phase B) — all selectors sp-* scoped ── */
@@ -73,12 +74,12 @@
   <img src="logo.jpg" alt="Apex Lift Solutions" class="mobile-topbar-logo" width="342" height="120" decoding="async"/>
   <div class="mobile-topbar-right">
     <span class="mobile-topbar-badge">Admin</span>
-    <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">
+    <button class="mobile-menu-btn" id="mobile-menu-btn" data-action="toggle-sidebar" aria-label="Menu" aria-controls="admin-sidebar-el" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>
   </div>
 </div>
-<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+<div class="sidebar-overlay" id="sidebar-overlay" data-action="close-sidebar"></div>
 
 <div class="admin-layout">
   <aside class="admin-sidebar" id="admin-sidebar-el">
@@ -130,7 +131,7 @@
       <span class="admin-badge">Admin</span>
       <p id="admin-name">Apex Lift Solutions</p>
       <div style="margin-top:8px;"><span class="live-dot"></span><span class="live-label">Live Sync</span></div>
-      <button class="logout-btn" onclick="logout()">Sign Out</button>
+      <button class="logout-btn" data-action="logout">Sign Out</button>
     </div>
   </aside>
 
@@ -143,7 +144,7 @@
     <div class="view active" id="view-dashboard">
       <div class="admin-header">
         <h1>Dashboard <em>Overview</em></h1>
-        <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+        <button class="refresh-btn" data-action="refresh-all">↻ Refresh</button>
       </div>
       <div class="stats-grid" id="stats-grid">
         <div class="stat-card"><div class="label">Loading…</div><div class="value">—</div></div>
@@ -153,7 +154,7 @@
       </div>
       <div class="table-header">
         <h2>Recent Quotes</h2>
-        <button class="action-btn primary" onclick="showView('create-quote')">+ New Quote</button>
+        <button class="action-btn primary" data-action="view" data-view="create-quote">+ New Quote</button>
       </div>
       <table class="data-table">
         <thead><tr><th>Quote #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
@@ -166,24 +167,24 @@
       <div class="admin-header">
         <h1>All <em>Quotes</em></h1>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          <button class="refresh-btn" onclick="renderAllQuotes()">↻ Refresh</button>
-          <button class="action-btn" onclick="exportQuotesCSV()" title="Download all quotes as CSV">⬇ Export CSV</button>
-          <button class="action-btn primary" onclick="showView('create-quote')">+ New Quote</button>
+          <button class="refresh-btn" data-action="refresh-quotes">↻ Refresh</button>
+          <button class="action-btn" data-action="export-quotes" title="Download all quotes as CSV">⬇ Export CSV</button>
+          <button class="action-btn primary" data-action="view" data-view="create-quote">+ New Quote</button>
         </div>
       </div>
       <div class="filter-row">
-        <select id="quotes-company-filter" class="filter-select" onchange="renderAllQuotes()" aria-label="Filter quotes by company">
+        <select id="quotes-company-filter" class="filter-select" data-action="filter-quotes" aria-label="Filter quotes by company">
           <option value="">All Companies</option>
         </select>
-        <select id="quotes-status-filter" class="filter-select" onchange="renderAllQuotes()" aria-label="Filter quotes by status">
+        <select id="quotes-status-filter" class="filter-select" data-action="filter-quotes" aria-label="Filter quotes by status">
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="declined">Declined</option>
         </select>
-        <input type="date" id="quotes-date-from" class="date-input" title="From date" onchange="renderAllQuotes()"/ aria-label="Quotes from date">
-        <input type="date" id="quotes-date-to" class="date-input" title="To date" onchange="renderAllQuotes()"/ aria-label="Quotes to date">
-        <input type="text" id="quotes-search" class="search-input" placeholder="Search customer / quote #…" oninput="renderAllQuotes()"/ aria-label="Search quotes">
+        <input type="date" id="quotes-date-from" class="date-input" title="From date" data-action="filter-quotes" aria-label="Quotes from date">
+        <input type="date" id="quotes-date-to" class="date-input" title="To date" data-action="filter-quotes" aria-label="Quotes to date">
+        <input type="text" id="quotes-search" class="search-input" placeholder="Search customer / quote #…" data-action="filter-quotes-search" aria-label="Search quotes">
       </div>
       <table class="data-table">
         <thead><tr><th>Quote #</th><th>Customer</th><th>Description</th><th>Amount</th><th>Status</th><th>Responded</th><th>Actions</th></tr></thead>
@@ -199,17 +200,17 @@
         <div class="form-grid">
           <div class="form-group" style="grid-column:1/-1;">
             <label for="q-customer-select">Select Customer *</label>
-            <select id="q-customer-select" onchange="selectCustomer()">
+            <select id="q-customer-select" data-action="select-customer">
               <option value="">— Loading customers… —</option>
             </select>
           </div>
           <div class="form-group">
             <label>Customer Email</label>
-            <input type="text" id="q-email" readonly style="opacity:.55;cursor:not-allowed;"/ aria-label="Customer email">
+            <input type="text" id="q-email" readonly style="opacity:.55;cursor:not-allowed;" aria-label="Customer email">
           </div>
           <div class="form-group">
             <label>Company</label>
-            <input type="text" id="q-company" readonly style="opacity:.55;cursor:not-allowed;"/ aria-label="Customer company">
+            <input type="text" id="q-company" readonly style="opacity:.55;cursor:not-allowed;" aria-label="Customer company">
           </div>
           <div class="form-group">
             <label for="q-equipment">Forklift Make / Model</label>
@@ -228,30 +229,31 @@
           </div>
           <div id="line-items-container">
             <div class="line-item">
-              <input type="text" placeholder="e.g. LBR Bracket" class="item-desc"/ aria-label="Line item description">
-              <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" oninput="updateTotal()"/ aria-label="Quantity">
+              <input type="text" placeholder="e.g. LBR Bracket" class="item-desc" aria-label="Line item description">
+              <input type="number" placeholder="1" class="item-qty" min="1" step="1" value="1" data-action="update-total" aria-label="Quantity">
               <select class="item-type" aria-label="Line item type"><option>Parts</option><option>Labor</option><option>Travel</option><option>Other</option></select>
-              <input type="number" placeholder="0.00" class="item-unit" step="0.01" oninput="updateTotal()"/ aria-label="Unit price">
-              <button class="remove-line" onclick="removeLine(this)">×</button>
+              <input type="number" placeholder="0.00" class="item-unit" step="0.01" data-action="update-total" aria-label="Unit price">
+              <button class="remove-line" data-action="remove-line">×</button>
             </div>
           </div>
-          <button class="action-btn" onclick="addLine()" style="margin-top:8px;">+ Add Line Item</button>
+          <button class="action-btn" data-action="add-line" style="margin-top:8px;">+ Add Line Item</button>
         </div>
 
         <!-- Attachments -->
         <div style="margin-top:24px;">
           <h3>Attachments <span style="color:var(--grey);font-weight:400;font-size:.8rem;text-transform:none;letter-spacing:0;">(optional)</span></h3>
-          <div class="file-upload-area" onclick="document.getElementById('quote-files').click()">
-            <label for="quote-files" class="upload-label">📎 Click to attach files (photos, PDFs)</label>
-            <input type="file" id="quote-files" multiple accept="image/*,.pdf,.txt,.doc,.docx" onchange="handleFileSelect(this)"/>
-          </div>
+          <button type="button" class="file-upload-area" data-action="pick-quote-files" aria-controls="quote-files">
+            <span class="upload-label">📎 Click to attach files</span>
+            <span style="display:block;color:var(--grey);font-size:.78rem;margin-top:3px;">JPG, PNG, WebP, HEIC or PDF &middot; max 10 MB</span>
+          </button>
+          <input type="file" id="quote-files" multiple accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" style="display:none;" data-action="quote-files" aria-label="Attach photos or documents to the quote"/>
           <div class="uploaded-files" id="uploaded-files-list"></div>
         </div>
         <div id="quote-tax-block" style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px;">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
           <div>
             <label class="form-lbl" for="q-tax-rate">Sales tax rate (%)</label>
-            <input type="number" id="q-tax-rate" class="hist-input" step="0.001" min="0" max="15" value="8.625" oninput="updateTotal()"/>
+            <input type="number" id="q-tax-rate" class="hist-input" step="0.001" min="0" max="15" value="8.625" data-action="update-total"/>
           </div>
           <div>
             <label class="form-lbl" for="q-tax-juris">Tax jurisdiction</label>
@@ -263,7 +265,7 @@
           </div>
         </div>
         <label style="display:flex;align-items:center;gap:9px;cursor:pointer;margin-bottom:16px;font-size:.9rem;color:var(--grey-light);">
-          <input type="checkbox" id="q-tax-exempt" onchange="toggleExempt()" style="width:16px;height:16px;accent-color:var(--red);"/>
+          <input type="checkbox" id="q-tax-exempt" data-action="toggle-exempt" style="width:16px;height:16px;accent-color:var(--red-text);"/>
           Customer is sales-tax exempt <span style="color:var(--grey);font-size:.82rem;">(certificate must be on file)</span>
         </label>
 
@@ -274,13 +276,13 @@
           <span id="quote-tax-label">Sales Tax (8.625%)</span><span id="quote-tax-display">$0.00</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:13px 0 0;font-family:var(--font-head);font-size:1.25rem;font-weight:900;text-transform:uppercase;">
-          <span>Total</span><span id="quote-total-display" style="color:var(--red);">$0.00</span>
+          <span>Total</span><span id="quote-total-display" style="color:var(--red-text);">$0.00</span>
         </div>
       </div>
       </div>
       <div style="display:flex;gap:12px;">
-        <button class="btn-primary" onclick="saveQuote()">Send Quote to Customer</button>
-        <button class="action-btn" onclick="showView('quotes')" data-a11y-close>Cancel</button>
+        <button class="btn-primary" data-action="save-quote">Send Quote to Customer</button>
+        <button class="action-btn" data-action="view" data-view="quotes" data-a11y-close>Cancel</button>
       </div>
     </div>
 
@@ -289,15 +291,15 @@
       <div class="admin-header">
         <h1>All <em>Invoices</em></h1>
         <div style="display:flex;gap:10px;">
-          <button class="refresh-btn" onclick="renderInvoices()">↻ Refresh</button>
-          <button class="action-btn" onclick="exportInvoicesCSV()" title="Download all invoices as CSV">⬇ Export CSV</button>
+          <button class="refresh-btn" data-action="refresh-invoices">↻ Refresh</button>
+          <button class="action-btn" data-action="export-invoices" title="Download all invoices as CSV">⬇ Export CSV</button>
         </div>
       </div>
       <div class="filter-row">
-        <select id="invoices-company-filter" class="filter-select" onchange="renderInvoices()" aria-label="Filter invoices by company">
+        <select id="invoices-company-filter" class="filter-select" data-action="filter-invoices" aria-label="Filter invoices by company">
           <option value="">All Companies</option>
         </select>
-        <select id="invoices-status-filter" class="filter-select" onchange="renderInvoices()" aria-label="Filter invoices by status">
+        <select id="invoices-status-filter" class="filter-select" data-action="filter-invoices" aria-label="Filter invoices by status">
           <option value="">All Statuses</option>
           <option value="unpaid">Unpaid</option>
           <option value="payment_pending">Payment Pending</option>
@@ -307,9 +309,9 @@
           <option value="void">Void / Canceled</option>
           <option value="hidden">Hidden</option>
         </select>
-        <input type="date" id="invoices-date-from" class="date-input" title="From date" onchange="renderInvoices()"/ aria-label="Invoices from date">
-        <input type="date" id="invoices-date-to" class="date-input" title="To date" onchange="renderInvoices()"/ aria-label="Invoices to date">
-        <input type="text" id="invoices-search" class="search-input" placeholder="Search customer / invoice #…" oninput="renderInvoices()"/ aria-label="Search invoices">
+        <input type="date" id="invoices-date-from" class="date-input" title="From date" data-action="filter-invoices" aria-label="Invoices from date">
+        <input type="date" id="invoices-date-to" class="date-input" title="To date" data-action="filter-invoices" aria-label="Invoices to date">
+        <input type="text" id="invoices-search" class="search-input" placeholder="Search customer / invoice #…" data-action="filter-invoices-search" aria-label="Search invoices">
       </div>
       <table class="data-table">
         <thead><tr><th>Invoice #</th><th>Customer</th><th>Amount</th><th>Status</th><th>Due Date</th><th>Paid On</th><th>Actions</th></tr></thead>
@@ -321,11 +323,11 @@
     <div class="view" id="view-customers">
       <div class="admin-header">
         <h1>All <em>Customers</em></h1>
-        <button class="action-btn" onclick="exportCustomersCSV()" title="Download customer list as CSV">⬇ Export CSV</button>
+        <button class="action-btn" data-action="export-customers" title="Download customer list as CSV">⬇ Export CSV</button>
       </div>
       <div class="filter-row">
-        <input type="text" id="customers-search" class="search-input" placeholder="Search name / email / company…" oninput="renderCustomers()"/ aria-label="Search customers">
-        <select id="customers-status-filter" class="filter-select" onchange="renderCustomers()" aria-label="Filter customers by status">
+        <input type="text" id="customers-search" class="search-input" placeholder="Search name / email / company…" data-action="filter-customers-search" aria-label="Search customers">
+        <select id="customers-status-filter" class="filter-select" data-action="filter-customers" aria-label="Filter customers by status">
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
           <option value="active">Active</option>
@@ -372,7 +374,7 @@
           <label>Notes<textarea id="sp-eq-notes" rows="2"></textarea></label>
           <p class="sp-note" id="sp-equip-lock" hidden>This unit is named in a signed agreement. Serial, make, model and year are frozen.</p>
           <div class="sp-modal-actions">
-            <button class="btn-secondary" type="button" onclick="spCloseEquip()" data-a11y-close>Cancel</button>
+            <button class="btn-secondary" type="button" data-action="sp-close-equip" data-a11y-close>Cancel</button>
             <button class="approve-btn" type="button" id="sp-equip-save">Save forklift</button>
           </div>
         </div>
@@ -408,7 +410,7 @@
           <label>Offer expires in (days)<input id="sp-expiry" type="number" min="1" max="365" value="30"></label>
 
           <div class="sp-modal-actions">
-            <button class="btn-secondary" type="button" onclick="spCloseOffer()" data-a11y-close>Cancel</button>
+            <button class="btn-secondary" type="button" data-action="sp-close-offer" data-a11y-close>Cancel</button>
             <button class="btn-secondary" type="button" id="sp-offer-save">Save draft</button>
             <button class="approve-btn" type="button" id="sp-offer-send">Save &amp; send offer</button>
           </div>
@@ -446,7 +448,7 @@
       <div class="sp-modal-card sp-wide">
         <div class="sp-row">
           <h3 id="rs-detail-title">Subscription</h3>
-          <button class="btn-secondary" type="button" onclick="rsCloseDetail()" data-a11y-close>Close</button>
+          <button class="btn-secondary" type="button" data-action="rs-close-detail" data-a11y-close>Close</button>
         </div>
         <div id="rs-detail-body"><div class="empty-state">Loading…</div></div>
       </div>
@@ -465,7 +467,7 @@
         <p class="sp-note">The server recalculates the maximum refundable amount from the ledger before moving money.
           Refunding a month does <b>not</b> cancel the subscription.</p>
         <div class="sp-modal-actions">
-          <button class="btn-secondary" type="button" onclick="rsCloseRefund()" data-a11y-close>Cancel</button>
+          <button class="btn-secondary" type="button" data-action="rs-close-refund" data-a11y-close>Cancel</button>
           <button class="approve-btn" type="button" id="rs-refund-go">Process refund</button>
         </div>
       </div>
@@ -477,15 +479,15 @@
         <p style="color:var(--grey-light);font-size:.9rem;margin-bottom:20px;line-height:1.65;">Password is managed by Supabase Auth. Changes take effect immediately.</p>
         <div class="form-group" style="margin-bottom:14px;">
           <label>New Password</label>
-          <input type="password" id="admin-new-pass" placeholder="Min 8 characters" autocomplete="new-password"/ aria-label="New password">
+          <input type="password" id="admin-new-pass" placeholder="Min 8 characters" autocomplete="new-password" aria-label="New password">
         </div>
         <div class="form-group" style="margin-bottom:14px;">
           <label>Confirm New Password</label>
-          <input type="password" id="admin-new-pass2" placeholder="Repeat password" autocomplete="new-password"/ aria-label="Confirm new password">
+          <input type="password" id="admin-new-pass2" placeholder="Repeat password" autocomplete="new-password" aria-label="Confirm new password">
         </div>
         <div id="pw-err" class="pw-msg pw-err"></div>
         <div id="pw-suc" class="pw-msg pw-suc"></div>
-        <button class="btn-primary" onclick="changeAdminPassword()" style="margin-top:8px;">Update Password</button>
+        <button class="btn-primary" data-action="change-admin-password" style="margin-top:8px;">Update Password</button>
       </div>
     </div>
 
@@ -493,16 +495,16 @@
     <div class="view" id="view-requests">
       <div class="admin-header">
         <h1>Service <em>Requests</em></h1>
-        <button class="refresh-btn" onclick="renderRequests()">↻ Refresh</button>
+        <button class="refresh-btn" data-action="refresh-requests">↻ Refresh</button>
       </div>
       <div class="filter-row">
-        <select id="req-status-filter" class="filter-select" onchange="renderRequests()" aria-label="Filter requests by status">
+        <select id="req-status-filter" class="filter-select" data-action="filter-requests" aria-label="Filter requests by status">
           <option value="">All Statuses</option>
           <option value="open">Open</option>
           <option value="quoted">Quoted</option>
           <option value="closed">Closed</option>
         </select>
-        <input type="text" id="req-search" class="search-input" placeholder="Search customer / company…" oninput="renderRequests()"/ aria-label="Search service requests">
+        <input type="text" id="req-search" class="search-input" placeholder="Search customer / company…" data-action="filter-requests-search" aria-label="Search service requests">
       </div>
       <table class="data-table">
         <thead><tr><th>Req #</th><th>Customer</th><th>Equipment</th><th>Issue</th><th>Urgency</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
@@ -515,20 +517,20 @@
       <div class="admin-header">
         <h1>Service <em>History</em></h1>
         <div style="display:flex;gap:10px;">
-          <button class="action-btn" onclick="exportServiceHistoryCSV()" title="Download service history as CSV">⬇ Export CSV</button>
-          <button class="action-btn primary" onclick="openAddHistoryModal()">+ Add Record</button>
+          <button class="action-btn" data-action="export-history" title="Download service history as CSV">⬇ Export CSV</button>
+          <button class="action-btn primary" data-action="open-add-history">+ Add Record</button>
         </div>
       </div>
       <div class="filter-row">
-        <select id="history-customer-filter" class="filter-select" onchange="renderHistory()" aria-label="Filter history by customer">
+        <select id="history-customer-filter" class="filter-select" data-action="filter-history" aria-label="Filter history by customer">
           <option value="">All Customers</option>
         </select>
-        <select id="history-paid-filter" class="filter-select" onchange="renderHistory()" aria-label="Filter history by payment status">
+        <select id="history-paid-filter" class="filter-select" data-action="filter-history" aria-label="Filter history by payment status">
           <option value="">All</option>
           <option value="paid">Paid</option>
           <option value="unpaid">Unpaid</option>
         </select>
-        <input type="text" id="history-search" class="search-input" placeholder="Search customer / equipment…" oninput="renderHistory()"/ aria-label="Search service history">
+        <input type="text" id="history-search" class="search-input" placeholder="Search customer / equipment…" data-action="filter-history-search" aria-label="Search service history">
       </div>
       <table class="data-table">
         <thead><tr><th>ID</th><th>Customer</th><th>Equipment</th><th>Description</th><th>Technician</th><th>Date</th><th>Amount</th><th>Paid</th><th>Actions</th></tr></thead>
@@ -541,7 +543,7 @@
     <div class="view" id="view-activity">
       <div class="admin-header">
         <h1>Activity <em>Log</em></h1>
-        <button class="refresh-btn" onclick="renderActivityLog()">↻ Refresh</button>
+        <button class="refresh-btn" data-action="refresh-activity">↻ Refresh</button>
       </div>
       <p style="color:var(--grey-light);font-size:.9rem;margin-bottom:20px;line-height:1.65;">Every sensitive admin action is recorded here automatically — invoice creation, payments marked, customer activations, and deletions.</p>
       <table class="data-table">
@@ -555,30 +557,30 @@
       <div class="modal" style="max-width:600px;max-height:90vh;overflow-y:auto;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
           <h3 id="history-modal-title">Add Service Record</h3>
-          <button class="action-btn" onclick="closeHistoryModal()">✕ Close</button>
+          <button class="action-btn" data-action="close-history-modal">✕ Close</button>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
           <div class="form-group" style="grid-column:1/-1;">
             <label>Customer *</label>
-            <select id="hist-customer" onchange="fillHistCustomer()" aria-label="Customer">
+            <select id="hist-customer" aria-label="Customer">
               <option value="">— Select customer —</option>
             </select>
           </div>
           <div class="form-group">
             <label>Equipment</label>
-            <input type="text" id="hist-equipment" placeholder="e.g. Toyota 8FGU25"/ aria-label="Equipment make and model">
+            <input type="text" id="hist-equipment" placeholder="e.g. Toyota 8FGU25" aria-label="Equipment make and model">
           </div>
           <div class="form-group">
             <label>Technician</label>
-            <input type="text" id="hist-tech" placeholder="Technician name"/ aria-label="Technician name">
+            <input type="text" id="hist-tech" placeholder="Technician name" aria-label="Technician name">
           </div>
           <div class="form-group">
             <label>Service Date</label>
-            <input type="date" id="hist-date"/ aria-label="Service date">
+            <input type="date" id="hist-date" aria-label="Service date">
           </div>
           <div class="form-group">
             <label>Amount Charged ($)</label>
-            <input type="number" id="hist-amount" placeholder="0.00" step="0.01" min="0"/ aria-label="Amount charged">
+            <input type="number" id="hist-amount" placeholder="0.00" step="0.01" min="0" aria-label="Amount charged">
           </div>
           <div class="form-group">
             <label>Payment Status</label>
@@ -598,8 +600,8 @@
         </div>
         <div id="hist-err" class="pw-msg pw-err"></div>
         <div style="display:flex;gap:10px;margin-top:16px;">
-          <button class="btn-primary" onclick="saveHistoryRecord()">Save Record</button>
-          <button class="action-btn" onclick="closeHistoryModal()" data-a11y-close>Cancel</button>
+          <button class="btn-primary" data-action="save-history">Save Record</button>
+          <button class="action-btn" data-action="close-history-modal" data-a11y-close>Cancel</button>
         </div>
       </div>
     </div>
@@ -610,8 +612,8 @@
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
           <h3 id="req-detail-id" style="margin:0;">Request</h3>
           <div style="display:flex;gap:8px;">
-            <button class="action-btn green" id="req-quote-btn" onclick="quoteFromRequest()">✏️ Create Quote</button>
-            <button class="action-btn" onclick="closeReqModal()">✕ Close</button>
+            <button class="action-btn green" id="req-quote-btn" data-action="quote-from-request">✏️ Create Quote</button>
+            <button class="action-btn" data-action="close-req-modal">✕ Close</button>
           </div>
         </div>
         <div id="req-detail-body"></div>
@@ -625,7 +627,7 @@
 <!-- RECORD MANUAL PAYMENT (admin only) -->
 <div class="modal-overlay" id="manual-pay-modal" role="dialog" aria-modal="true" aria-label="Record a manual payment">
   <div class="modal" style="max-width:520px;">
-    <h3>Record Offline Payment <span id="mp-inv-id" style="color:var(--red)"></span></h3>
+    <h3>Record Offline Payment <span id="mp-inv-id" style="color:var(--red-text)"></span></h3>
     <p style="color:var(--grey-light);font-size:.9rem;margin:6px 0 18px;line-height:1.6;">
       Invoice total <strong id="mp-inv-amt" style="color:var(--white)"></strong>.
       For money received <strong>outside</strong> the portal only — check, cash, wire, or the card terminal.
@@ -650,19 +652,19 @@
       <label class="form-lbl" for="mp-notes">Notes</label>
       <textarea id="mp-notes" rows="2" class="hist-input" placeholder="Optional"></textarea>
     </div>
-    <div id="mp-err" role="alert" style="display:none;color:#ff4444;font-family:var(--font-head);font-size:.8rem;font-weight:700;padding:10px;border:1px solid #ff4444;text-align:center;margin-bottom:12px;"></div>
+    <div id="mp-err" role="alert" style="display:none;color:var(--red-danger);font-family:var(--font-head);font-size:.8rem;font-weight:700;padding:10px;border:1px solid var(--red-danger);text-align:center;margin-bottom:12px;"></div>
     <div style="display:flex;gap:10px;">
-      <button class="btn-primary" id="mp-submit" onclick="submitManualPayment()">Record Offline Payment</button>
-      <button class="action-btn" onclick="closeManualPay()" data-a11y-close>Cancel</button>
+      <button class="btn-primary" id="mp-submit" data-action="submit-manual-pay">Record Offline Payment</button>
+      <button class="action-btn" data-action="close-manual-pay" data-a11y-close>Cancel</button>
     </div>
   </div>
 </div>
 
 <div class="success-toast" id="toast"></div>
 
-<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="portal-data.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="a11y.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="portal-admin.js?v=2026-09-08.v24.9-hardening"></script>
+<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-09.v25.0"></script>
+<script src="portal-data.js?v=2026-09-09.v25.0"></script>
+<script src="a11y.js?v=2026-09-09.v25.0"></script>
+<script src="portal-admin.js?v=2026-09-09.v25.0"></script>
 </body>
 </html>

@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>My Portal — Apex Lift Solutions</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=2026-09-08.v24.9-hardening"/>
-  <link rel="stylesheet" href="portal-customer.css?v=2026-09-08.v24.9-hardening"/>
+  <link rel="stylesheet" href="style.css?v=2026-09-09.v25.0"/>
+  <link rel="stylesheet" href="portal-customer.css?v=2026-09-09.v25.0"/>
   <link rel="icon" type="image/x-icon" href="favicon.ico"/>
 <style>
 /* ── Service Plans (Phase C) — all selectors cp-* scoped ── */
@@ -29,7 +30,7 @@
 .cp-sec{border-top:1px solid rgba(255,255,255,.1);padding-top:14px;margin-top:14px}
 .cp-sec h4{margin:0 0 6px;font-size:.95rem}
 .cp-sec p{white-space:pre-wrap;font-size:.88rem;line-height:1.7;color:#d8d8d8;margin:0}
-.cp-legal{font-size:.74rem;color:#ff8a8a;margin-top:6px}
+.cp-legal{font-size:.74rem;color:var(--red-text);margin-top:6px}
 .cp-draft{background:#3a1414;border:1px solid #7a2b2b;color:#ffb4b4;padding:12px 14px;border-radius:8px;font-size:.86rem;line-height:1.6;margin-bottom:16px}
 .cp-consent{display:flex;gap:10px;align-items:flex-start;margin:10px 0;font-size:.9rem;line-height:1.6}
 .cp-consent input{margin-top:4px;flex:0 0 auto;width:16px;height:16px}
@@ -47,11 +48,11 @@
 <div class="mobile-topbar" id="mobile-topbar">
   <img src="logo.jpg" alt="Apex Lift Solutions" class="mobile-topbar-logo" width="342" height="120" decoding="async"/>
   <span class="mobile-topbar-title" id="mobile-page-title">Client Portal</span>
-  <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">
+  <button class="mobile-menu-btn" id="mobile-menu-btn" data-action="toggle-sidebar" aria-label="Menu" aria-controls="portal-sidebar" aria-expanded="false">
     <span></span><span></span><span></span>
   </button>
 </div>
-<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+<div class="sidebar-overlay" id="sidebar-overlay" data-action="close-sidebar"></div>
 
 <div class="layout">
   <aside class="sidebar" id="portal-sidebar">
@@ -60,20 +61,20 @@
       <span class="sb-label">Client Portal</span>
     </div>
     <nav class="sb-nav">
-      <button class="nav-item active" onclick="showView('quotes',this)"><span class="icon">📋</span>My Quotes</button>
-      <button class="nav-item" onclick="showView('invoices',this)"><span class="icon">🧾</span>My Invoices</button>
-      <button class="nav-item" onclick="showView('pay',this)"><span class="icon">💳</span>Pay Invoice</button>
-      <button class="nav-item" onclick="showView('payments',this)"><span class="icon">🧮</span>Payments</button>
-      <button class="nav-item" onclick="showView('service-plans',this)"><span class="icon">🗓️</span>Service Plans</button>
-      <button class="nav-item" onclick="showView('history',this)"><span class="icon">🔧</span>Service History</button>
-      <button class="nav-item" onclick="showView('request',this)"><span class="icon">📩</span>Request Service</button>
-      <button class="nav-item" onclick="showView('account',this)"><span class="icon">👤</span>My Account</button>
+      <button class="nav-item active" data-action="view" data-view="quotes"><span class="icon">📋</span>My Quotes</button>
+      <button class="nav-item" data-action="view" data-view="invoices"><span class="icon">🧾</span>My Invoices</button>
+      <button class="nav-item" data-action="view" data-view="pay"><span class="icon">💳</span>Pay Invoice</button>
+      <button class="nav-item" data-action="view" data-view="payments"><span class="icon">🧮</span>Payments</button>
+      <button class="nav-item" data-action="view" data-view="service-plans"><span class="icon">🗓️</span>Service Plans</button>
+      <button class="nav-item" data-action="view" data-view="history"><span class="icon">🔧</span>Service History</button>
+      <button class="nav-item" data-action="view" data-view="request"><span class="icon">📩</span>Request Service</button>
+      <button class="nav-item" data-action="view" data-view="account"><span class="icon">👤</span>My Account</button>
       <a class="nav-item" href="index.html"><span class="icon">🌐</span>Back to Site</a>
     </nav>
     <div class="sb-footer">
       <strong id="cust-name">Loading…</strong>
       <span id="cust-company"></span>
-      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+      <button class="logout-btn" data-action="logout">Sign Out</button>
     </div>
   </aside>
 
@@ -98,8 +99,8 @@
         <h2>Enter Invoice Number</h2>
         <p>Find your invoice number in the email we sent, or check My Invoices above.</p>
         <div style="display:flex;gap:10px;">
-          <input type="text" id="inv-lookup" class="field-input" placeholder="e.g. INV-1234" style="flex:1;"/ aria-label="Invoice number">
-          <button class="btn-primary" onclick="lookupInv()">Look Up</button>
+          <input type="text" id="inv-lookup" class="field-input" placeholder="e.g. INV-1234" style="flex:1;" aria-label="Invoice number">
+          <button class="btn-primary" data-action="lookup-invoice">Look Up</button>
         </div>
         <div id="lookup-result" style="margin-top:16px;display:none;background:var(--dark-2);border:1px solid var(--border);padding:18px;"></div>
       </div>
@@ -156,22 +157,22 @@
           </div>
           <div>
             <label class="field-lbl">Attach Photos / PDFs <span style="color:var(--grey);font-weight:400;">(optional)</span></label>
-            <div class="drop-zone" onclick="document.getElementById('req-files').click()">
+            <button type="button" class="drop-zone" data-action="pick-files" aria-controls="req-files">
               <span style="font-size:1.5rem;">📎</span>
-              <div style="font-family:var(--font-head);font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);margin-top:4px;">Click to attach files</div>
-              <div style="color:var(--grey);font-size:.78rem;margin-top:3px;">JPG, PNG, PDF accepted</div>
-              <input type="file" id="req-files" multiple accept="image/*,.pdf,.txt,.doc,.docx" style="display:none;" onchange="handleReqFiles(this)"/ aria-label="Attach photos or documents">
-            </div>
+              <span style="display:block;font-family:var(--font-head);font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);margin-top:4px;">Click to attach files</span>
+              <span style="display:block;color:var(--grey);font-size:.78rem;margin-top:3px;">JPG, PNG, WebP, HEIC or PDF &middot; max 10 MB</span>
+            </button>
+            <input type="file" id="req-files" multiple accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" style="display:none;" data-action="req-files" aria-label="Attach photos or documents">
             <div id="req-file-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
           </div>
           <div id="req-msg" style="display:none;" class="banner"></div>
-          <button class="btn-primary" id="req-btn" onclick="submitRequest()" style="width:100%;padding:14px;">Send Service Request</button>
+          <button class="btn-primary" id="req-btn" data-action="submit-request" style="width:100%;padding:14px;">Send Service Request</button>
         </div>
       </div>
       <div class="contact-bar">
         <div class="contact-bar-item"><div class="lbl">Phone</div><div class="val"><a href="tel:+15166447187" style="color:inherit;text-decoration:none;">(516) 644-7187</a></div></div>
         <div class="contact-bar-item"><div class="lbl">Email</div><div class="val">service@apexliftsolutionsusa.com</div></div>
-        <div class="contact-bar-item"><div class="lbl">Hours</div><div class="val">Mon–Fri 7am–6pm · Emergency 24/7</div></div>
+        <div class="contact-bar-item"><div class="lbl">Hours</div><div class="val">Mon–Fri 7am–6pm · Emergency (call for availability)</div></div>
       </div>
     </div>
 
@@ -186,7 +187,7 @@
 
     <!-- AGREEMENT REVIEW + SIGN -->
     <div class="view" id="view-agreement">
-      <button class="btn-secondary" type="button" onclick="showView('service-plans')">&larr; Back to Service Plans</button>
+      <button class="btn-secondary" type="button" data-action="view" data-view="service-plans">&larr; Back to Service Plans</button>
       <h2 id="cp-agr-title">Review your agreement</h2>
       <div id="cp-agr-body"><div class="empty-state">Loading…</div></div>
     </div>
@@ -203,18 +204,18 @@
           </div>
           <div>
             <label class="field-lbl">Company</label>
-            <input type="text" id="acct-company" class="field-input" placeholder="Your company"/ aria-label="Company name">
+            <input type="text" id="acct-company" class="field-input" placeholder="Your company" aria-label="Company name">
           </div>
           <div>
             <label class="field-lbl">Phone Number</label>
-            <input type="tel" id="acct-phone" class="field-input" placeholder="(516) 000-0000"/ aria-label="Phone number">
+            <input type="tel" id="acct-phone" class="field-input" placeholder="(516) 000-0000" aria-label="Phone number">
           </div>
           <div>
             <label for="acct-email" class="field-lbl">Email Address <span style="color:var(--grey);font-weight:400;">(cannot be changed here)</span></label>
             <input type="email" id="acct-email" class="field-input" readonly style="opacity:.5;cursor:not-allowed;"/>
           </div>
           <div id="acct-profile-msg" class="banner" style="display:none;"></div>
-          <button class="btn-primary" onclick="saveProfile()" style="width:100%;padding:13px;">Save Changes</button>
+          <button class="btn-primary" data-action="save-profile" style="width:100%;padding:13px;">Save Changes</button>
         </div>
       </div>
 
@@ -227,10 +228,10 @@
           </div>
           <div>
             <label class="field-lbl">Confirm New Password</label>
-            <input type="password" id="acct-pass2" class="field-input" placeholder="Repeat password" autocomplete="new-password"/ aria-label="Confirm new password">
+            <input type="password" id="acct-pass2" class="field-input" placeholder="Repeat password" autocomplete="new-password" aria-label="Confirm new password">
           </div>
           <div id="acct-pass-msg" class="banner" style="display:none;"></div>
-          <button class="btn-primary" onclick="changePassword()" style="width:100%;padding:13px;">Update Password</button>
+          <button class="btn-primary" data-action="change-password" style="width:100%;padding:13px;">Update Password</button>
         </div>
       </div>
 
@@ -254,7 +255,7 @@
     <p id="confirm-body"></p>
     <div style="display:flex;gap:10px;justify-content:center;">
       <button class="approve-btn" id="confirm-yes">Confirm</button>
-      <button class="decline-btn" onclick="closeConfirm()" data-a11y-close>Cancel</button>
+      <button class="decline-btn" data-action="close-confirm" data-a11y-close>Cancel</button>
     </div>
   </div>
 </div>
@@ -262,7 +263,7 @@
 <!-- PAY MODAL -->
 <div class="modal-overlay" id="pay-modal" role="dialog" aria-modal="true" aria-label="Pay invoice securely">
   <div class="modal">
-    <h3>Pay Invoice <span id="modal-inv-id" style="color:var(--red)"></span></h3>
+    <h3>Pay Invoice <span id="modal-inv-id" style="color:var(--red-text)"></span></h3>
     <div class="modal-amount" id="modal-inv-amt"></div>
 
     <!-- Step 1: choose how to pay. ACH first — cheaper on large B2B invoices. -->
@@ -296,7 +297,7 @@
         Your invoice total is <strong style="color:var(--white);" id="pay-intro-amt"></strong>, including any sales tax. Choosing ACH in the next step charges exactly that.
       </p>
 
-      <button class="btn-primary" onclick="startPay()" style="width:100%;margin-top:14px;">Continue to Secure Payment</button>
+      <button class="btn-primary" data-action="start-pay" style="width:100%;margin-top:14px;">Continue to Secure Payment</button>
       <p style="color:var(--grey);font-size:.78rem;margin-top:12px;text-align:center;">🔒 Secure payment powered by Helcim. Apex never sees or stores your card or bank details.</p>
     </div>
 
@@ -354,23 +355,23 @@
 
     <!-- Failure / ambiguous -->
     <div id="pay-error-block" style="display:none;background:rgba(204,0,0,.08);border:1px solid rgba(204,0,0,.3);padding:20px;">
-      <h3 style="color:#ff4444;">Payment couldn't be completed</h3>
+      <h3 style="color:var(--red-danger);">Payment couldn't be completed</h3>
       <p id="pay-error-detail" style="color:var(--grey-light);margin-top:8px;line-height:1.7;"></p>
       <p style="color:var(--grey);font-size:.84rem;margin-top:10px;">
-        Questions? Call <a href="tel:+15166447187" style="color:var(--red);">(516) 644-7187</a>.
+        Questions? Call <a href="tel:+15166447187" style="color:var(--red-text);">(516) 644-7187</a>.
       </p>
     </div>
 
     <div style="margin-top:14px;">
-      <button class="cancel-btn" onclick="closePayModal()" data-a11y-close>Close</button>
+      <button class="cancel-btn" data-action="close-pay" data-a11y-close>Close</button>
     </div>
   </div>
 </div>
 
-<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-08.v24.9-hardening"></script>
+<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-09.v25.0"></script>
 <script src="https://secure.helcim.app/helcim-pay/services/start.js"></script>
-<script src="a11y.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="pagination.js?v=2026-09-08.v24.9-hardening"></script>
-<script src="portal-customer.js?v=2026-09-08.v24.9-hardening"></script>
+<script src="a11y.js?v=2026-09-09.v25.0"></script>
+<script src="pagination.js?v=2026-09-09.v25.0"></script>
+<script src="portal-customer.js?v=2026-09-09.v25.0"></script>
 </body>
 </html>

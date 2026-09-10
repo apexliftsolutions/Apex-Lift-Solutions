@@ -1,5 +1,28 @@
-import { buildAgreement, renderPdf, wrap, safe, canonical } from './mod.mjs';
+/* This suite imported ./mod.mjs — a build artefact from the original Phase C
+   session that was never committed, so the suite has been failing to even load
+   ever since. Nobody noticed because it was never in a per-suite loop. It now
+   builds the module from tests/_pdf_harness.ts on demand, the same way the
+   harness was originally produced. */
+import { readFileSync, existsSync, mkdirSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+
+const HERE = new URL('.', import.meta.url).pathname;
+// Derived output, gitignored, and deliberately OUTSIDE docs/ — docs/ is the
+// GitHub Pages publishing root and must contain nothing generated.
+const OUT = HERE + '.build';
+if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
+const BUILT = OUT + '/mod.mjs';
+const ESB = new URL('../node_modules/.bin/esbuild', import.meta.url).pathname;
+if (!existsSync(ESB)) {
+  // esbuild is a declared devDependency. Its absence means `npm ci` was not run,
+  // and a required tool that is missing must FAIL the gate, not skip green.
+  console.log('FAIL  esbuild not installed — run npm ci');
+  process.exit(1);
+}
+execFileSync(ESB, [HERE + '_pdf_harness.ts', '--bundle', '--format=esm',
+                   '--platform=node', '--external:pdf-lib', '--outfile=' + BUILT], { stdio: 'pipe' });
+const { buildAgreement, renderPdf, wrap, safe, canonical } = await import('file://' + BUILT + '?t=' + Date.now());
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('PASS ' + m); } else { fail++; console.log('FAIL ' + m); } };
