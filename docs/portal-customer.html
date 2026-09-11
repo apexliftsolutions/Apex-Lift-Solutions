@@ -8,8 +8,8 @@
   <title>My Portal — Apex Lift Solutions</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=2026-09-09.v25.0"/>
-  <link rel="stylesheet" href="portal-customer.css?v=2026-09-09.v25.0"/>
+  <link rel="stylesheet" href="style.css?v=2026-09-10.v25.1"/>
+  <link rel="stylesheet" href="portal-customer.css?v=2026-09-10.v25.1"/>
   <link rel="icon" type="image/x-icon" href="favicon.ico"/>
 <style>
 /* ── Service Plans (Phase C) — all selectors cp-* scoped ── */
@@ -66,6 +66,7 @@
       <button class="nav-item" data-action="view" data-view="pay"><span class="icon">💳</span>Pay Invoice</button>
       <button class="nav-item" data-action="view" data-view="payments"><span class="icon">🧮</span>Payments</button>
       <button class="nav-item" data-action="view" data-view="service-plans"><span class="icon">🗓️</span>Service Plans</button>
+      <button class="nav-item" data-action="view" data-view="forklifts"><span class="icon">🚜</span>My Forklifts</button>
       <button class="nav-item" data-action="view" data-view="history"><span class="icon">🔧</span>Service History</button>
       <button class="nav-item" data-action="view" data-view="request"><span class="icon">📩</span>Request Service</button>
       <button class="nav-item" data-action="view" data-view="account"><span class="icon">👤</span>My Account</button>
@@ -183,6 +184,61 @@
       <h2>Service Plans</h2>
       <p class="muted">Monthly maintenance for your equipment.</p>
       <div id="cp-body"><div class="empty-state">Loading…</div></div>
+    </div>
+
+    <!-- MY FORKLIFTS -->
+    <div class="view" id="view-forklifts">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h2>My Forklifts</h2>
+          <p class="muted">The equipment we service for you. Keep it current so quotes and plans name the right machine.</p>
+        </div>
+        <button type="button" class="approve-btn" data-action="fk-open" id="fk-add-btn">+ Add Forklift</button>
+      </div>
+      <div id="fk-msg" class="banner" role="status" aria-live="polite" style="display:none;"></div>
+      <div id="fk-body"><div class="empty-state">Loading…</div></div>
+    </div>
+
+    <!-- ADD / EDIT FORKLIFT (dialog; a11y.js supplies role/focus/Escape) -->
+    <div class="confirm-overlay" id="fk-overlay">
+      <div class="confirm-box" style="max-width:560px;text-align:left;" id="fk-dialog" aria-labelledby="fk-title">
+        <h3 id="fk-title" style="margin-top:0;">Add forklift</h3>
+        <p class="muted" id="fk-lock-note" style="display:none;background:var(--dark-2);border-left:3px solid var(--red);padding:10px 12px;">
+          This forklift has been named in a signed service agreement (including any since cancelled or superseded). Equipment identity cannot be changed — make, model, year and serial are locked. You can still update the nickname, unit number, location, power type, capacity and notes.
+        </p>
+        <input type="hidden" id="fk-id">
+        <div class="form-row">
+          <div class="form-group"><label for="fk-unit">Unit #</label><input type="text" id="fk-unit" maxlength="40" placeholder="e.g. TRK-7" autocomplete="off"></div>
+          <div class="form-group"><label for="fk-nick">Nickname</label><input type="text" id="fk-nick" maxlength="60" placeholder="e.g. Dock 3 truck" autocomplete="off"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="fk-year">Year</label><input type="text" id="fk-year" inputmode="numeric" maxlength="4" placeholder="2019" autocomplete="off"></div>
+          <div class="form-group"><label for="fk-make">Make</label><input type="text" id="fk-make" maxlength="60" placeholder="Toyota" autocomplete="off"></div>
+          <div class="form-group"><label for="fk-model">Model</label><input type="text" id="fk-model" maxlength="60" placeholder="8FGCU25" autocomplete="off"></div>
+        </div>
+        <div class="form-group">
+          <label for="fk-serial">Serial number <span class="muted">(optional)</span></label>
+          <input type="text" id="fk-serial" maxlength="80" placeholder="Leave blank if you don't know it" autocomplete="off">
+          <small class="muted" style="display:block;margin-top:4px;">The real serial lets us identify the exact machine and its parts. If you don't have it, leave this blank — please don't enter N/A or Unknown.</small>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="fk-power">Power type</label>
+            <select id="fk-power">
+              <option value="">Not sure</option><option value="electric">Electric</option><option value="lp">LP / Propane</option>
+              <option value="diesel">Diesel</option><option value="gas">Gas</option><option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group"><label for="fk-cap">Capacity (lb)</label><input type="text" id="fk-cap" inputmode="numeric" placeholder="5000" autocomplete="off"></div>
+        </div>
+        <div class="form-group"><label for="fk-loc">Service location</label><input type="text" id="fk-loc" maxlength="160" placeholder="Warehouse B, Farmingdale" autocomplete="off"></div>
+        <div class="form-group"><label for="fk-notes">Notes</label><textarea id="fk-notes" rows="2" maxlength="1000" placeholder="Anything our technician should know"></textarea></div>
+        <div id="fk-form-err" class="banner banner-err" role="alert" style="display:none;"></div>
+        <div class="confirm-actions" style="justify-content:flex-end;">
+          <button type="button" class="btn-secondary" data-action="fk-close">Cancel</button>
+          <button type="button" class="approve-btn" data-action="fk-save" id="fk-save-btn">Save forklift</button>
+        </div>
+      </div>
     </div>
 
     <!-- AGREEMENT REVIEW + SIGN -->
@@ -368,10 +424,10 @@
   </div>
 </div>
 
-<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-09.v25.0"></script>
+<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-10.v25.1"></script>
 <script src="https://secure.helcim.app/helcim-pay/services/start.js"></script>
-<script src="a11y.js?v=2026-09-09.v25.0"></script>
-<script src="pagination.js?v=2026-09-09.v25.0"></script>
-<script src="portal-customer.js?v=2026-09-09.v25.0"></script>
+<script src="a11y.js?v=2026-09-10.v25.1"></script>
+<script src="pagination.js?v=2026-09-10.v25.1"></script>
+<script src="portal-customer.js?v=2026-09-10.v25.1"></script>
 </body>
 </html>

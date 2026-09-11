@@ -90,6 +90,8 @@ Deno.serve(async (req) => {
 
         const ctx = await loadOffer(db, str(body.offer_id), user.id);
         if ("error" in ctx) return j(ctx, ctx.status ?? 400);
+        const equipmentError = requireActiveEquipment(ctx);
+        if (equipmentError) return j(equipmentError, equipmentError.status);
 
         const mode = await cfg(db, "service_plan_contract_mode", "test");
         const version = await cfg(db, "service_plan_agreement_version", "APEX-MMA-2026-09-V1");
@@ -145,6 +147,8 @@ Deno.serve(async (req) => {
 
         const ctx = await loadOffer(db, offerId, user.id);
         if ("error" in ctx) return j(ctx, ctx.status ?? 400);
+        const equipmentError = requireActiveEquipment(ctx);
+        if (equipmentError) return j(equipmentError, equipmentError.status);
 
         const mode = await cfg(db, "service_plan_contract_mode", "test");
         const version = await cfg(db, "service_plan_agreement_version", "APEX-MMA-2026-09-V1");
@@ -291,11 +295,22 @@ async function loadOffer(db: any, offerId: string, userId: string) {
 
   const { data: equipment } = await db.from("customer_equipment")
     .select("*").eq("id", offer.equipment_id).maybeSingle();
+  if (!equipment) return { error: "not_found", status: 404 };
+
   const { data: customer } = await db.from("customers")
     .select("id, name, company, email").eq("id", offer.customer_id).maybeSingle();
-  if (!equipment || !customer) return { error: "not_found", status: 404 };
+  if (!customer) return { error: "not_found", status: 404 };
 
   return { offer, equipment, customer };
+}
+
+function requireActiveEquipment(ctx: { equipment: { status?: string } }) {
+  if (ctx.equipment.status === "active") return null;
+  return {
+    error: "equipment_not_active",
+    detail: "This forklift is no longer active, so this service plan offer can't be accepted. Please contact us.",
+    status: 409,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

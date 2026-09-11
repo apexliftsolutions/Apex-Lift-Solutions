@@ -541,7 +541,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-09.v25.0";
+const APEX_CLIENT_VERSION = "2026-09-10.v25.1";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -1439,7 +1439,8 @@ function showView(v, el) {
   if (v === 'payments') loadPayments();
   if (v === 'account')  loadAccount();
   if (v === 'service-plans') loadServicePlans();
-  const titles = { quotes: 'My Quotes', invoices: 'My Invoices', pay: 'Pay Invoice', history: 'Service History', request: 'Request Service', account: 'My Account', 'service-plans': 'Service Plans', agreement: 'Agreement' };
+  if (v === 'forklifts') loadForklifts();
+  const titles = { quotes: 'My Quotes', invoices: 'My Invoices', pay: 'Pay Invoice', history: 'Service History', request: 'Request Service', account: 'My Account', forklifts: 'My Forklifts', 'service-plans': 'Service Plans', agreement: 'Agreement' };
   const titleEl = document.getElementById('mobile-page-title');
   if (titleEl && titles[v]) titleEl.textContent = titles[v];
   closeMobileSidebar();
@@ -2014,6 +2015,192 @@ function moreInvoices() { return ApexPage.handleMore(document.getElementById('in
 function moreHistory()  { return ApexPage.handleMore(document.getElementById('history-wrap'),  () => loadHistory(true)); }
 function morePayments() { return ApexPage.handleMore(document.getElementById('payments-wrap'), () => loadPayments(true)); }
 
+
+// ── MY FORKLIFTS ─────────────────────────────────────────────────────────────
+// All writes go through the equipment-customer Edge Function, which derives the
+// customer from the session. This code never sends a customer_id. The database
+// (migration 0011) is the authority for identity lock, retire guard and
+// ownership; the UI only reflects the flags the server returns.
+let FK_LIST = [];
+
+async function fkCall(action, payload) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { location.href = 'portal-login.html'; return null; }
+  const r = await fetch(`${SB_URL}/functions/v1/equipment-customer`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const body = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, body };
+}
+
+function fkMsg(text, kind) {
+  const el = document.getElementById('fk-msg');
+  if (!el) return;
+  if (!text) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.className = 'banner ' + (kind === 'err' ? 'banner-err' : 'banner-ok');
+  el.textContent = text;
+  el.style.display = 'block';
+}
+
+const FK_POWER = { electric: 'Electric', lp: 'LP / Propane', diesel: 'Diesel', gas: 'Gas', other: 'Other' };
+const FK_STATUS = { active: 'In service', inactive: 'Inactive', retired: 'Retired' };
+// One reason per blocked retire, worded for a customer. The server decides
+// which applies; the UI only renders it.
+const FK_BLOCK  = {
+  live_plan:  'This forklift has a live service plan. Contact us to cancel the plan before retiring it.',
+  open_offer: 'This forklift has a service plan offer waiting for you. Review or decline it first, or contact us to cancel it.',
+};
+const FK_PLAN  = { setup_pending: 'Plan: setting up', method_verified: 'Plan: setting up', active: 'Plan: active',
+                   past_due: 'Plan: past due', paused: 'Plan: paused', cancel_requested: 'Plan: cancelling' };
+
+function fkLabel(e) {
+  const ymm = [e.year, e.make, e.model].filter(Boolean).join(' ');
+  if (e.nickname && ymm) return `${e.nickname} (${ymm})`;
+  return e.nickname || ymm || 'Forklift';
+}
+
+async function loadForklifts() {
+  const wrap = document.getElementById('fk-body');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="empty-state">Loading…</div>';
+  // Do NOT clear fk-msg here: Add/Edit/Retire set a success message and then
+  // reload the list, and clearing on reload silently erased it. Messages are
+  // cleared when the dialog opens or an error replaces them.
+  const res = await fkCall('list', {});
+  if (!res) return;
+  if (!res.ok) {
+    if (res.body?.error === 'account_not_active') {
+      wrap.innerHTML = `<div class="empty-state">${xss(res.body.detail || 'Your account is awaiting approval.')}</div>`;
+      document.getElementById('fk-add-btn')?.setAttribute('hidden', '');
+      return;
+    }
+    wrap.innerHTML = '<div class="empty-state" style="color:var(--red-text);">Could not load your forklifts. <button class="btn-secondary" type="button" data-action="fk-reload">Try again</button></div>';
+    return;
+  }
+  document.getElementById('fk-add-btn')?.removeAttribute('hidden');
+  FK_LIST = res.body.equipment || [];
+  renderForklifts();
+}
+
+function renderForklifts() {
+  const wrap = document.getElementById('fk-body');
+  if (!wrap) return;
+  const active = FK_LIST.filter(e => e.status !== 'retired');
+  const retired = FK_LIST.filter(e => e.status === 'retired');
+  if (!FK_LIST.length) {
+    wrap.innerHTML = '<div class="empty-state">No forklifts yet. Add the equipment we service so quotes and plans can name the exact machine.</div>';
+    return;
+  }
+  const card = (e) => `
+    <div class="q-card">
+      <div class="q-head">
+        <div>
+          <div class="q-title" style="color:var(--white);">${xss(fkLabel(e))}</div>
+          <div class="q-meta">
+            ${e.unit_number ? `Unit #${xss(e.unit_number)} · ` : ''}${e.serial_number ? `SN ${xss(e.serial_number)}` : '<span class="muted">No serial on file</span>'}
+          </div>
+        </div>
+        <span class="pill ${e.status === 'active' ? 'pill-ok' : 'pill-muted'}">${xss(FK_STATUS[e.status] || e.status)}</span>
+      </div>
+      <div class="q-meta" style="margin-top:6px;">
+        ${e.power_type ? xss(FK_POWER[e.power_type] || e.power_type) : ''}${e.power_type && e.capacity_lbs ? ' · ' : ''}${e.capacity_lbs ? xss(String(e.capacity_lbs)) + ' lb' : ''}
+        ${e.service_location ? (e.power_type || e.capacity_lbs ? ' · ' : '') + xss(e.service_location) : ''}
+      </div>
+      ${e.service_plan_status ? `<div class="q-meta" style="margin-top:4px;color:var(--red-text);">${xss(FK_PLAN[e.service_plan_status] || 'Plan: ' + e.service_plan_status)}</div>` : ''}
+      ${e.has_open_offer ? `<div class="q-meta" style="margin-top:4px;color:var(--red-text);">Service plan offer awaiting your response</div>` : ''}
+      ${e.status === 'inactive' ? `<div class="q-meta muted" style="margin-top:4px;">Marked inactive by Apex — contact us to put it back in service.</div>` : ''}
+      ${e.identity_locked ? '<div class="q-meta muted" style="margin-top:4px;">🔒 Named in a signed service agreement</div>' : ''}
+      ${e.status === 'active' ? `
+      <div class="q-actions" style="margin-top:10px;">
+        <button class="btn-secondary" type="button" data-action="fk-open" data-id="${xss(e.id)}">Edit</button>
+        <button class="btn-secondary" type="button" data-action="fk-retire" data-id="${xss(e.id)}"${e.retire_blocked_reason ? ` disabled title="${xss(FK_BLOCK[e.retire_blocked_reason])}"` : ''}>Retire</button>
+      </div>
+      ${e.retire_blocked_reason ? `<div class="q-meta muted" style="margin-top:6px;">${xss(FK_BLOCK[e.retire_blocked_reason])}</div>` : ''}`
+      : e.status === 'retired'
+        ? `<div class="q-meta muted" style="margin-top:8px;">Retired ${e.retired_at ? xss(new Date(e.retired_at).toLocaleDateString()) : ''}</div>`
+        : `<div class="q-meta muted" style="margin-top:8px;">Contact us to make changes to this forklift.</div>`}
+    </div>`;
+  wrap.innerHTML =
+    '<div class="q-cards">' + active.map(card).join('') + '</div>' +
+    (retired.length ? `<h3 class="muted" style="margin-top:24px;">Retired (${retired.length})</h3><div class="q-cards">${retired.map(card).join('')}</div>` : '');
+}
+
+function fkOpen(id) {
+  const e = id ? FK_LIST.find(x => x.id === id) : null;
+  // The server refuses non-active edits; do not offer a form that will fail.
+  if (e && e.status !== 'active') {
+    fkMsg(e.status === 'retired'
+      ? 'This forklift is retired and can no longer be edited.'
+      : 'This forklift is marked inactive by Apex. Contact us to make changes.', 'err');
+    return;
+  }
+  const f = (k) => document.getElementById(k);
+  f('fk-id').value      = e ? e.id : '';
+  f('fk-title').textContent = e ? 'Edit forklift' : 'Add forklift';
+  f('fk-unit').value    = e?.unit_number || '';
+  f('fk-nick').value    = e?.nickname || '';
+  f('fk-year').value    = e?.year || '';
+  f('fk-make').value    = e?.make || '';
+  f('fk-model').value   = e?.model || '';
+  f('fk-serial').value  = e?.serial_number || '';
+  f('fk-power').value   = e?.power_type || '';
+  f('fk-cap').value     = e?.capacity_lbs ?? '';
+  f('fk-loc').value     = e?.service_location || '';
+  f('fk-notes').value   = e?.notes || '';
+  const locked = !!e?.identity_locked;
+  for (const k of ['fk-year', 'fk-make', 'fk-model', 'fk-serial']) f(k).disabled = locked;
+  f('fk-lock-note').style.display = locked ? 'block' : 'none';
+  f('fk-form-err').style.display = 'none';
+  fkMsg('');   // a stale success line under an open dialog is confusing
+  f('fk-overlay').className = 'confirm-overlay active';
+  f('fk-make').focus();
+}
+function fkClose() { document.getElementById('fk-overlay').className = 'confirm-overlay'; }
+
+async function fkSave() {
+  const f = (k) => document.getElementById(k);
+  const err = f('fk-form-err');
+  const btn = f('fk-save-btn');
+  err.style.display = 'none';
+  const id = f('fk-id').value;
+  const editing = FK_LIST.find(x => x.id === id);
+  const payload = {
+    unit_number: f('fk-unit').value, nickname: f('fk-nick').value,
+    power_type: f('fk-power').value, capacity_lbs: f('fk-cap').value,
+    service_location: f('fk-loc').value, notes: f('fk-notes').value,
+  };
+  // Identity fields are omitted when locked so the server never has to reject
+  // an unchanged value; the database would refuse a real change anyway.
+  if (!editing?.identity_locked) {
+    Object.assign(payload, { year: f('fk-year').value, make: f('fk-make').value,
+                             model: f('fk-model').value, serial_number: f('fk-serial').value });
+  }
+  if (!id && !payload.make && !payload.model && !payload.nickname && !payload.unit_number) {
+    err.textContent = 'Enter at least a make and model, a nickname, or a unit number.'; err.style.display = 'block'; return;
+  }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const res = await fkCall(id ? 'update' : 'create', id ? { id, ...payload } : payload);
+  btn.disabled = false; btn.textContent = 'Save forklift';
+  if (!res) return;
+  if (!res.ok) { err.textContent = res.body?.detail || 'Could not save.'; err.style.display = 'block'; return; }
+  fkClose();
+  fkMsg(id ? 'Forklift updated.' : 'Forklift added.', 'ok');
+  await loadForklifts();
+}
+
+async function fkRetire(id) {
+  const e = FK_LIST.find(x => x.id === id);
+  if (!e) return;
+  if (!confirm(`Retire "${fkLabel(e)}"? It will stay in your history but can no longer be selected for service.`)) return;
+  const res = await fkCall('retire', { id });
+  if (!res) return;
+  if (!res.ok) { fkMsg(res.body?.detail || 'Could not retire this forklift.', 'err'); return; }
+  fkMsg('Forklift retired.', 'ok');
+  await loadForklifts();
+}
+
 /* ── Event wiring (CSP readiness, Surface C) ───────────────────────────────
    Every inline handler in the customer portal is gone. Behaviour is unchanged:
    the same functions run with the same arguments, only the route differs.
@@ -2089,6 +2276,13 @@ function wireCustomerPortal() {
       case 'plan-pay':        cpStartPlanPayment(d.id); break;
       case 'plan-activate':   cpActivatePlan(d.id); break;
       case 'open-pdf':        cpOpenPdf(d.id); break;
+
+      // my forklifts
+      case 'fk-open':         fkOpen(d.id || null); break;
+      case 'fk-close':        fkClose(); break;
+      case 'fk-save':         fkSave(); break;
+      case 'fk-retire':       fkRetire(d.id); break;
+      case 'fk-reload':       loadForklifts(); break;
 
       // lists
       case 'reload':          call(LOADERS[d.list]); break;

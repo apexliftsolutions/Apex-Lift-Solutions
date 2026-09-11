@@ -1,6 +1,6 @@
 /* ============================================================================
    Apex — consent (Group 4)
-   2026-09-09.v25.0
+   2026-09-10.v25.1
 
    Optional analytics is OPT-IN. Nothing analytics-related touches the network
    until someone chooses it.

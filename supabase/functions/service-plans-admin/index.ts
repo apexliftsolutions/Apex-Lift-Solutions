@@ -28,7 +28,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { helcimCall, subscriptionIdempotencyKey } from "../_shared/helcim-api.ts";
 
-const FN_VERSION = "2026-09-07.v24.7.4-service-plan-runtime-fix";
+const FN_VERSION = "2026-09-10.v25.1.0-equipment-phase1";
 const ADMIN_EMAIL = Deno.env.get("ADMIN_EMAIL") ?? "admin@apexliftsolutionsusa.com";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -85,6 +85,9 @@ Deno.serve(async (req) => {
           equipment_type: str(body.equipment_type) || "forklift",
           service_location: str(body.service_location) || null,
           notes: str(body.notes) || null,
+          nickname: str(body.nickname) || null,
+          power_type: str(body.power_type) || null,
+          capacity_lbs: body.capacity_lbs === "" || body.capacity_lbs == null ? null : Number(body.capacity_lbs),
           created_by: user.id,
         }).select().single();
 
@@ -101,9 +104,10 @@ Deno.serve(async (req) => {
         // FKs bind a unit to its owner, and moving one would silently reassign
         // any offer or signed agreement that points at it.
         const patch: Record<string, unknown> = {};
-        for (const f of ["unit_number", "year", "make", "model", "serial_number", "service_location", "notes"]) {
+        for (const f of ["unit_number", "year", "make", "model", "serial_number", "service_location", "notes", "nickname", "power_type"]) {
           if (f in body) patch[f] = str(body[f]) || null;
         }
+        if ("capacity_lbs" in body) patch.capacity_lbs = body.capacity_lbs === "" || body.capacity_lbs == null ? null : Number(body.capacity_lbs);
         if ("status" in body) {
           const st = str(body.status);
           if (!["active", "inactive", "retired"].includes(st)) return j({ error: "bad_status" }, 400);
@@ -111,17 +115,47 @@ Deno.serve(async (req) => {
         }
         if (!Object.keys(patch).length) return j({ error: "nothing_to_update" }, 400);
 
-        // Refuse to edit identity fields once the unit is under a signed
-        // agreement — the contract names this machine.
-        const { data: locked } = await db.from("service_plan_agreements")
-          .select("id").eq("equipment_id", id).eq("status", "signed").limit(1);
-        if (locked?.length && ("serial_number" in patch || "make" in patch || "model" in patch || "year" in patch)) {
-          return j({ error: "equipment_under_signed_agreement", detail: "Serial, make, model and year are frozen once this unit is named in a signed agreement." }, 409);
-        }
+          // Identity is frozen once ANY agreement has named this unit, but only a
+          // REAL change is a violation. A client that echoes back the stored
+          // make/model/year/serial while editing a nickname is doing nothing wrong,
+          // and rejecting it because the KEY is present made every descriptive edit
+          // on a contracted unit impossible.
+          const IDENTITY = ["serial_number", "make", "model", "year"];
+          const submitted = IDENTITY.filter((f) => f in patch);
+          if (submitted.length) {
+            const { data: cur } = await db.from("customer_equipment")
+              .select("serial_number, make, model, year").eq("id", id).maybeSingle();
+            if (!cur) return j({ error: "equipment_not_found" }, 404);
+            const norm = (v) => (v === "" || v == null ? null : String(v));   // "" and null both mean not set
+            const changing = submitted.filter((f) => norm(patch[f]) !== norm(cur[f]));
+            if (changing.length) {
+              const { data: agreed } = await db.from("service_plan_agreements")
+                .select("id").eq("equipment_id", id).limit(1);   // any agreement ever
+              if (agreed?.length) {
+                return j({ error: "equipment_under_signed_agreement",
+                  detail: `Serial, make, model and year are frozen once this unit has been named in a signed agreement (including one since cancelled or superseded). Attempted to change: ${changing.join(", ")}.` }, 409);
+              }
+            } else {
+              // Nothing is actually changing: drop the keys so the DB trigger, which
+              // compares old vs new, has nothing to object to either.
+              for (const f of submitted) delete patch[f];
+            }
+          }
+          if (!Object.keys(patch).length) return j({ error: "nothing_to_update" }, 400);
 
         const { data, error } = await db.from("customer_equipment")
           .update(patch).eq("id", id).select().single();
-        if (error) return j({ error: friendly(error.message) }, 400);
+        if (error) {
+          // Migration 0011 enforces these in the database regardless of caller;
+          // surface them as stable codes rather than raw SQL.
+          const m = error.message;
+          if (m.includes("equipment_has_live_subscription")) return j({ error: "equipment_has_live_subscription", detail: "This unit has a live service plan. Cancel or complete it before retiring the unit." }, 409);
+            if (m.includes("equipment_has_open_offer")) return j({ error: "equipment_has_open_offer", detail: "This unit has a service plan offer awaiting the customer. Cancel the offer before retiring the unit." }, 409);
+          if (m.includes("equipment_under_signed_agreement")) return j({ error: "equipment_under_signed_agreement", detail: "Serial, make, model and year are frozen once this unit is named in a signed agreement." }, 409);
+          if (m.includes("equipment_retired_is_terminal"))   return j({ error: "equipment_retired", detail: "A retired unit cannot be reactivated." }, 409);
+          if (m.includes("serial_not_placeholder"))          return j({ error: "serial_placeholder", detail: "Leave the serial blank rather than entering N/A or Unknown." }, 422);
+          return j({ error: friendly(m) }, 400);
+        }
         await log(db, user.id, "service_plan_equipment_updated", id);
         return j({ ok: true, equipment: data, fn_version: FN_VERSION });
       }
@@ -135,6 +169,18 @@ Deno.serve(async (req) => {
 
         const equipment_id = str(body.equipment_id);
         if (!isUpdate && !equipment_id) return j({ error: "equipment_id required" }, 400);
+
+        // Only an ACTIVE unit may enter a plan. A retired or inactive machine
+        // must never acquire a new offer — the browser is not trusted for this.
+        if (!isUpdate && equipment_id) {
+          const { data: eq } = await db.from("customer_equipment")
+            .select("id, customer_id, status").eq("id", equipment_id).maybeSingle();
+          if (!eq) return j({ error: "equipment_not_found" }, 404);
+          if (eq.status !== "active") {
+            return j({ error: "equipment_not_active",
+              detail: `This forklift is ${eq.status} and cannot start a new service plan.` }, 409);
+          }
+        }
 
         let equipId = equipment_id;
         if (isUpdate && !equipId) {
@@ -234,6 +280,19 @@ Deno.serve(async (req) => {
         if (!cur) return j({ error: "offer_not_found" }, 404);
         if (cur.status !== "draft") {
           return j({ error: "offer_not_draft", detail: `This offer is ${cur.status}.` }, 409);
+        }
+
+        // Re-read equipment at SEND time: the draft may have been created while
+        // the unit was active and the unit retired since. The check at creation
+        // is not sufficient on its own.
+        {
+          const { data: eq } = await db.from("customer_equipment")
+            .select("status").eq("id", cur.equipment_id).maybeSingle();
+          if (!eq) return j({ error: "equipment_not_found" }, 404);
+          if (eq.status !== "active") {
+            return j({ error: "equipment_not_active",
+              detail: `This forklift is ${eq.status}. Reactivate it or create the offer against an active unit before sending.` }, 409);
+          }
         }
         if (!cur.activation_date) return j({ error: "activation_date_required" }, 400);
 

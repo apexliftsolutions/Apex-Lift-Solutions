@@ -8,8 +8,8 @@
   <title>Admin Portal — Apex Lift Solutions</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=2026-09-09.v25.0" />
-  <link rel="stylesheet" href="portal-admin.css?v=2026-09-09.v25.0" />
+  <link rel="stylesheet" href="style.css?v=2026-09-10.v25.1" />
+  <link rel="stylesheet" href="portal-admin.css?v=2026-09-10.v25.1" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
 <style>
 /* ── Service Plans (Phase B) — all selectors sp-* scoped ── */
@@ -370,6 +370,14 @@
             <label>Model<input id="sp-eq-model" maxlength="60" placeholder="8FGCU25"></label>
           </div>
           <label>Serial number<input id="sp-eq-serial" maxlength="80" placeholder="Optional at offer time"></label>
+          <label>Nickname<input id="sp-eq-nick" maxlength="60" placeholder="What the customer calls it"></label>
+          <label>Power type
+            <select id="sp-eq-power">
+              <option value="">—</option><option value="electric">Electric</option><option value="lp">LP / Propane</option>
+              <option value="diesel">Diesel</option><option value="gas">Gas</option><option value="other">Other</option>
+            </select>
+          </label>
+          <label>Capacity (lb)<input id="sp-eq-cap" inputmode="numeric" placeholder="5000"></label>
           <label>Service location<input id="sp-eq-loc" maxlength="160" placeholder="Bay 3 — Hicksville NY"></label>
           <label>Notes<textarea id="sp-eq-notes" rows="2"></textarea></label>
           <p class="sp-note" id="sp-equip-lock" hidden>This unit is named in a signed agreement. Serial, make, model and year are frozen.</p>
@@ -662,9 +670,9 @@
 
 <div class="success-toast" id="toast"></div>
 
-<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-09.v25.0"></script>
-<script src="portal-data.js?v=2026-09-09.v25.0"></script>
-<script src="a11y.js?v=2026-09-09.v25.0"></script>
-<script src="portal-admin.js?v=2026-09-09.v25.0"></script>
+<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-10.v25.1"></script>
+<script src="portal-data.js?v=2026-09-10.v25.1"></script>
+<script src="a11y.js?v=2026-09-10.v25.1"></script>
+<script src="portal-admin.js?v=2026-09-10.v25.1"></script>
 </body>
 </html>

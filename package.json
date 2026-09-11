@@ -1,7 +1,7 @@
 {
   "name": "apex-lift-solutions",
   "private": true,
-  "version": "25.0.0",
+  "version": "25.1.0",
   "description": "Apex Lift Solutions \u2014 static site, customer/admin portals and Supabase Edge Functions. Canonical frontend is docs/.",
   "type": "module",
   "engines": {
@@ -11,12 +11,13 @@
     "test": "npm run test:all",
     "test:all": "node tools/run-tests.mjs && node tools/check-version.mjs",
     "test:parse": "node tools/run-tests.mjs --parse-only",
-    "verify:version": "node tools/check-version.mjs"
+    "verify:version": "node tools/check-version.mjs",
+    "test:sql": "node tools/run-sql-tests.mjs"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",
     "pdf-lib": "^1.17.1",
     "esbuild": "^0.24.0"
   },
-  "apexRelease": "2026-09-09.v25.0"
+  "apexRelease": "2026-09-10.v25.1"
 }

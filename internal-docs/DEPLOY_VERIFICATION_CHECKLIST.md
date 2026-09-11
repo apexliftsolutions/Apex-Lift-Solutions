@@ -29,7 +29,7 @@ carry `noindex,nofollow,noarchive` — confirm in view-source.
 ## 3. Cache-busting
 
 DevTools → Network, second load of `/portal-login.html`:
-- `portal-login.js?v=2026-09-09.v25.0` — the parameter is present.
+- `portal-login.js?v=2026-09-10.v25.1` — the parameter is present.
 - Response headers show GitHub's default `Cache-Control`; note the `max-age`
   value in the table below. There is no `immutable` and there cannot be.
 
@@ -66,6 +66,30 @@ Reject → none, and no `_ga*` cookies in Application → Cookies.
 
 Submit the contact form with all four required fields. Expect the success
 panel, not "Could not send". Check `contact_submissions` for the row.
+
+## 9a. Migration 0011 preflight — READ ONLY, run BEFORE deploying 0011
+
+0011 adds CHECK constraints on `customer_equipment.serial_number`. A fresh
+database proves they work; production may hold an old blank or placeholder
+serial that would make the migration **fail closed**. Run this in the Supabase
+SQL editor. It changes nothing.
+
+```sql
+select id, customer_id, make, model, serial_number,
+       case
+         when serial_number is not null and length(trim(serial_number)) = 0 then 'BLANK'
+         when upper(trim(serial_number)) in ('N/A','NA','UNKNOWN','NONE','TBD','NULL','-') then 'PLACEHOLDER'
+       end as problem
+from customer_equipment
+where (serial_number is not null and length(trim(serial_number)) = 0)
+   or upper(trim(serial_number)) in ('N/A','NA','UNKNOWN','NONE','TBD','NULL','-')
+order by customer_id;
+```
+
+**Zero rows → deploy 0011.** Any rows → stop; review each with the customer or
+set `serial_number = null` **manually and deliberately** per unit. Do not script
+a blanket rewrite — a placeholder may be masking a real serial someone typed
+elsewhere. The migration is designed to refuse rather than guess.
 
 ## 9. Payment session
 

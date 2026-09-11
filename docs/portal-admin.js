@@ -1,6 +1,6 @@
 // Bundle marker. Check this in devtools to confirm which build is live —
 // a stale cached bundle is otherwise invisible and looks like a broken feature.
-const APEX_ADMIN_CLIENT_VERSION = "2026-09-09.v25.0";
+const APEX_ADMIN_CLIENT_VERSION = "2026-09-10.v25.1";
 console.info("[Apex] admin client", APEX_ADMIN_CLIENT_VERSION);
 
 // =============================================
@@ -1850,9 +1850,12 @@ function spRender() {
         </div>
         <div class="sp-actions">
           <button class="btn-secondary" type="button" data-action="sp-equip" data-id="${eq.id}">Edit</button>
+          ${eq.status !== 'retired' ? `<button class="btn-secondary" type="button" data-action="sp-equip-retire" data-id="${eq.id}">Retire</button>` : ''}
           ${live || agreement
             ? ''
-            : `<button class="approve-btn" type="button" data-action="sp-offer-new" data-equipment="${eq.id}">New offer</button>`}
+            : eq.status === 'active'
+              ? `<button class="approve-btn" type="button" data-action="sp-offer-new" data-equipment="${eq.id}">New offer</button>`
+              : `<span class="muted" style="font-size:.78rem;">${eq.status} — cannot start a new plan</span>`}
         </div>
       </div>`;
 
@@ -1902,9 +1905,20 @@ function spRender() {
 }
 
 /* ── Equipment ─────────────────────────────────────────────────────────── */
+
+async function spRetireEquip(id) {
+  if (!confirm('Retire this forklift? It stays in history but can no longer be selected for a new plan or quote.')) return;
+  // Reuses update-equipment; the database refuses while a plan is live.
+  const r = await spCall('update-equipment', { equipment_id: id, status: 'retired' });
+  if (!r) return;
+  await spLoad();
+}
+
 function spOpenEquip(id) {
   const eq = id ? SP.equipment.find(e => e.id === id) : null;
-  const locked = !!(eq && SP.agreements.some(a => a.equipment_id === eq.id && a.status === 'signed'));
+  // Locked if ANY agreement has ever named this unit — cancelled or superseded
+  // contracts still refer to this exact machine. Mirrors the 0011 trigger.
+  const locked = !!(eq && SP.agreements.some(a => a.equipment_id === eq.id));
   document.getElementById('sp-equip-title').textContent = eq ? 'Edit forklift' : 'Add forklift';
   document.getElementById('sp-equip-id').value = eq?.id || '';
   document.getElementById('sp-eq-unit').value = eq?.unit_number || '';
@@ -1914,6 +1928,9 @@ function spOpenEquip(id) {
   document.getElementById('sp-eq-serial').value = eq?.serial_number || '';
   document.getElementById('sp-eq-loc').value = eq?.service_location || '';
   document.getElementById('sp-eq-notes').value = eq?.notes || '';
+  document.getElementById('sp-eq-nick').value  = eq?.nickname || '';
+  document.getElementById('sp-eq-power').value = eq?.power_type || '';
+  document.getElementById('sp-eq-cap').value   = eq?.capacity_lbs ?? '';
   document.getElementById('sp-equip-lock').hidden = !locked;
   for (const f of ['sp-eq-year', 'sp-eq-make', 'sp-eq-model', 'sp-eq-serial']) {
     document.getElementById(f).disabled = locked;
@@ -2046,13 +2063,21 @@ function spWireModals() {
       customer_id: SP.customerId,
       equipment_id: id || undefined,
       unit_number: document.getElementById('sp-eq-unit').value,
-      year: document.getElementById('sp-eq-year').value,
-      make: document.getElementById('sp-eq-make').value,
-      model: document.getElementById('sp-eq-model').value,
-      serial_number: document.getElementById('sp-eq-serial').value,
       service_location: document.getElementById('sp-eq-loc').value,
       notes: document.getElementById('sp-eq-notes').value,
+      nickname: document.getElementById('sp-eq-nick').value,
+      power_type: document.getElementById('sp-eq-power').value,
+      capacity_lbs: document.getElementById('sp-eq-cap').value,
     };
+    // Identity fields go only when they are editable. Mirrors My Forklifts:
+    // never rely on a disabled control to keep a value out of the payload.
+    const identityLocked = !!(id && SP.agreements.some(a => a.equipment_id === id));
+    if (!identityLocked) {
+      payload.year          = document.getElementById('sp-eq-year').value;
+      payload.make          = document.getElementById('sp-eq-make').value;
+      payload.model         = document.getElementById('sp-eq-model').value;
+      payload.serial_number = document.getElementById('sp-eq-serial').value;
+    }
     if (await spCall(id ? 'update-equipment' : 'create-equipment', payload)) {
       spCloseEquip();
       await spLoadCustomer(SP.customerId);
@@ -2635,6 +2660,7 @@ function wireAdminPortal() {
 
       // service plans
       case 'sp-equip':             spOpenEquip(d.id); break;
+      case 'sp-equip-retire':      spRetireEquip(d.id); break;
       case 'sp-close-equip':       spCloseEquip(); break;
       case 'sp-offer-new':         spOpenOffer(null, d.equipment); break;
       case 'sp-offer-edit':        spOpenOffer(d.id); break;

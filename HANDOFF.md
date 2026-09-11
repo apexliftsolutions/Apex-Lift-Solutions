@@ -1,6 +1,6 @@
 # APEX LIFT SOLUTIONS — HANDOFF
 
-Written 2026-09-09. Consolidated as the v25.0 release candidate. Everything in this
+Written 2026-09-09; updated 2026-09-10 for **v25.1 — Equipment Phase 1**. Everything in this
 file was re-verified from the repository files, not from the session's own
 summaries. Where something could not be verified from files, it says so.
 
@@ -14,15 +14,31 @@ summaries. Where something could not be verified from files, it says so.
 |---|---|
 | Canonical frontend | `docs/` — the GitHub Pages publishing root |
 | Repository root | Migrations, runbooks, reports only. **No frontend files.** |
-| Backend | `supabase/` — untouched except `functions/public-contact/index.ts` |
-| Tests | `npm ci && npm run test:all` is the single authoritative gate (21 suites + parse + version) |
-| Release string | `package.json` → version `25.0.0`, `apexRelease` = `2026-09-09.v25.0`, `package-lock.json` committed |
+| Backend | v25.1 adds `migrations/0011_equipment_core.sql`, the new `functions/equipment-customer/`, and changes to `functions/service-plans-admin/`. `functions/public-contact/` carries the earlier P0 fix. **No payment, subscription or provider function has changed.** |
+| Tests | `npm run test:all` — 23/23 static and application suites, plus parse and release-version checks. `npm run test:sql` — real-PostgreSQL suite that applies every migration to a throwaway database and asserts the equipment invariants (needs `APEX_PG_PSQL`; exits 3 rather than passing if no database is configured). |
+| Release string | `package.json` → version **25.1.0**, `apexRelease` = **`2026-09-10.v25.1`**, `package-lock.json` committed and version-checked |
 | CSP | **Not enforced.** Candidate in `internal-docs/CSP_CANDIDATE.md` |
 | Recurring billing | Live in production since before this session; untouched |
 
 If you change any frontend file, change it in `docs/`. There is no other copy.
 
 ---
+
+## 1a. v25.1 — Equipment Phase 1 (implemented, awaiting owner deployment)
+
+`customer_equipment` is now the canonical forklift record. Migration
+`0011_equipment_core.sql` adds nickname / power type / capacity / retired_at and
+five database-enforced rules: ownership immutable, **identity locked once any
+agreement has ever named the unit** (cancelled or superseded included), retire
+refused while a plan is live, no hard delete, retired is terminal. A new narrow
+function `equipment-customer` is the only customer write path; identity comes
+from the session and a body `customer_id` is rejected. Customers get a **My
+Forklifts** section. Admin reuses `service-plans-admin` create/update-equipment.
+
+Proven against a real Postgres: 56/0 (`npm run test:sql`). **Nothing deployed** —
+0011, `equipment-customer` and the updated `service-plans-admin` await your
+Supabase deploy, and `docs/` awaits your push. Run the 0011 preflight in
+`internal-docs/DEPLOY_VERIFICATION_CHECKLIST.md` first.
 
 ## 2. What is NOT live yet — deploy these
 
