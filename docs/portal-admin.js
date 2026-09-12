@@ -271,7 +271,7 @@ async function renderInvoices() {
     : invoices.map(i => `
     <tr>
       <td><strong style="color:var(--white)">${esc(i.id)}</strong></td>
-      <td>${esc(i.customer_name || '')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company || '')}</span></td>
+      <td>${esc(i.customer_name || '')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company || '')}</span>${(i.equipment_snapshot || i.equipment) ? `<br/><span style="color:var(--grey);font-size:.72rem;">&#128668; ${esc(apexDocEquipment(i))}</span>` : ''}</td>
       <td>${!i.customer_id ? '<div style="color:#f0a500;font-size:.68rem;font-family:var(--font-head);font-weight:700;letter-spacing:.06em;">⚠ NO PORTAL LINK — customer cannot see or pay this</div>' : ''}<strong style="color:var(--red-text)">$${parseFloat(i.amount).toFixed(2)}</strong>${i.tax_exempt ? '<br><span style="font-size:.68rem;color:var(--grey);">TAX EXEMPT</span>' : (Number(i.tax_cents) > 0 ? `<br><span style="font-size:.68rem;color:var(--grey);">incl. $${(i.tax_cents/100).toFixed(2)} tax</span>` : '')}</td>
       <td>${badge(i.status)}</td>
       <td>${fmtDate(i.due)}</td>
@@ -279,6 +279,7 @@ async function renderInvoices() {
       <td>
         ${(i.status === 'unpaid' || i.status === 'payment_pending') ? `${payActionHtml(i, _live[i.id], _paymentSummary[i.id])}` : ''}
         ${refundActionHtml(i, _paymentSummary[i.id])}
+        <button class="action-btn" data-action="invoice-view" data-id="${i.id}">View</button>
         <button class="action-btn" data-action="invoice-print" data-id="${i.id}">🖨 PDF</button>
         ${i.status !== 'hidden' ? `<button class="action-btn" data-action="invoice-hide" data-id="${i.id}">Hide</button>`
           : `<button class="action-btn green" data-action="invoice-unhide" data-id="${i.id}">Unhide</button>`}
@@ -1732,6 +1733,29 @@ async function printQuotePDF(quoteId) {
 }
 
 // ── PDF PRINT — INVOICE ───────────────────────
+// Admin invoice detail. There was no invoice equivalent of viewQuoteDetail, so
+// the only way to see which forklift an invoice covered was to open the PDF.
+// Same alert-based pattern as quotes - deliberately not a new modal design.
+async function viewInvoiceDetail(id) {
+  const inv = (await DB.getAllInvoices()).find(x => x.id === id);
+  if (!inv) { alert('Invoice not found.'); return; }
+  const items = (inv.items || []).map(it => {
+    const qty = parseFloat(it.qty) || 1, unit = parseFloat(it.unit_price || it.amount || 0);
+    return `  \u2022 ${it.desc || 'Service'} x${qty} @ $${unit.toFixed(2)} = $${(qty * unit).toFixed(2)}`;
+  }).join('\n') || '  (no line items)';
+  alert(
+    `INVOICE ${inv.id}\n${'\u2500'.repeat(40)}\n` +
+    `Customer: ${inv.customer_name || ''} \u2014 ${inv.company || ''}\n` +
+    `Equipment: ${apexDocEquipment(inv)}\n` +
+    `Status: ${String(inv.status).toUpperCase()}\n` +
+    (inv.quote_id ? `From quote: ${inv.quote_id}\n` : '') +
+    (inv.due ? `Due: ${fmtDate(inv.due)}\n` : '') +
+    (inv.paid_at ? `Paid: ${fmtDate(inv.paid_at)}\n` : '') +
+    `\nDescription:\n${inv.description || ''}\n\nLine Items:\n${items}\n${'\u2500'.repeat(40)}\n` +
+    `TOTAL: $${parseFloat(inv.amount).toFixed(2)}`
+  );
+}
+
 async function printInvoicePDF(invoiceId) {
   // Open window synchronously before await — required for mobile popup policy
   const win = window.open('', '_blank');
@@ -2769,6 +2793,7 @@ function wireAdminPortal() {
       case 'quote-from-request':   quoteFromRequest(); break;
 
       // invoices and payments
+      case 'invoice-view':         viewInvoiceDetail(d.id); break;
       case 'invoice-print':        printInvoicePDF(d.id); break;
       case 'invoice-hide':         hideInvoice(d.id); break;
       case 'invoice-unhide':       unhideInvoice(d.id); break;

@@ -442,6 +442,7 @@ async function loadInvoices(append) {
       ${i.description ? `<div class="q-desc">${xss(i.description)}</div>` : ''}
       <div class="q-meta">
         <div class="q-meta-item">Due<span>${bdate(i.due)}</span></div>
+        ${(i.equipment_snapshot || i.equipment) ? `<div class="q-meta-item">Equipment<span>${xss(apexDocEquipment(i))}</span></div>` : ''}
         ${i.paid_at ? `<div class="q-meta-item">Paid<span>${bdate(i.paid_at)}</span></div>` : ''}
       </div>
       ${body}
