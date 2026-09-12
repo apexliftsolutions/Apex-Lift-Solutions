@@ -8,8 +8,8 @@
   <title>Admin Portal — Apex Lift Solutions</title>
   <link rel="preload" href="assets/fonts/barlow-condensed-black-900.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/barlow-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=2026-09-10.v25.1" />
-  <link rel="stylesheet" href="portal-admin.css?v=2026-09-10.v25.1" />
+  <link rel="stylesheet" href="style.css?v=2026-09-11.v25.2" />
+  <link rel="stylesheet" href="portal-admin.css?v=2026-09-11.v25.2" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
 <style>
 /* ── Service Plans (Phase B) — all selectors sp-* scoped ── */
@@ -213,8 +213,14 @@
             <input type="text" id="q-company" readonly style="opacity:.55;cursor:not-allowed;" aria-label="Customer company">
           </div>
           <div class="form-group">
-            <label for="q-equipment">Forklift Make / Model</label>
-            <input type="text" id="q-equipment" placeholder="e.g. Toyota 8FGU25"/>
+            <label for="q-equipment-select">Forklift</label>
+            <select id="q-equipment-select" data-action="quote-equipment-change">
+              <option value="">Select a customer first</option>
+            </select>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+              <button type="button" class="btn-secondary" data-action="quote-add-forklift" id="q-add-forklift" disabled>+ Add Forklift</button>
+              <span id="q-equipment-note" class="muted" style="font-size:.78rem;"></span>
+            </div>
           </div>
           <div class="form-group" style="grid-column:1/-1;">
             <label for="q-desc">Job Description</label>
@@ -670,9 +676,9 @@
 
 <div class="success-toast" id="toast"></div>
 
-<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-10.v25.1"></script>
-<script src="portal-data.js?v=2026-09-10.v25.1"></script>
-<script src="a11y.js?v=2026-09-10.v25.1"></script>
-<script src="portal-admin.js?v=2026-09-10.v25.1"></script>
+<script src="vendor/supabase-js-2.116.0.umd.js?v=2026-09-11.v25.2"></script>
+<script src="portal-data.js?v=2026-09-11.v25.2"></script>
+<script src="a11y.js?v=2026-09-11.v25.2"></script>
+<script src="portal-admin.js?v=2026-09-11.v25.2"></script>
 </body>
 </html>

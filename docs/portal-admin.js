@@ -1,6 +1,6 @@
 // Bundle marker. Check this in devtools to confirm which build is live —
 // a stale cached bundle is otherwise invisible and looks like a broken feature.
-const APEX_ADMIN_CLIENT_VERSION = "2026-09-10.v25.1";
+const APEX_ADMIN_CLIENT_VERSION = "2026-09-11.v25.2";
 console.info("[Apex] admin client", APEX_ADMIN_CLIENT_VERSION);
 
 // =============================================
@@ -709,7 +709,8 @@ async function convertToInvoice(quoteId) {
   if (!confirm(`Convert quote ${quoteId} to an invoice?`)) return;
   const inv = await DB.quoteToInvoice(quoteId);
   if (inv) {
-    await DB.updateQuoteField(quoteId, { invoiced: true });
+    // The RPC marks the quote invoiced inside the same transaction; doing it
+    // again here would be a second write that could disagree with it.
     const invLines = inv.items && inv.items.length
       ? '\n\nWork Summary:\n' + inv.items.map(i => {
           const qty  = parseFloat(i.qty) || 1;
@@ -739,7 +740,7 @@ async function viewQuoteDetail(id) {
   const items = q.items ? q.items.map(i =>
     `  • ${i.desc} x${i.qty || 1} (${i.type}): $${parseFloat(i.unit_price || i.amount || 0).toFixed(2)} ea = $${(parseFloat(i.unit_price || i.amount || 0) * (i.qty || 1)).toFixed(2)}`
   ).join('\n') : '';
-  alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${q.customer_name} — ${q.company || ''}\nEquipment: ${q.equipment || 'N/A'}\nStatus: ${q.status.toUpperCase()}${q.responded_at ? ' on ' + fmtDate(q.responded_at) : ''}\n\nDescription:\n${q.description || ''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nSubtotal: $${((q.subtotal_cents ?? Math.round(q.amount*100))/100).toFixed(2)}\n${q.tax_exempt ? 'Sales Tax: $0.00 (EXEMPT)' : `Sales Tax (${((q.tax_rate_milli_pct||0)/1000).toFixed(3)}%): $${((q.tax_cents||0)/100).toFixed(2)}`}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
+  alert(`QUOTE ${q.id}\n${'─'.repeat(40)}\nCustomer: ${q.customer_name} — ${q.company || ''}\nEquipment: ${apexDocEquipment(q)}\nStatus: ${q.status.toUpperCase()}${q.responded_at ? ' on ' + fmtDate(q.responded_at) : ''}\n\nDescription:\n${q.description || ''}\n\nLine Items:\n${items}\n${'─'.repeat(40)}\nSubtotal: $${((q.subtotal_cents ?? Math.round(q.amount*100))/100).toFixed(2)}\n${q.tax_exempt ? 'Sales Tax: $0.00 (EXEMPT)' : `Sales Tax (${((q.tax_rate_milli_pct||0)/1000).toFixed(3)}%): $${((q.tax_cents||0)/100).toFixed(2)}`}\nTOTAL: $${parseFloat(q.amount).toFixed(2)}`);
 }
 
 // ── FILE HANDLING ─────────────────────────────
@@ -839,6 +840,84 @@ function selectCustomer() {
   const opt = sel.options[sel.selectedIndex];
   document.getElementById('q-email').value   = opt.value || '';
   document.getElementById('q-company').value = opt.dataset.company || '';
+  // Clear the previous customer's forklift IMMEDIATELY, before the new list
+  // loads. Leaving customer A's unit selected while the form now says customer
+  // B is how a quote ends up naming the wrong machine.
+  QUOTE_EQUIPMENT = [];
+  const eqSel = document.getElementById('q-equipment-select');
+  if (eqSel) { eqSel.innerHTML = '<option value="">Loading…</option>'; eqSel.value = ''; }
+  loadQuoteEquipment(opt.dataset.id || null);
+}
+
+// ── QUOTE EQUIPMENT SELECTOR ──────────────────────────────────────────────
+// Only ACTIVE units of the selected customer are offered. The server re-checks
+// ownership and status when the quote is linked; this is convenience, not the
+// guarantee.
+let QUOTE_EQUIPMENT = [];
+let _quoteAwaitingEquipment = false;
+
+async function loadQuoteEquipment(customerId) {
+  const sel  = document.getElementById('q-equipment-select');
+  const btn  = document.getElementById('q-add-forklift');
+  const note = document.getElementById('q-equipment-note');
+  if (!sel) return;
+  if (!customerId) {
+    QUOTE_EQUIPMENT = [];
+    sel.innerHTML = '<option value="">Select a customer first</option>';
+    if (btn) btn.disabled = true;
+    if (note) note.textContent = '';
+    return;
+  }
+  const res = await _sb.from('customer_equipment')
+    .select('id, unit_number, nickname, year, make, model, serial_number, status')
+    .eq('customer_id', customerId).eq('status', 'active')
+    .order('created_at', { ascending: false });
+  QUOTE_EQUIPMENT = res.data || [];
+  renderQuoteEquipment();
+  if (btn) btn.disabled = false;
+}
+
+function quoteEquipmentLabel(e) {
+  const ymm = [e.year, e.make, e.model].filter(Boolean).join(' ');
+  const head = e.nickname && ymm ? `${e.nickname} (${ymm})` : (e.nickname || ymm || 'Forklift');
+  const bits = [head];
+  if (e.unit_number)   bits.push(`#${e.unit_number}`);
+  if (e.serial_number) bits.push(`SN ${e.serial_number}`);
+  return bits.join(' · ');
+}
+
+function renderQuoteEquipment(selectId) {
+  const sel  = document.getElementById('q-equipment-select');
+  const note = document.getElementById('q-equipment-note');
+  if (!sel) return;
+  // "No specific forklift" is an EXPLICIT choice, never a silent default: Apex
+  // quotes genuine site-visit and travel work not tied to one unit.
+  const opts = ['<option value="">— No specific forklift —</option>']
+    .concat(QUOTE_EQUIPMENT.map(e => `<option value="${esc(e.id)}">${esc(quoteEquipmentLabel(e))}</option>`));
+  sel.innerHTML = opts.join('');
+  if (selectId) sel.value = selectId;
+  if (note) note.textContent = QUOTE_EQUIPMENT.length ? ''
+    : 'This customer has no active forklifts on file. Add one, or leave the quote unlinked.';
+}
+
+// Selecting a forklift clears the "customer wrote:" hint from a service
+// request, so a stale note cannot sit next to a different chosen unit. The
+// value itself is read at save time.
+function quoteEquipmentChanged() {
+  const note = document.getElementById('q-equipment-note');
+  const sel  = document.getElementById('q-equipment-select');
+  if (note && sel && sel.value) note.textContent = '';
+}
+
+// Add Forklift reuses the Equipment Phase 1 admin path — no second backend.
+function quoteAddForklift() {
+  const sel = document.getElementById('q-customer-select');
+  const opt = sel?.options[sel.selectedIndex];
+  const customerId = opt?.dataset.id;
+  if (!customerId) { alert('Select a customer first.'); return; }
+  SP.customerId = customerId;       // the existing equipment modal reads this
+  _quoteAwaitingEquipment = true;   // so the new unit is selected on return
+  spOpenEquip(null);
 }
 
 // ── LINE ITEMS ────────────────────────────────
@@ -927,6 +1006,40 @@ function resetLineItems() {
 }
 
 // ── SAVE QUOTE ────────────────────────────────
+// ── DOCUMENT EQUIPMENT LABEL ──────────────────────────────────────────────
+// The document's FROZEN snapshot is the source of truth for what machine a
+// quote or invoice is about. The live forklift row is never consulted: it may
+// have been renamed, or retired, since the customer approved the document.
+// Historical rows have no snapshot and fall back to their free-text label.
+// Never renders "undefined", "null" or "[object Object]".
+function apexDocEquipment(doc) {
+  const s = doc && doc.equipment_snapshot;
+  if (s && typeof s === 'object') {
+    const ymm = [s.year, s.make, s.model].filter(Boolean).join(' ');
+    const head = s.nickname && ymm ? `${s.nickname} (${ymm})` : (s.nickname || ymm || '');
+    const bits = [];
+    if (head) bits.push(head);
+    if (s.unit_number) bits.push(`#${s.unit_number}`);
+    if (s.serial_number) bits.push(`SN ${s.serial_number}`);
+    if (bits.length) return bits.join(' · ');
+  }
+  const legacy = doc && typeof doc.equipment === 'string' ? doc.equipment.trim() : '';
+  return legacy || 'Not specified';
+}
+
+async function adminLinkQuoteEquipment(quoteId, equipmentId) {
+  const { data: { session } } = await _sb.auth.getSession();
+  if (!session) return null;
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/admin-action`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'link-quote-equipment', quoteId, equipmentId }),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) { console.error('[Apex] link-quote-equipment', out); alert(out.detail || out.error || 'Could not link the forklift.'); return null; }
+  return out.quote || null;
+}
+
 async function saveQuote() {
   const sel = document.getElementById('q-customer-select');
   if (!sel || !sel.value) { alert('Please select a customer.'); return; }
@@ -962,7 +1075,12 @@ async function saveQuote() {
     customer_email: email,
     customer_name:  name,
     company,
-    equipment:   document.getElementById('q-equipment').value.trim(),
+    // The browser names a forklift by ID ONLY. A BEFORE INSERT trigger on
+    // quotes verifies ownership and active status and generates the snapshot
+    // and label inside the same statement, so the quote_created notification
+    // already sees the right equipment. A snapshot or label sent from here
+    // would be discarded by that trigger anyway.
+    equipment_id: document.getElementById('q-equipment-select')?.value || null,
     description: document.getElementById('q-desc').value.trim() || 'Forklift Service',
     items,
     subtotal_cents:     sub,
@@ -975,7 +1093,14 @@ async function saveQuote() {
   };
 
   const saved = await DB.addQuote(newQuote);
-  if (!saved) { alert('Error saving quote. Please try again.'); return; }
+  if (!saved) {
+    // A rejected forklift aborts the INSERT, so no quote row and no
+    // notification exist. The form stays populated so the admin can pick a
+    // different unit instead of retyping everything.
+    alert('The quote was not saved.\n\nIf you selected a forklift, it may have been retired or deactivated since this form loaded. Choose another and try again.');
+    await loadQuoteEquipment(document.getElementById('q-customer-select')?.selectedOptions?.[0]?.dataset.id || null);
+    return;
+  }
 
   if (_pendingFiles.length) {
     const urls = await uploadFiles(saved.id);
@@ -993,7 +1118,8 @@ async function saveQuote() {
   sel.value = '';
   document.getElementById('q-email').value     = '';
   document.getElementById('q-company').value   = '';
-  document.getElementById('q-equipment').value = '';
+  const eqSelReset = document.getElementById('q-equipment-select');
+  if (eqSelReset) eqSelReset.value = '';
   document.getElementById('q-desc').value      = '';
   _pendingFiles = [];
   document.getElementById('uploaded-files-list').innerHTML = '';
@@ -1202,8 +1328,13 @@ function quoteFromRequest() {
   closeReqModal();
   showView('create-quote');
   setTimeout(async () => {
-    const eqEl = document.getElementById('q-equipment');
-    if (eqEl) eqEl.value = _currentRequest.equipment || '';
+    // The service request's free-text equipment is a hint only. It is NOT
+    // matched to a customer_equipment row — guessing would fabricate a link.
+    // The admin picks the real unit from the selector.
+    const eqNote = document.getElementById('q-equipment-note');
+    if (eqNote && _currentRequest.equipment) {
+      eqNote.textContent = `Customer wrote: "${_currentRequest.equipment}" — select the matching forklift.`;
+    }
     const descEl = document.getElementById('q-desc');
     if (descEl) descEl.value = _currentRequest.description || '';
     const sel = document.getElementById('q-customer-select');
@@ -1439,7 +1570,7 @@ async function exportQuotesCSV() {
     'Customer':      q.customer_name || '',
     'Company':       q.company || '',
     'Email':         q.customer_email,
-    'Equipment':     q.equipment || '',
+    'Equipment':     apexDocEquipment(q),
     'Description':   q.description || '',
     'Amount':        parseFloat(q.amount).toFixed(2),
     'Status':        q.status,
@@ -1576,7 +1707,7 @@ async function printQuotePDF(quoteId) {
     <div class="meta-item"><label>Customer</label>${esc(q.customer_name || '—')}</div>
     <div class="meta-item"><label>Company</label>${esc(q.company || '—')}</div>
     <div class="meta-item"><label>Email</label>${esc(q.customer_email)}</div>
-    <div class="meta-item"><label>Equipment</label>${esc(q.equipment || 'Not specified')}</div>
+    <div class="meta-item"><label>Equipment</label>${esc(apexDocEquipment(q))}</div>
   </div>
   ${q.description ? `<p style="margin:0 0 16px;line-height:1.6;">${esc(q.description)}</p>` : ''}
   <table>
@@ -1654,6 +1785,7 @@ async function printInvoicePDF(invoiceId) {
   ${isPaid ? `<div class="paid-stamp">✓ PAID — ${new Date(inv.paid_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>` : `<div class="due-box">⚠ Payment Due: ${inv.due ? new Date(inv.due).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : 'Upon receipt'}</div>`}
   <div class="meta-grid">
     <div class="meta-item"><label>Bill To</label>${esc(inv.customer_name || '—')}</div>
+      ${(inv.equipment_snapshot || inv.equipment) ? `<div class="meta-item"><label>Equipment</label>${esc(apexDocEquipment(inv))}</div>` : ''}
     <div class="meta-item"><label>Company</label>${esc(inv.company || '—')}</div>
     <div class="meta-item"><label>Email</label>${esc(inv.customer_email)}</div>
     <div class="meta-item"><label>Status</label>${isPaid ? '✓ Paid in Full' : 'Unpaid'}</div>
@@ -2078,8 +2210,18 @@ function spWireModals() {
       payload.model         = document.getElementById('sp-eq-model').value;
       payload.serial_number = document.getElementById('sp-eq-serial').value;
     }
-    if (await spCall(id ? 'update-equipment' : 'create-equipment', payload)) {
+    const savedEq = await spCall(id ? 'update-equipment' : 'create-equipment', payload);
+    if (savedEq) {
       spCloseEquip();
+      // Came from the quote form: refresh that customer active list and select
+      // the unit just created, so the admin need not find it again.
+      if (_quoteAwaitingEquipment) {
+        _quoteAwaitingEquipment = false;
+        const newId = savedEq?.equipment?.id || savedEq?.id || null;
+        await loadQuoteEquipment(SP.customerId);
+        if (newId) renderQuoteEquipment(newId);
+        return;
+      }
       await spLoadCustomer(SP.customerId);
     }
   });
@@ -2619,6 +2761,7 @@ function wireAdminPortal() {
       case 'pick-quote-files':     document.getElementById('quote-files')?.click(); break;
       case 'remove-quote-file':    removeFile(num(d.index)); break;
       case 'save-quote':           saveQuote(); break;
+      case 'quote-add-forklift':   quoteAddForklift(); break;
       case 'quote-view':           viewQuoteDetail(d.id); break;
       case 'quote-print':          printQuotePDF(d.id); break;
       case 'quote-delete':         deleteQuote(d.id); break;
@@ -2710,6 +2853,7 @@ function wireAdminPortal() {
     'filter-history':   renderHistory,
     'filter-requests':  renderRequests,
     'select-customer':  selectCustomer,
+    'quote-equipment-change': quoteEquipmentChanged,
     'toggle-exempt':    toggleExempt,
   };
 

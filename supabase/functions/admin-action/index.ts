@@ -65,53 +65,67 @@ Deno.serve(async (req) => {
     switch (action) {
 
       // Convert approved quote → invoice
-      case 'create-invoice': {
-        const { quoteId } = body;
+      // Equipment linking is server-authoritative. The admin browser still
+      // inserts the quote row itself (unchanged), but it may only ask for a
+      // forklift by id — the RPC verifies ownership and active status and
+      // generates the snapshot from the live row. The browser can neither
+      // supply a snapshot nor bypass the checks.
+      case 'link-quote-equipment': {
+        const quoteId = String(body.quoteId ?? '').trim();
+        const equipmentId = String(body.equipmentId ?? '').trim();
         if (!quoteId) return json({ error: 'quoteId required' }, 400);
+        if (!equipmentId) return json({ error: 'equipmentId required' }, 400);
 
-        const { data: quotes } = await admin.from('quotes').select('*').eq('id', quoteId);
-        const q = quotes?.[0];
-        if (!q) return json({ error: 'Quote not found' }, 404);
-
-        const due = new Date();
-        due.setDate(due.getDate() + 30);
-
-        // Tax is COPIED from the approved quote, never recalculated. The quote
-        // is a price the customer accepted; if the default rate changes later,
-        // the invoice must still reflect what was agreed.
-        const { data: inv, error: invErr } = await admin.from('invoices').insert({
-          customer_id:        q.customer_id,
-          customer_email:     q.customer_email,
-          customer_name:      q.customer_name,
-          company:            q.company,
-          description:        q.description,
-          items:              q.items,
-          subtotal_cents:     q.subtotal_cents,
-          tax_cents:          q.tax_cents ?? 0,
-          tax_rate_milli_pct: q.tax_rate_milli_pct ?? 0,
-          tax_exempt:         q.tax_exempt ?? false,
-          tax_jurisdiction:   q.tax_jurisdiction,
-          amount:             q.amount,       // already tax-inclusive
-          status:             'unpaid',
-          due:                due.toISOString(),
-          quote_id:           q.id,
-        }).select().single();
-
-        if (invErr) return json({ error: invErr.message }, 500);
-
-        // Mark quote as invoiced
-        await admin.from('quotes').update({ invoiced: true }).eq('id', quoteId);
-
-        // Audit log
-        await logAction(admin, user.id, 'create_invoice',
-          `Invoice ${inv.id} created from quote ${quoteId} for ${q.customer_name} — $${parseFloat(q.amount).toFixed(2)}`);
-
-        return json({ invoice: inv });
+        const { data, error } = await admin.rpc('link_quote_equipment', {
+          p_quote_id: quoteId, p_equipment_id: equipmentId,
+        });
+        if (error) {
+          const m = error.message || '';
+          // Stable codes; the database is the authority for each rule.
+          if (m.includes('equipment_not_owned'))     return json({ error: 'equipment_not_owned', detail: 'That forklift does not belong to this customer.' }, 409);
+          if (m.includes('equipment_not_active'))    return json({ error: 'equipment_not_active', detail: 'That forklift is not active and cannot be used on a new quote.' }, 409);
+          if (m.includes('quote_not_pending'))       return json({ error: 'quote_not_pending', detail: 'The customer has already responded to this quote; its equipment is now part of the record.' }, 409);
+          if (m.includes('quote_already_invoiced'))  return json({ error: 'quote_already_invoiced', detail: 'This quote has been invoiced. Its equipment can no longer be changed.' }, 409);
+          if (m.includes('document_snapshot_frozen')) return json({ error: 'document_snapshot_frozen', detail: 'This quote already records the forklift it was issued for.' }, 409);
+          if (m.includes('quote_not_found'))         return json({ error: 'quote_not_found' }, 404);
+          console.error('[admin-action] link-quote-equipment failed', m.slice(0, 120));
+          return json({ error: 'link_failed' }, 500);
+        }
+        return json({ ok: true, quote: data });
       }
 
-      // Mark invoice as paid
-      // Record a payment taken outside the portal (check, cash, wire, terminal).
-      // Writes a payments row — history is never overwritten — then marks paid.
+      // ONE authoritative conversion implementation: the database RPC. It takes
+      // the row lock, enforces approved + not-already-invoiced, inserts exactly
+      // one invoice, copies equipment/equipment_id/equipment_snapshot verbatim
+      // and marks the quote invoiced — all in one transaction. Re-implementing
+      // any of that here is how the two paths drifted apart in the first place.
+      case 'create-invoice': {
+        const quoteId = String(body.quoteId ?? '').trim();
+        if (!quoteId) return json({ error: 'quoteId required' }, 400);
+
+        const { data: inv, error: invErr } = await admin.rpc('quote_to_invoice', { p_quote_id: quoteId });
+        if (invErr) {
+          const m = invErr.message || '';
+          if (m.includes('quote_not_found'))        return json({ error: 'quote_not_found' }, 404);
+          if (m.includes('quote_not_approved'))     return json({ error: 'quote_not_approved', detail: 'Only an approved quote can be invoiced.' }, 409);
+          if (m.includes('quote_already_invoiced')) return json({ error: 'quote_already_invoiced', detail: 'This quote has already been invoiced.' }, 409);
+          console.error('[admin-action] quote_to_invoice failed', m.slice(0, 120));
+          return json({ error: 'conversion_failed' }, 500);
+        }
+
+        // Real audit_log columns (0001): actor_email, actor_id, action,
+        // table_name, record_id, detail. A failed audit write must not undo a
+        // completed conversion, so it is logged and swallowed.
+        const audit = await admin.from('audit_log').insert({
+          actor_email: user.email, actor_id: user.id, action: 'create_invoice',
+          table_name: 'invoices', record_id: inv.id,
+          detail: `Invoice ${inv.id} created from quote ${quoteId}`,
+        });
+        if (audit.error) console.error('[admin-action] audit write failed', audit.error.message?.slice(0, 80));
+
+        return json({ ok: true, ...inv });
+      }
+
       case 'record-manual-payment': {
         const { invoiceId, method, amount, reference, notes } = body;
         const okMethods = ['check','cash','bank_transfer','terminal','other'];

@@ -16,13 +16,39 @@ summaries. Where something could not be verified from files, it says so.
 | Repository root | Migrations, runbooks, reports only. **No frontend files.** |
 | Backend | v25.1 adds `migrations/0011_equipment_core.sql`, the new `functions/equipment-customer/`, and changes to `functions/service-plans-admin/`. `functions/public-contact/` carries the earlier P0 fix. **No payment, subscription or provider function has changed.** |
 | Tests | `npm run test:all` — 23/23 static and application suites, plus parse and release-version checks. `npm run test:sql` — real-PostgreSQL suite that applies every migration to a throwaway database and asserts the equipment invariants (needs `APEX_PG_PSQL`; exits 3 rather than passing if no database is configured). |
-| Release string | `package.json` → version **25.1.0**, `apexRelease` = **`2026-09-10.v25.1`**, `package-lock.json` committed and version-checked |
+| Release string | `package.json` → version **25.2.0**, `apexRelease` = **`2026-09-11.v25.2`**, `package-lock.json` committed and version-checked |
 | CSP | **Not enforced.** Candidate in `internal-docs/CSP_CANDIDATE.md` |
 | Recurring billing | Live in production since before this session; untouched |
 
 If you change any frontend file, change it in `docs/`. There is no other copy.
 
 ---
+
+## 1b. v25.2 — Equipment Phase 2: forklift → quote → invoice (awaiting deployment)
+
+`0012_equipment_links.sql` gives quotes and invoices `equipment_id` and a frozen
+`equipment_snapshot`, both guarded by the composite `(equipment_id, customer_id)`
+FK so a document can never name another customer's machine. The admin quote form
+now picks from that customer's **active** forklifts; the browser sends only an id
+and the server generates the snapshot (`admin-action link-quote-equipment` →
+`link_quote_equipment()`). **Both** quote→invoice paths copy the snapshot
+verbatim — the invoice names the machine the customer approved, not the live
+record. Recurring invoices get the same linkage, with no payment or provider
+change. Historical rows stay unlinked; nothing is matched by guessing.
+
+**Quote creation is atomic.** The browser sends `equipment_id` only; a BEFORE
+INSERT trigger on `quotes` verifies ownership and active status and generates the
+snapshot and label in the same statement, so the AFTER INSERT notification
+already carries the right equipment. A rejected unit aborts the INSERT — no
+quote row, no outbox row. `link_quote_equipment()` and `quote_to_invoice()` are
+**service_role only with no in-function JWT check**: a service-role call carries
+no user email, so an `is_admin()` gate there would reject its only caller.
+`admin-action` authenticates the human admin before using the service-role
+client, and delegates conversion entirely to `quote_to_invoice()` — the one
+authoritative implementation, with `FOR UPDATE` serialising double conversion.
+The browser's direct-insert invoice fallback is removed; conversion fails closed.
+
+Proven on real PostgreSQL: Phase 1 72/0, Phase 2 54/0.
 
 ## 1a. v25.1 — Equipment Phase 1 (implemented, awaiting owner deployment)
 
@@ -43,6 +69,9 @@ Supabase deploy, and `docs/` awaits your push. Run the 0011 preflight in
 ## 2. What is NOT live yet — deploy these
 
 The repository contains fixes that production does not have. In order:
+
+0. **v25.2 order:** `0012` → `admin-action` → `subscription-reconcile` → push `docs/`.
+   `0012` replaces `quote_to_invoice()`; deploy it and `admin-action` together.
 
 1. **`supabase functions deploy public-contact`** — the contact form on
    `contact.html` was **100% broken** in production: it posted `Phone Number`

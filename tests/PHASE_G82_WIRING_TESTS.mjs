@@ -516,7 +516,8 @@ console.log("\n═══ D. ARGUMENT FIDELITY (financial) ═══");
     "spCloseEquip","spOpenOffer","spSendOffer","spCancelOffer","spCloseOffer","spActivateSubscription",
     "rsOpenDetail","rsCloseDetail","rsSync","rsPause","rsResume","rsChangeTerm","rsCancel","rsRetry",
     "rsOpenRefund","rsCloseRefund","renderAllQuotes","renderInvoices","renderCustomers","renderHistory",
-    "renderRequests","updateTotal","selectCustomer","toggleExempt","fillHistCustomer","handleFileSelect"];
+    "renderRequests","updateTotal","selectCustomer","toggleExempt","fillHistCustomer","handleFileSelect",
+    "quoteEquipmentChanged"];
   const dom = new JSDOM(read("portal-admin.html"), { runScripts: "outside-only", pretendToBeVisual: true, virtualConsole: quiet() });
   const w = dom.window, doc = w.document, calls = [];
   for (const n of FN) w[n] = (...a) => calls.push([n, ...a]);
@@ -697,7 +698,7 @@ console.log("\n═══ D. MALICIOUS ADMIN CONTENT STAYS TEXT ═══");
 console.log("\n═══ D. EVENT CHANNELS DO NOT CROSS-FIRE ═══");
 {
   const FN = ["renderAllQuotes","renderInvoices","renderCustomers","renderHistory","renderRequests",
-              "updateTotal","selectCustomer","toggleExempt","handleFileSelect"];
+              "updateTotal","selectCustomer","toggleExempt","handleFileSelect","quoteEquipmentChanged"];
   const mk = () => {
     // beforeParse installs the stubs BEFORE jsdom fires DOMContentLoaded, which
     // is when the page's own wiring runs. Without it the wiring executed against

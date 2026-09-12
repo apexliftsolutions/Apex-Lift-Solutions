@@ -205,31 +205,12 @@ const DB = {
     }
   },
   async quoteToInvoice(quoteId) {
-    try {
-      return await EF.adminAction('create-invoice', { quoteId });
-    } catch (e) {
-      console.warn('Edge function unavailable, using direct create:', e.message);
-      const quotes = await SB.get('quotes', `?id=eq.${encodeURIComponent(quoteId)}`);
-      const q = quotes[0];
-      if (!q) return null;
-      const due = new Date();
-      due.setDate(due.getDate() + 30);
-      const inv = await SB.post('invoices', {
-        customer_id: q.customer_id, customer_email: q.customer_email,
-        customer_name: q.customer_name, company: q.company,
-        description: q.description, items: q.items,
-        // Copy the agreed tax from the quote — never recalculate it here.
-        subtotal_cents: q.subtotal_cents,
-        tax_cents: q.tax_cents ?? 0,
-        tax_rate_milli_pct: q.tax_rate_milli_pct ?? 0,
-        tax_exempt: q.tax_exempt ?? false,
-        tax_jurisdiction: q.tax_jurisdiction,
-        amount: q.amount, status: 'unpaid',
-        due: due.toISOString(), quote_id: q.id
-      });
-      if (inv) await SB.patch('quotes', `id=eq.${encodeURIComponent(quoteId)}`, { invoiced: true });
-      return inv;
-    }
+    // NO browser fallback. Converting a quote is a sensitive business write:
+    // the authoritative path enforces approved-status, not-already-invoiced,
+    // a row lock against double conversion, and verbatim equipment inheritance.
+    // A direct PostgREST insert here bypassed every one of those and produced an
+    // invoice with no equipment. If admin-action is unavailable we FAIL CLOSED.
+    return await EF.adminAction('create-invoice', { quoteId });
   },
   async deleteInvoice(id) {
     // No direct-delete fallback: the FK from payments would reject it anyway,

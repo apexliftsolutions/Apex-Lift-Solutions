@@ -1,7 +1,7 @@
 {
   "name": "apex-lift-solutions",
   "private": true,
-  "version": "25.1.0",
+  "version": "25.2.0",
   "description": "Apex Lift Solutions \u2014 static site, customer/admin portals and Supabase Edge Functions. Canonical frontend is docs/.",
   "type": "module",
   "engines": {
@@ -19,5 +19,5 @@
     "pdf-lib": "^1.17.1",
     "esbuild": "^0.24.0"
   },
-  "apexRelease": "2026-09-10.v25.1"
+  "apexRelease": "2026-09-11.v25.2"
 }

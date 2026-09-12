@@ -251,7 +251,7 @@ async function loadQuotes(append) {
       ${await attHtmlCached(q.id, q.attachments)}
       <div class="q-meta" style="margin-top:12px;">
         <div class="q-meta-item">Sent<span>${bdate(q.created_at)}</span></div>
-        ${q.equipment ? `<div class="q-meta-item">Equipment<span>${xss(q.equipment)}</span></div>` : ''}
+        ${(q.equipment_snapshot || q.equipment) ? `<div class="q-meta-item">Equipment<span>${xss(apexDocEquipment(q))}</span></div>` : ''}
         ${q.responded_at ? `<div class="q-meta-item">Responded<span>${bdate(q.responded_at)}</span></div>` : ''}
       </div>
       ${q.status === 'pending' ? `
@@ -541,7 +541,7 @@ function respondQuote(id, response) {
 const FN_BASE = `${SB_URL}/functions/v1`;
 // Bumped with each payment-path change; sent to the server so a stale frontend
 // or a stale Edge Function shows up in payment_events instead of guesswork.
-const APEX_CLIENT_VERSION = "2026-09-10.v25.1";
+const APEX_CLIENT_VERSION = "2026-09-11.v25.2";
 let PAY_BUSY = false;
 let PAY_AMOUNT = 0;
 let PAY_INVOICE = null;
@@ -1175,7 +1175,7 @@ async function printQuote(quoteId) {
       ${esc(q.customer_name || '')}<br>${esc(q.customer_email || '')}<br>
       Quote date: ${new Date(q.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}
       ${q.responded_at ? `<br>Responded: ${new Date(q.responded_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}` : ''}
-      ${q.equipment ? `<br>Equipment: ${esc(q.equipment)}` : ''}
+      ${(q.equipment_snapshot || q.equipment) ? `<br>Equipment: ${esc(apexDocEquipment(q))}` : ''}
       ${q.invoiced ? '<br>Status: Invoiced' : ''}
       <div>${stamp}</div>
     </div>
@@ -1205,6 +1205,7 @@ async function printInvoice(invoiceId) {
       ${i.due ? `<br>Due: ${new Date(i.due).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}` : ''}
       ${i.paid_at ? `<br>Paid: ${new Date(i.paid_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}` : ''}
       ${i.quote_id ? `<br>From quote: ${esc(i.quote_id)}` : ''}
+      ${(i.equipment_snapshot || i.equipment) ? `<br>Equipment: ${esc(apexDocEquipment(i))}` : ''}
       <div>${stamp}</div>
     </div>
     ${i.description ? `<p style="margin-top:16px;font-size:13px;">${esc(i.description)}</p>` : ''}
@@ -2015,6 +2016,27 @@ function moreInvoices() { return ApexPage.handleMore(document.getElementById('in
 function moreHistory()  { return ApexPage.handleMore(document.getElementById('history-wrap'),  () => loadHistory(true)); }
 function morePayments() { return ApexPage.handleMore(document.getElementById('payments-wrap'), () => loadPayments(true)); }
 
+
+// ── DOCUMENT EQUIPMENT LABEL ──────────────────────────────────────────────
+// The document's FROZEN snapshot is the source of truth for what machine a
+// quote or invoice is about. The live forklift row is never consulted: it may
+// have been renamed, or retired, since the customer approved the document.
+// Historical rows have no snapshot and fall back to their free-text label.
+// Never renders "undefined", "null" or "[object Object]".
+function apexDocEquipment(doc) {
+  const s = doc && doc.equipment_snapshot;
+  if (s && typeof s === 'object') {
+    const ymm = [s.year, s.make, s.model].filter(Boolean).join(' ');
+    const head = s.nickname && ymm ? `${s.nickname} (${ymm})` : (s.nickname || ymm || '');
+    const bits = [];
+    if (head) bits.push(head);
+    if (s.unit_number) bits.push(`#${s.unit_number}`);
+    if (s.serial_number) bits.push(`SN ${s.serial_number}`);
+    if (bits.length) return bits.join(' · ');
+  }
+  const legacy = doc && typeof doc.equipment === 'string' ? doc.equipment.trim() : '';
+  return legacy || 'Not specified';
+}
 
 // ── MY FORKLIFTS ─────────────────────────────────────────────────────────────
 // All writes go through the equipment-customer Edge Function, which derives the

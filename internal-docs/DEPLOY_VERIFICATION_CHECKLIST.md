@@ -29,7 +29,7 @@ carry `noindex,nofollow,noarchive` — confirm in view-source.
 ## 3. Cache-busting
 
 DevTools → Network, second load of `/portal-login.html`:
-- `portal-login.js?v=2026-09-10.v25.1` — the parameter is present.
+- `portal-login.js?v=2026-09-11.v25.2` — the parameter is present.
 - Response headers show GitHub's default `Cache-Control`; note the `max-age`
   value in the table below. There is no `immutable` and there cannot be.
 

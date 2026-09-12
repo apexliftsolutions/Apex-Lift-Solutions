@@ -280,6 +280,25 @@ async function ensureInvoice(db: any, s: Row, paymentNumber: number, start: stri
   const taxJurisdiction = String(snap?.offer?.tax_jurisdiction ?? snap?.tax_jurisdiction ?? "") || null;
   const equipment = [eq?.unit_number, eq?.year, eq?.make, eq?.model].filter(Boolean).join(" — ") || "Forklift";
   const amount = Number((Number(s.recurring_total_cents) / 100).toFixed(2));
+    // Resolve the frozen identity for this unit. Wrapped so that a missing or
+    // failed lookup yields an UNLINKED invoice rather than blocking billing.
+    let eqLink: Record<string, unknown> = {};
+    if (s.equipment_id) {
+      try {
+        const snapRes = await db.rpc("equipment_snapshot", { p_equipment_id: s.equipment_id });
+        if (!snapRes.error && snapRes.data) {
+          const labelRes = await db.rpc("equipment_label", { p: snapRes.data });
+          eqLink = {
+            equipment_id: s.equipment_id,
+            equipment_snapshot: snapRes.data,
+            equipment: labelRes.error ? null : labelRes.data,
+          };
+        }
+      } catch (e) {
+        console.error("[subscription-reconcile] equipment link skipped", String(e).slice(0, 80));
+      }
+    }
+
   const row = {
     customer_id: s.customer_id,
     customer_email: cust.email,
@@ -297,6 +316,12 @@ async function ensureInvoice(db: any, s: Row, paymentNumber: number, start: stri
     due: `${start}T23:59:59Z`,
     invoice_source: "recurring",
     subscription_id: s.id,
+    // DOCUMENT LINKAGE ONLY (Phase 2). The subscription already carries
+    // equipment_id from 0006. Both columns are set together or neither is:
+    // the 0012 pair constraint requires that, and an unlinked recurring
+    // invoice is far better than a billing run that fails. No amount, no
+    // provider call and no reconciliation logic changes here.
+    ...eqLink,
     billing_period_start: start,
     billing_period_end: end,
   };
