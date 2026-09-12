@@ -58,7 +58,8 @@ console.log("\n═══ QUOTE → INVOICE INHERITANCE (both paths) ═══");
   // create-invoice now DELEGATES; the inheritance itself lives in the RPC, which
   // is the single authoritative implementation.
   const ciBlk = a.slice(a.indexOf("case 'create-invoice'"), a.indexOf("case 'create-invoice'") + 1600);
-  ok(/admin\.rpc\('quote_to_invoice'/.test(ciBlk), "I1 create-invoice delegates to quote_to_invoice()");
+  // Phase 2.2 replaced the raising RPC with the idempotent quote_to_invoice_v2.
+  ok(/admin\.rpc\('quote_to_invoice_v2'/.test(ciBlk), "I1 create-invoice delegates to the idempotent conversion RPC");
   ok(!/from\('invoices'\)\.insert/.test(ciBlk), "I2 it no longer duplicates the insert or the copy logic");
   const ciCode = ciBlk.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   ok(!/equipment_snapshot\(/.test(ciCode), "I4 and never re-derives a snapshot");
@@ -193,10 +194,14 @@ console.log("\n═══ RUNTIME INTEGRATION (v25.2 correction) ═══");
 
   // (K) One conversion authority.
   const ci = a.slice(a.indexOf("case 'create-invoice'"), a.indexOf("case 'create-invoice'") + 1600);
-  ok(/admin\.rpc\('quote_to_invoice'/.test(ci), "RK1 (K) admin-action delegates to the authoritative RPC");
+  ok(/admin\.rpc\('quote_to_invoice_v2'/.test(ci), "RK1 (K) admin-action delegates to the authoritative RPC");
   ok(!/from\('invoices'\)\.insert/.test(ci), "RK2 it no longer re-implements the insert");
-  for (const e of ["quote_not_found","quote_not_approved","quote_already_invoiced"])
-    ok(new RegExp(e).test(ci), `RK3 maps ${e} to a stable response`);
+  for (const e of ["quote_not_found","quote_not_approved"])
+    ok(new RegExp(e).test(ci), `RK3 maps ${e} to a stable error response`);
+  // already-invoiced is no longer an error at all: it returns 200 with the
+  // existing invoice id, because the raise is what the browser swallowed.
+  ok(/already_invoiced: true[\s\S]{0,140}invoice_id: res\.invoice_id/.test(ci),
+     "RK3a an already-invoiced quote returns the EXISTING invoice, not an error");
   ok(!/updateQuoteField\(quoteId, \{ invoiced: true \}\)/.test(pa), "RK4 the browser no longer re-marks the quote invoiced");
   ok(/for update/.test(m) && /quote_already_invoiced/.test(m), "RN1 row lock + invoiced check serialise double conversion");
 }

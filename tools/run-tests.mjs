@@ -18,7 +18,9 @@ console.log(`   ${readdirSync(ROOT + "docs").filter(x => x.endsWith(".js")).leng
 if (!parseOnly) {
   console.log("\n── suites ──");
   const suites = readdirSync(ROOT + "tests")
-    .filter(f => /\.(mjs|cjs)$/.test(f) && !f.startsWith("_") && f !== "edge_harness.mjs")
+    // PHASE_DELIVERY_CONCURRENCY needs a live Postgres and belongs to `npm run
+    // test:sql`. Running it here would fail a database-free gate.
+    .filter(f => /\.(mjs|cjs)$/.test(f) && !f.startsWith("_") && f !== "edge_harness.mjs" && f !== "PHASE_DELIVERY_CONCURRENCY.mjs")
     .sort();
   for (const f of suites) {
     let out = "", code = 0;

@@ -12,7 +12,8 @@
     "test:all": "node tools/run-tests.mjs && node tools/check-version.mjs",
     "test:parse": "node tools/run-tests.mjs --parse-only",
     "verify:version": "node tools/check-version.mjs",
-    "test:sql": "node tools/run-sql-tests.mjs"
+    "test:sql": "node tools/run-sql-tests.mjs && node tests/PHASE_DELIVERY_CONCURRENCY.mjs",
+    "test:concurrency": "node tests/PHASE_DELIVERY_CONCURRENCY.mjs"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",

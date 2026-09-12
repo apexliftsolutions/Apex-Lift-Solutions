@@ -50,6 +50,46 @@ The browser's direct-insert invoice fallback is removed; conversion fails closed
 
 Proven on real PostgreSQL: Phase 1 72/0, Phase 2 54/0.
 
+## 1d. v25.2 — Phase 2.2: quote converts to exactly one invoice (awaiting deployment)
+
+`0014_quote_invoice_integrity.sql` adds a UNIQUE partial index on
+`invoices.quote_id` and replaces conversion with `quote_to_invoice_v2()`, which
+locks the quote `FOR UPDATE`, returns the EXISTING invoice when one is already
+linked instead of raising, repairs a drifted `quotes.invoiced` flag, and takes
+`customer_id` from the quote so the customer can always see and pay it. The
+admin button now keys off **actual invoice existence**, not the boolean, and the
+click handler surfaces failures instead of throwing silently.
+
+**Run `internal-docs/PREFLIGHT_0014_quote_invoice.sql` first.** 0014 aborts
+without changing anything if any quote already has two invoices.
+
+## 1c. v25.2 — Phase 2.1: invoice email delivery state (awaiting deployment)
+
+`0013_notification_delivery.sql` adds provider delivery columns to
+`notification_outbox` **without touching the worker's transport `status`** — they
+answer different questions. A new `resend-webhook` function verifies the Svix
+signature over the raw body and calls `apply_delivery_event()` (service_role
+only), which is idempotent by a unique `svix-id`: a replayed webhook is a no-op,
+an unknown `email_id` updates nothing, and a late `delivered` cannot erase a
+bounce. Admin sees Queued → Sending → **Sent** (Resend accepted) → **Delivered**
+(mail server accepted) on both the invoice list and detail.
+
+Resend does not guarantee webhook order, so delivery state is recomputed from
+the full recorded event history in **provider-event-time** order — an older
+`delivery_delayed` arriving after a newer `delivered` cannot regress the display.
+An event that arrives before `outbox-worker` commits `provider_msg_id` is
+retained and attached by a trigger the moment that id lands. If the two commits
+interleave so the trigger misses it, the function answers **409** and Resend's
+at-least-once retry attaches the already-recorded event — so a raced webhook is
+never lost and never applied to another invoice. `npm run test:sql` includes a
+two-session test that forces that interleaving.
+
+**Resend webhook events to enable:** `email.delivered`, `email.bounced`,
+`email.complained`, `email.delivery_delayed`, `email.failed`.
+Do **not** enable `email.opened` or `email.clicked`. There is no send or
+resend control anywhere, and exactly-once enqueue still comes from the unique
+`event_key`.
+
 ## 1a. v25.1 — Equipment Phase 1 (implemented, awaiting owner deployment)
 
 `customer_equipment` is now the canonical forklift record. Migration

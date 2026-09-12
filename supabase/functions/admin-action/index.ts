@@ -99,31 +99,45 @@ Deno.serve(async (req) => {
       // one invoice, copies equipment/equipment_id/equipment_snapshot verbatim
       // and marks the quote invoiced — all in one transaction. Re-implementing
       // any of that here is how the two paths drifted apart in the first place.
+      // ONE authoritative conversion implementation: quote_to_invoice_v2. It
+      // takes the row lock, returns the EXISTING invoice when the quote was
+      // already converted instead of raising, and never creates a second one.
+      // A repeat attempt is a normal outcome here, not an error — the previous
+      // version raised, the browser turned that into an unhandled exception,
+      // and the admin saw nothing at all and clicked again.
       case 'create-invoice': {
         const quoteId = String(body.quoteId ?? '').trim();
         if (!quoteId) return json({ error: 'quoteId required' }, 400);
 
-        const { data: inv, error: invErr } = await admin.rpc('quote_to_invoice', { p_quote_id: quoteId });
-        if (invErr) {
-          const m = invErr.message || '';
-          if (m.includes('quote_not_found'))        return json({ error: 'quote_not_found' }, 404);
-          if (m.includes('quote_not_approved'))     return json({ error: 'quote_not_approved', detail: 'Only an approved quote can be invoiced.' }, 409);
-          if (m.includes('quote_already_invoiced')) return json({ error: 'quote_already_invoiced', detail: 'This quote has already been invoiced.' }, 409);
-          console.error('[admin-action] quote_to_invoice failed', m.slice(0, 120));
+        const { data: res, error: rpcErr } = await admin.rpc('quote_to_invoice_v2', { p_quote_id: quoteId });
+        if (rpcErr) {
+          const m = rpcErr.message || '';
+          if (m.includes('quote_not_found'))    return json({ error: 'quote_not_found' }, 404);
+          if (m.includes('quote_not_approved')) return json({ error: 'quote_not_approved', detail: 'Only an approved quote can be invoiced.' }, 409);
+          console.error('[admin-action] quote_to_invoice_v2 failed', m.slice(0, 120));
           return json({ error: 'conversion_failed' }, 500);
         }
 
-        // Real audit_log columns (0001): actor_email, actor_id, action,
-        // table_name, record_id, detail. A failed audit write must not undo a
-        // completed conversion, so it is logged and swallowed.
+        const { data: inv } = await admin.from('invoices').select('*').eq('id', res.invoice_id).maybeSingle();
+
+        if (res.already_invoiced) {
+          // 200, not an error: the desired end state already holds. The admin
+          // gets the invoice id so the UI can show it instead of a button.
+          // No second invoice, and no second notification — the invoice row was
+          // not re-inserted, so notify_on_invoice never fires again.
+          return json({ ok: true, already_invoiced: true, created: false,
+                        invoice_id: res.invoice_id, repaired_flag: res.repaired_flag, ...(inv ?? {}) });
+        }
+
         const audit = await admin.from('audit_log').insert({
           actor_email: user.email, actor_id: user.id, action: 'create_invoice',
-          table_name: 'invoices', record_id: inv.id,
-          detail: `Invoice ${inv.id} created from quote ${quoteId}`,
+          table_name: 'invoices', record_id: res.invoice_id,
+          detail: `Invoice ${res.invoice_id} created from quote ${quoteId}`,
         });
         if (audit.error) console.error('[admin-action] audit write failed', audit.error.message?.slice(0, 80));
 
-        return json({ ok: true, ...inv });
+        return json({ ok: true, already_invoiced: false, created: true,
+                      invoice_id: res.invoice_id, ...(inv ?? {}) });
       }
 
       case 'record-manual-payment': {

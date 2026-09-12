@@ -136,6 +136,8 @@ async function renderStats() {
 // ── DASHBOARD QUOTES ──────────────────────────
 async function renderDashQuotes() {
   const quotes = await DB.getAllQuotes();
+  // Invoice existence is the authority for the conversion control.
+  indexInvoicesByQuote(await DB.getAllInvoices());
   document.getElementById('dash-quotes-table').innerHTML = quotes.slice(0, 6).map(q => `
     <tr>
       <td><strong style="color:var(--white)">${esc(q.id)}</strong></td>
@@ -144,8 +146,7 @@ async function renderDashQuotes() {
       <td>${badge(q.status)}</td>
       <td>${fmtDate(q.created_at)}</td>
       <td>
-        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" data-action="quote-convert" data-id="${q.id}">→ Invoice</button>` :
-          q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
+        ${quoteConvertHtml(q)}
         <button class="action-btn" data-action="quote-view" data-id="${q.id}">View</button>
         <button class="action-btn" data-action="quote-print" data-id="${q.id}">🖨 PDF</button>
       </td>
@@ -156,6 +157,8 @@ async function renderDashQuotes() {
 async function renderAllQuotes() {
   document.getElementById('all-quotes-table').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr>';
   let quotes = await DB.getAllQuotes();
+  // Invoice existence is the authority for the conversion control.
+  indexInvoicesByQuote(await DB.getAllInvoices());
   const company = document.getElementById('quotes-company-filter')?.value;
   const status  = document.getElementById('quotes-status-filter')?.value;
   const search   = (document.getElementById('quotes-search')?.value || '').toLowerCase();
@@ -181,8 +184,7 @@ async function renderAllQuotes() {
       <td>${badge(q.status)}</td>
       <td>${fmtDate(q.responded_at)}</td>
       <td>
-        ${q.status === 'approved' && !q.invoiced ? `<button class="action-btn green" data-action="quote-convert" data-id="${q.id}">→ Invoice</button>` :
-          q.invoiced ? `<span style="color:var(--grey);font-size:.75rem;font-family:var(--font-head);">INVOICED</span>` : ''}
+        ${quoteConvertHtml(q)}
         <button class="action-btn" data-action="quote-view" data-id="${q.id}">View</button>
         <button class="action-btn" data-action="quote-print" data-id="${q.id}">🖨 PDF</button>
         <button class="action-btn danger" data-action="quote-delete" data-id="${q.id}">Delete</button>
@@ -192,7 +194,7 @@ async function renderAllQuotes() {
 
 // ── INVOICES ──────────────────────────────────
 async function renderInvoices() {
-  document.getElementById('invoices-table').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr>';
+  document.getElementById('invoices-table').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--grey);padding:24px;">Loading…</td></tr>';
   let invoices = await DB.getAllInvoices();
   const company = document.getElementById('invoices-company-filter')?.value;
   const status  = document.getElementById('invoices-status-filter')?.value;
@@ -266,14 +268,19 @@ async function renderInvoices() {
     console.warn('[Apex] could not load payment/refund state', e);
   }
 
+  // Delivery state for the visible invoices, one query. Read-only: the browser
+  // never writes to notification_outbox.
+  await loadInvoiceDelivery(invoices.map(i => i.id));
+
   document.getElementById('invoices-table').innerHTML = !invoices.length
-    ? '<tr><td colspan="7" style="text-align:center;color:var(--grey);padding:32px;">No invoices match your filters.</td></tr>'
+    ? '<tr><td colspan="8" style="text-align:center;color:var(--grey);padding:32px;">No invoices match your filters.</td></tr>'
     : invoices.map(i => `
     <tr>
       <td><strong style="color:var(--white)">${esc(i.id)}</strong></td>
       <td>${esc(i.customer_name || '')}<br/><span style="color:var(--grey);font-size:.8rem;">${esc(i.company || '')}</span>${(i.equipment_snapshot || i.equipment) ? `<br/><span style="color:var(--grey);font-size:.72rem;">&#128668; ${esc(apexDocEquipment(i))}</span>` : ''}</td>
       <td>${!i.customer_id ? '<div style="color:#f0a500;font-size:.68rem;font-family:var(--font-head);font-weight:700;letter-spacing:.06em;">⚠ NO PORTAL LINK — customer cannot see or pay this</div>' : ''}<strong style="color:var(--red-text)">$${parseFloat(i.amount).toFixed(2)}</strong>${i.tax_exempt ? '<br><span style="font-size:.68rem;color:var(--grey);">TAX EXEMPT</span>' : (Number(i.tax_cents) > 0 ? `<br><span style="font-size:.68rem;color:var(--grey);">incl. $${(i.tax_cents/100).toFixed(2)} tax</span>` : '')}</td>
       <td>${badge(i.status)}</td>
+      <td>${invoiceDeliveryHtml(i.id)}</td>
       <td>${fmtDate(i.due)}</td>
       <td>${fmtDate(i.paid_at)}</td>
       <td>
@@ -706,24 +713,92 @@ async function deleteInvoice(id) {
 }
 
 // ── QUOTE ACTIONS ─────────────────────────────
-async function convertToInvoice(quoteId) {
-  if (!confirm(`Convert quote ${quoteId} to an invoice?`)) return;
-  const inv = await DB.quoteToInvoice(quoteId);
-  if (inv) {
-    // The RPC marks the quote invoiced inside the same transaction; doing it
-    // again here would be a second write that could disagree with it.
-    const invLines = inv.items && inv.items.length
-      ? '\n\nWork Summary:\n' + inv.items.map(i => {
-          const qty  = parseFloat(i.qty) || 1;
-          const unit = parseFloat(i.unit_price || i.amount || 0);
-          return `  • ${i.desc || 'Service'} x${qty} @ $${unit.toFixed(2)} = $${(qty * unit).toFixed(2)}`;
-        }).join('\n')
-      : '';
-    await logActivity('create_invoice', `Invoice ${inv.id} created from quote ${quoteId} — $${parseFloat(inv.amount).toFixed(2)} — ${inv.customer_name || inv.customer_email}`);
-    showToast(`✓ Invoice ${inv.id} created — customer notified!`);
-    await refreshAll();
-    showView('invoices');
+// ── QUOTE -> INVOICE LINKAGE ─────────────────────────────────────────────────
+// The admin button used to depend solely on q.invoiced. When that flag failed
+// to persist, an invoice existed but the button came back and invited a second
+// conversion. Actual invoice EXISTENCE now wins: if a linked invoice is found,
+// no Create Invoice control renders, whatever the boolean says.
+let INVOICE_BY_QUOTE = {};
+
+function indexInvoicesByQuote(invoices) {
+  INVOICE_BY_QUOTE = {};
+  for (const i of invoices || []) if (i.quote_id) INVOICE_BY_QUOTE[i.quote_id] = i;
+}
+
+// One place decides what a quote's conversion state IS.
+function quoteInvoiceState(q) {
+  const inv = INVOICE_BY_QUOTE[q.id];
+  if (inv) return { converted: true, invoice: inv };      // existence wins
+  if (q.invoiced) return { converted: true, invoice: null, flagOnly: true };
+  return { converted: false, invoice: null };
+}
+
+// Rendered in both quote tables. Never shows a Create control once converted.
+function quoteConvertHtml(q) {
+  const st = quoteInvoiceState(q);
+  if (st.converted && st.invoice) {
+    return `<span style="color:#4caf50;font-size:.72rem;font-family:var(--font-head);font-weight:700;">\u2713 INVOICED</span>
+      <div style="font-size:.7rem;color:var(--grey);">${esc(st.invoice.id)}</div>
+      <button class="action-btn" data-action="invoice-view" data-id="${esc(st.invoice.id)}">View</button>`;
   }
+  if (st.converted) {
+    // Flag set but no invoice row visible — do NOT offer to create another.
+    return `<span style="color:var(--grey);font-size:.72rem;font-family:var(--font-head);">\u2713 INVOICED</span>`;
+  }
+  if (q.status !== 'approved') return '';
+  return `<button class="action-btn green" data-action="quote-convert" data-id="${esc(q.id)}">\u2192 Create Invoice</button>`;
+}
+
+async function convertToInvoice(quoteId, btn) {
+  if (!confirm(`Create an invoice from quote ${quoteId}?`)) return;
+
+  // Browser-side double-click guard. Deliberately NOT the real protection:
+  // the unique index on invoices.quote_id and the FOR UPDATE row lock in
+  // quote_to_invoice_v2 are what actually prevent a duplicate. This only stops
+  // the obvious case and gives the admin feedback.
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating\u2026'; }
+
+  let res;
+  try {
+    res = await DB.quoteToInvoice(quoteId);
+  } catch (e) {
+    // THE ORIGINAL DEFECT. This call threw and nothing caught it: no toast, no
+    // alert, no refresh — the admin saw the button still sitting there and
+    // clicked again. Every failure is now visible and the view is re-synced.
+    console.error('[Apex] create-invoice failed', e);
+    alert(`The invoice was not created.\n\n${e.message || e}\n\nThe quote list has been refreshed with the current state.`);
+    await refreshQuotesAndInvoices();
+    return;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '\u2192 Create Invoice'; }
+  }
+
+  if (!res) { await refreshQuotesAndInvoices(); return; }
+
+  if (res.already_invoiced) {
+    // Not an error: the end state already holds. Show the real invoice and
+    // re-sync so the stale button disappears.
+    showToast(`Quote ${quoteId} was already invoiced \u2014 ${res.invoice_id}`);
+    await refreshQuotesAndInvoices();
+    return;
+  }
+
+  await logActivity('create_invoice',
+    `Invoice ${res.invoice_id} created from quote ${quoteId} \u2014 $${parseFloat(res.amount || 0).toFixed(2)} \u2014 ${res.customer_name || res.customer_email || ''}`);
+  showToast(`\u2713 Invoice ${res.invoice_id} created \u2014 customer notified`);
+  await refreshQuotesAndInvoices();
+  showView('invoices');
+}
+
+// Both lists, always. refreshAll() only re-renders the ACTIVE view, so after a
+// conversion from the Quotes screen the invoice list stayed stale and the
+// quote's converted state was never re-read.
+async function refreshQuotesAndInvoices() {
+  indexInvoicesByQuote(await DB.getAllInvoices());
+  await renderAllQuotes();
+  await renderDashQuotes();
+  await renderInvoices();
+  await renderStats();
 }
 
 async function deleteQuote(id) {
@@ -1733,6 +1808,97 @@ async function printQuotePDF(quoteId) {
 }
 
 // ── PDF PRINT — INVOICE ───────────────────────
+// ── INVOICE EMAIL DELIVERY STATE ─────────────────────────────────────────────
+// Transport state (did the worker send it?) and delivery state (did the
+// recipient's mail server accept it?) are DIFFERENT questions. Resend accepting
+// the API call is "Sent". Only a provider email.delivered event is "Delivered".
+// Neither is evidence a human read anything, so no wording here claims that.
+//
+// The recipient shown is the one stored on the outbox row at send time, not the
+// customer's current profile email — the email went where it went.
+let INVOICE_DELIVERY = {};
+
+async function loadInvoiceDelivery(invoiceIds) {
+  INVOICE_DELIVERY = {};
+  if (!invoiceIds || !invoiceIds.length) return;
+  const keys = invoiceIds.map(id => `invoice_created:${id}`);
+  const { data, error } = await _sb.from('notification_outbox')
+    .select('event_key, recipient, status, sent_at, created_at, provider_msg_id, delivery_status, delivered_at, bounced_at, delivery_detail')
+    .in('event_key', keys);
+  if (error) { console.warn('[Apex] could not load delivery state', error.message); return; }
+  for (const row of data || []) INVOICE_DELIVERY[row.event_key.replace('invoice_created:', '')] = row;
+}
+
+// One place decides what an invoice's email state IS. Everything else renders it.
+function invoiceDeliveryState(invoiceId) {
+  const r = INVOICE_DELIVERY[invoiceId];
+  // No outbox row: an invoice created before the outbox existed, or one whose
+  // record is gone. Saying "Sent" here would be a guess.
+  if (!r) return { code: 'unknown', label: 'Delivery record unavailable', icon: '', cls: 'grey' };
+  if (r.delivery_status === 'delivered')  return { code: 'delivered',  label: 'Delivered', icon: '\u2713', cls: 'ok',   row: r };
+  if (r.delivery_status === 'bounced')    return { code: 'bounced',    label: 'Email bounced', icon: '\u26a0', cls: 'bad', row: r };
+  if (r.delivery_status === 'complained') return { code: 'complained', label: 'Marked as spam', icon: '\u26a0', cls: 'bad', row: r };
+  if (r.delivery_status === 'failed')     return { code: 'bounced',    label: 'Delivery failed', icon: '\u26a0', cls: 'bad', row: r };
+  if (r.delivery_status === 'delayed')    return { code: 'delayed',    label: 'Delivery delayed', icon: '\u23f3', cls: 'warn', row: r };
+  if (r.status === 'failed')     return { code: 'failed',     label: 'Email failed', icon: '\u26a0', cls: 'bad', row: r };
+  if (r.status === 'sent')       return { code: 'sent',       label: 'Sent', icon: '\u2713', cls: 'ok', row: r };
+  if (r.status === 'processing') return { code: 'processing', label: 'Sending\u2026', icon: '', cls: 'warn', row: r };
+  return { code: 'pending', label: 'Email queued', icon: '', cls: 'warn', row: r };
+}
+
+// True when an invoice_created email already exists in any state that has
+// reached, or is reaching, the customer. Used to suppress any send control.
+// The unique event_key in the database is the real guarantee; this is only UX.
+function invoiceEmailAlreadyEnqueued(invoiceId) {
+  const r = INVOICE_DELIVERY[invoiceId];
+  return !!r && ['pending', 'processing', 'sent'].includes(r.status);
+}
+
+function deliveryColor(cls) {
+  return cls === 'ok' ? '#4caf50' : cls === 'bad' ? 'var(--red-danger)' : cls === 'warn' ? '#f0a500' : 'var(--grey)';
+}
+
+// Compact cell for the invoice list.
+function invoiceDeliveryHtml(invoiceId) {
+  const st = invoiceDeliveryState(invoiceId);
+  const r = st.row;
+  const when = st.code === 'delivered' ? r?.delivered_at
+    : (st.code === 'bounced' || st.code === 'complained') ? r?.bounced_at
+    : r?.sent_at || r?.created_at;
+  return `<div style="font-size:.7rem;line-height:1.5;color:${deliveryColor(st.cls)};">
+      ${esc((st.icon ? st.icon + ' ' : '') + st.label)}
+      ${r?.recipient ? `<div style="color:var(--grey);">${esc(r.recipient)}</div>` : ''}
+      ${when ? `<div style="color:var(--grey);">${esc(fmtDateTime(when))}</div>` : ''}
+    </div>`;
+}
+
+function fmtDateTime(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleString('en-US',
+    { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+// Fuller delivery picture for the detail view. Wording is deliberately literal:
+// "Sent" means Resend accepted the API call; "Delivered" means the recipient's
+// mail server accepted the message. Neither means a person read it.
+function invoiceDeliveryDetailText(invoiceId) {
+  const st = invoiceDeliveryState(invoiceId);
+  const r = st.row;
+  if (!r) return 'Delivery record unavailable (no notification row for this invoice).';
+  const lines = [`State: ${st.label}`];
+  lines.push(`Recipient: ${r.recipient || '\u2014'}   (address used at send time)`);
+  if (r.created_at)   lines.push(`Queued: ${fmtDateTime(r.created_at)}`);
+  if (r.sent_at)      lines.push(`Accepted by Resend: ${fmtDateTime(r.sent_at)}`);
+  if (r.delivered_at) lines.push(`Delivered to mail server: ${fmtDateTime(r.delivered_at)}`);
+  if (r.bounced_at)   lines.push(`Bounced / rejected: ${fmtDateTime(r.bounced_at)}`);
+  if (r.delivery_detail) lines.push(`Provider detail: ${r.delivery_detail}`);
+  if (r.provider_msg_id) lines.push(`Provider message id: ${r.provider_msg_id}`);
+  if (!r.delivery_status && r.status === 'sent') {
+    lines.push('No delivery confirmation yet \u2014 Resend accepted it but has not reported delivery.');
+  }
+  return lines.join('\n');
+}
+
 // Admin invoice detail. There was no invoice equivalent of viewQuoteDetail, so
 // the only way to see which forklift an invoice covered was to open the PDF.
 // Same alert-based pattern as quotes - deliberately not a new modal design.
@@ -1748,6 +1914,7 @@ async function viewInvoiceDetail(id) {
     `Customer: ${inv.customer_name || ''} \u2014 ${inv.company || ''}\n` +
     `Equipment: ${apexDocEquipment(inv)}\n` +
     `Status: ${String(inv.status).toUpperCase()}\n` +
+    `\n\u2500\u2500 Customer email \u2500\u2500\n${invoiceDeliveryDetailText(inv.id)}\n` +
     (inv.quote_id ? `From quote: ${inv.quote_id}\n` : '') +
     (inv.due ? `Due: ${fmtDate(inv.due)}\n` : '') +
     (inv.paid_at ? `Paid: ${fmtDate(inv.paid_at)}\n` : '') +
@@ -2789,7 +2956,7 @@ function wireAdminPortal() {
       case 'quote-view':           viewQuoteDetail(d.id); break;
       case 'quote-print':          printQuotePDF(d.id); break;
       case 'quote-delete':         deleteQuote(d.id); break;
-      case 'quote-convert':        convertToInvoice(d.id); break;
+      case 'quote-convert':        convertToInvoice(d.id, el); break;
       case 'quote-from-request':   quoteFromRequest(); break;
 
       // invoices and payments
