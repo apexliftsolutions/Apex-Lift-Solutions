@@ -365,34 +365,6 @@
       </div>
 
       <!-- Equipment editor -->
-      <div class="sp-modal" id="sp-equip-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sp-equip-title">
-        <div class="sp-modal-card">
-          <h3 id="sp-equip-title">Add forklift</h3>
-          <input type="hidden" id="sp-equip-id">
-          <div class="sp-grid2">
-            <label>Unit number<input id="sp-eq-unit" maxlength="40" placeholder="FL-07"></label>
-            <label>Year<input id="sp-eq-year" maxlength="8" placeholder="2019"></label>
-            <label>Make<input id="sp-eq-make" maxlength="60" placeholder="Toyota"></label>
-            <label>Model<input id="sp-eq-model" maxlength="60" placeholder="8FGCU25"></label>
-          </div>
-          <label>Serial number<input id="sp-eq-serial" maxlength="80" placeholder="Optional at offer time"></label>
-          <label>Nickname<input id="sp-eq-nick" maxlength="60" placeholder="What the customer calls it"></label>
-          <label>Power type
-            <select id="sp-eq-power">
-              <option value="">—</option><option value="electric">Electric</option><option value="lp">LP / Propane</option>
-              <option value="diesel">Diesel</option><option value="gas">Gas</option><option value="other">Other</option>
-            </select>
-          </label>
-          <label>Capacity (lb)<input id="sp-eq-cap" inputmode="numeric" placeholder="5000"></label>
-          <label>Service location<input id="sp-eq-loc" maxlength="160" placeholder="Bay 3 — Hicksville NY"></label>
-          <label>Notes<textarea id="sp-eq-notes" rows="2"></textarea></label>
-          <p class="sp-note" id="sp-equip-lock" hidden>This unit is named in a signed agreement. Serial, make, model and year are frozen.</p>
-          <div class="sp-modal-actions">
-            <button class="btn-secondary" type="button" data-action="sp-close-equip" data-a11y-close>Cancel</button>
-            <button class="approve-btn" type="button" id="sp-equip-save">Save forklift</button>
-          </div>
-        </div>
-      </div>
 
       <!-- Offer builder -->
       <div class="sp-modal" id="sp-offer-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sp-offer-title">
@@ -639,7 +611,40 @@
 
 
 <!-- RECORD MANUAL PAYMENT (admin only) -->
-<div class="modal-overlay" id="manual-pay-modal" role="dialog" aria-modal="true" aria-label="Record a manual payment">
+
+    <!-- Equipment editor: GLOBAL. It used to live inside #view-service-plans,
+         and .view { display:none } meant un-hiding it from the Create Quote
+         screen could never make it visible. -->
+      <div class="sp-modal" id="sp-equip-modal" hidden role="dialog" aria-modal="true" aria-labelledby="sp-equip-title">
+        <div class="sp-modal-card">
+          <h3 id="sp-equip-title">Add forklift</h3>
+          <input type="hidden" id="sp-equip-id">
+          <div class="sp-grid2">
+            <label>Unit number<input id="sp-eq-unit" maxlength="40" placeholder="FL-07"></label>
+            <label>Year<input id="sp-eq-year" maxlength="8" placeholder="2019"></label>
+            <label>Make<input id="sp-eq-make" maxlength="60" placeholder="Toyota"></label>
+            <label>Model<input id="sp-eq-model" maxlength="60" placeholder="8FGCU25"></label>
+          </div>
+          <label>Serial number<input id="sp-eq-serial" maxlength="80" placeholder="Optional at offer time"></label>
+          <label>Nickname<input id="sp-eq-nick" maxlength="60" placeholder="What the customer calls it"></label>
+          <label>Power type
+            <select id="sp-eq-power">
+              <option value="">—</option><option value="electric">Electric</option><option value="lp">LP / Propane</option>
+              <option value="diesel">Diesel</option><option value="gas">Gas</option><option value="other">Other</option>
+            </select>
+          </label>
+          <label>Capacity (lb)<input id="sp-eq-cap" inputmode="numeric" placeholder="5000"></label>
+          <label>Service location<input id="sp-eq-loc" maxlength="160" placeholder="Bay 3 — Hicksville NY"></label>
+          <label>Notes<textarea id="sp-eq-notes" rows="2"></textarea></label>
+          <p class="sp-note" id="sp-equip-lock" hidden>This unit is named in a signed agreement. Serial, make, model and year are frozen.</p>
+          <div class="sp-modal-actions">
+            <button class="btn-secondary" type="button" data-action="sp-close-equip" data-a11y-close>Cancel</button>
+            <button class="approve-btn" type="button" id="sp-equip-save" data-action="sp-equip-save">Save forklift</button>
+          </div>
+        </div>
+      </div>
+
+    <div class="modal-overlay" id="manual-pay-modal" role="dialog" aria-modal="true" aria-label="Record a manual payment">
   <div class="modal" style="max-width:520px;">
     <h3>Record Offline Payment <span id="mp-inv-id" style="color:var(--red-text)"></span></h3>
     <p style="color:var(--grey-light);font-size:.9rem;margin:6px 0 18px;line-height:1.6;">

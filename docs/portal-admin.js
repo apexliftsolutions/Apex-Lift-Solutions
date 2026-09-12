@@ -991,7 +991,12 @@ function quoteAddForklift() {
   const opt = sel?.options[sel.selectedIndex];
   const customerId = opt?.dataset.id;
   if (!customerId) { alert('Select a customer first.'); return; }
-  SP.customerId = customerId;       // the existing equipment modal reads this
+  // spOpenEquip reads SP.* to decide whether identity fields are locked. Coming
+  // from the quote form those may never have been loaded, and a stale list from
+  // ANOTHER customer would be worse than an empty one — this is a brand new
+  // unit, so nothing can be locked.
+  SP.customerId = customerId;
+  if (!Array.isArray(SP.agreements)) SP.agreements = [];
   _quoteAwaitingEquipment = true;   // so the new unit is selected on return
   spOpenEquip(null);
 }
@@ -2379,8 +2384,12 @@ async function spCancelSubscription(id) {
   }
 }
 
-function spWireModals() {
-  document.getElementById('sp-equip-save')?.addEventListener('click', async () => {
+// Equipment editor save. Extracted from spWireModals() so it can run from the
+// Create Quote screen without the admin ever having opened Service Plans:
+// spWireModals() is only called while rendering that view, so its listener did
+// not exist yet. This is the SAME logic and the SAME backend — not a second
+// equipment implementation.
+async function spSaveEquip() {
     const id = document.getElementById('sp-equip-id').value;
     const payload = {
       customer_id: SP.customerId,
@@ -2415,7 +2424,11 @@ function spWireModals() {
       }
       await spLoadCustomer(SP.customerId);
     }
-  });
+  }
+
+function spWireModals() {
+  // Save is routed through the global delegated switch (data-action="sp-equip-save").
+
   document.getElementById('sp-offer-save')?.addEventListener('click', () => spSaveOffer(false));
   document.getElementById('sp-offer-send')?.addEventListener('click', () => spSaveOffer(true));
   document.getElementById('sp-ach')?.addEventListener('input', spPricePreview);
@@ -2995,6 +3008,7 @@ function wireAdminPortal() {
 
       // service plans
       case 'sp-equip':             spOpenEquip(d.id); break;
+      case 'sp-equip-save':        spSaveEquip(); break;
       case 'sp-equip-retire':      spRetireEquip(d.id); break;
       case 'sp-close-equip':       spCloseEquip(); break;
       case 'sp-offer-new':         spOpenOffer(null, d.equipment); break;

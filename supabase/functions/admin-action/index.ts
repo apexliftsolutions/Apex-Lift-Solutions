@@ -114,7 +114,39 @@ Deno.serve(async (req) => {
           const m = rpcErr.message || '';
           if (m.includes('quote_not_found'))    return json({ error: 'quote_not_found' }, 404);
           if (m.includes('quote_not_approved')) return json({ error: 'quote_not_approved', detail: 'Only an approved quote can be invoiced.' }, 409);
-          console.error('[admin-action] quote_to_invoice_v2 failed', m.slice(0, 120));
+          // A missing function means 0014 was never applied. That is a
+          // DEPLOYMENT gap, not a data problem, and it deserves its own code so
+          // it is not mistaken for an integrity failure.
+          // NARROW deliberately. The first version matched
+          // `function .* does not exist`, which also matched the real
+          // production failure `function gen_random_bytes(integer) does not
+          // exist` and would have reported "0014 not applied" — false, and it
+          // would have sent the owner chasing a deployment that was fine.
+          // Only the conversion RPC itself being absent counts here.
+          if (/function\s+(public\.)?quote_to_invoice_v2\s*\(/i.test(m) && /does not exist/i.test(m)) {
+            console.error('[admin-action] quote_to_invoice_v2 is missing — migration 0014 not applied', { quoteId, code: rpcErr.code ?? null });
+            return json({ error: 'conversion_unavailable',
+              detail: 'The invoice conversion function is missing on the database. Migration 0014 has not been applied.' }, 503);
+          }
+          // The migration's own integrity guards, surfaced rather than hidden.
+          if (m.includes('invoice_owner_mismatch'))
+            return json({ error: 'invoice_owner_mismatch', detail: 'A linked invoice belongs to a different customer. Run the 0014 preflight.' }, 409);
+          if (m.includes('duplicate_invoices_exist') || m.includes('uq_invoice_quote_id'))
+            return json({ error: 'duplicate_invoice_conflict', detail: 'This quote already has more than one invoice. Run the 0014 preflight.' }, 409);
+          if (m.includes('invoiced_flag_without_invoice'))
+            return json({ error: 'invoiced_flag_without_invoice', detail: 'This quote is flagged invoiced but has no invoice. Run the 0014 preflight.' }, 409);
+
+          // Everything else stays a stable generic code for the browser, but the
+          // SERVER log keeps what is needed to identify it. No secrets, no
+          // payment credentials, no raw payload — quote id, PG error code and
+          // truncated message/detail/hint only.
+          console.error('[admin-action] quote_to_invoice_v2 failed', {
+            quoteId,
+            pg_code: rpcErr.code ?? null,
+            message: m.slice(0, 300),
+            detail: typeof rpcErr.details === 'string' ? rpcErr.details.slice(0, 300) : null,
+            hint: typeof rpcErr.hint === 'string' ? rpcErr.hint.slice(0, 200) : null,
+          });
           return json({ error: 'conversion_failed' }, 500);
         }
 

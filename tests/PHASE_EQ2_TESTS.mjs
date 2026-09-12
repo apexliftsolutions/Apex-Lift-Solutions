@@ -193,7 +193,9 @@ console.log("\n═══ RUNTIME INTEGRATION (v25.2 correction) ═══");
   ok(!/SB\.post\('invoices'/.test(pd), "RJ3 no direct invoice insert anywhere in portal-data.js");
 
   // (K) One conversion authority.
-  const ci = a.slice(a.indexOf("case 'create-invoice'"), a.indexOf("case 'create-invoice'") + 1600);
+  // Bounded by the next case, not a fixed width: the error-mapping block grew.
+  const ciS = a.indexOf("case 'create-invoice'");
+  const ci = a.slice(ciS, a.indexOf("\n      case '", ciS + 40));
   ok(/admin\.rpc\('quote_to_invoice_v2'/.test(ci), "RK1 (K) admin-action delegates to the authoritative RPC");
   ok(!/from\('invoices'\)\.insert/.test(ci), "RK2 it no longer re-implements the insert");
   for (const e of ["quote_not_found","quote_not_approved"])

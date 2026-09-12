@@ -34,7 +34,9 @@ console.log("═══ MIGRATION 0014 ═══");
 console.log("\n═══ admin-action ═══");
 {
   const a = read("supabase/functions/admin-action/index.ts");
-  const ci = a.slice(a.indexOf("case 'create-invoice'"), a.indexOf("case 'create-invoice'") + 2400);
+  const ciStart = a.indexOf("case 'create-invoice'");
+  const ci = a.slice(ciStart, a.indexOf("\n      case '", ciStart + 40));
+  ok(ci.length > 800, "A0 create-invoice block located in full (slice is not truncated)");
   ok(/rpc\('quote_to_invoice_v2'/.test(ci), "A1 delegates to the idempotent RPC");
   ok(/already_invoiced: true[\s\S]{0,120}invoice_id: res\.invoice_id/.test(ci), "A2 a repeat returns the existing invoice id");
   ok(!/already_invoiced[\s\S]{0,200}(500|conversion_failed)/.test(ci), "A3 a repeat is NOT a generic server error");
@@ -177,6 +179,130 @@ console.log("\n═══ DEPLOYMENT SAFETY: FAIL CLOSED, BOTH SIDES ═══");
     ok(pf.includes(w), `G15 the preflight warns against: ${w}`);
   ok(!/\b(insert|update|delete|alter|drop)\s+(into|from|table|invoices|quotes)/i.test(pf.replace(/--[^\n]*/g, "")),
      "G16 the preflight still mutates nothing");
+}
+
+
+console.log("\n═══ DEFECT 1: ADD FORKLIFT IS GLOBAL ═══");
+{
+  const h = read("docs/portal-admin.html"), js = read("docs/portal-admin.js");
+  // The modal must not sit inside any .view — .view{display:none} meant
+  // un-hiding it from another screen could never show it.
+  const k = h.indexOf('id="sp-equip-modal"');
+  const before = h.slice(0, k);
+  const views = [...before.matchAll(/<div class="view"[^>]*id="([^"]+)"/g)];
+  let inside = null;
+  if (views.length) {
+    const last = views[views.length - 1];
+    const seg = before.slice(last.index + last[0].length);
+    if ((seg.match(/<div/g) || []).length - (seg.match(/<\/div>/g) || []).length > 0) inside = last[1];
+  }
+  ok(k > -1, "F0 the equipment modal exists");
+  ok(inside === null, `F1 it is NOT nested inside a hidden .view (was #view-service-plans, now ${inside || "global"})`);
+  ok(/\.view \{ display: none; \}/.test(read("docs/portal-admin.css")), "F2 .view is still display:none — the reason this mattered");
+
+  // Save must be on the global delegated switch, wired once.
+  ok(/id="sp-equip-save" data-action="sp-equip-save"/.test(h), "F3 Save carries a data-action");
+  ok(/case 'sp-equip-save':\s*spSaveEquip\(\); break;/.test(js), "F4 routed through the fixed wireAdminPortal switch");
+  ok(/async function spSaveEquip\(\)/.test(js), "F5 the save logic lives in a reusable function");
+  ok(!/getElementById\('sp-equip-save'\)\?\.addEventListener/.test(js), "F6 the view-scoped listener is gone");
+  ok((js.match(/case 'sp-equip-save':/g) || []).length === 1, "F7 wired exactly once");
+  // It must not depend on Service Plans having been rendered.
+  const qa = js.slice(js.indexOf("function quoteAddForklift"), js.indexOf("function quoteAddForklift") + 900);
+  ok(/if \(!Array\.isArray\(SP\.agreements\)\) SP\.agreements = \[\]/.test(qa),
+     "F8 Add Forklift works without Service Plans state being loaded");
+  ok(/_quoteAwaitingEquipment = true/.test(qa), "F9 the return-to-quote flag is preserved");
+  // Same backend, one implementation.
+  const save = js.slice(js.indexOf("async function spSaveEquip"), js.indexOf("function spWireModals"));
+  ok(/spCall\(id \? 'update-equipment' : 'create-equipment', payload\)/.test(save),
+     "F10 the SAME authoritative backend is used — no second equipment implementation");
+  ok(/customer_id: SP\.customerId/.test(save), "F11 the unit is attached to the selected customer");
+  ok(/if \(_quoteAwaitingEquipment\)[\s\S]{0,300}renderQuoteEquipment\(newId\)/.test(save),
+     "F12 the new forklift is selected on return to the quote");
+  ok(/const identityLocked/.test(save), "F13 identity-lock behaviour is unchanged");
+  ok(/loadQuoteEquipment\(SP\.customerId\)/.test(save), "F14 that customer's active list is refreshed");
+  // The offer modal was deliberately left alone.
+  ok(/id="sp-offer-modal"/.test(h), "F15 the offer modal is untouched");
+}
+
+console.log("\n═══ DEFECT 2: DEPLOYMENT DIAGNOSIS, NOT A NEW MIGRATION ═══");
+{
+  const a = read("supabase/functions/admin-action/index.ts");
+  ok(existsSync(R + "internal-docs/DIAGNOSE_0014_deployment.sql"), "V1 a read-only deployment diagnostic exists");
+  const dg = read("internal-docs/DIAGNOSE_0014_deployment.sql");
+  ok(!/\b(insert|update|delete|alter|drop)\s+(into|from|table)/i.test(dg.replace(/--[^\n]*/g, "")), "V2 it mutates nothing");
+  for (const w of ["quote_to_invoice_v2", "uq_invoice_quote_id", "has_function_privilege"])
+    ok(dg.includes(w), `V3 it checks ${w}`);
+  ok(/CAUSE 1 — the conversion RPC is absent/.test(dg), "V4 it names a genuinely absent RPC as cause 1");
+  ok(/Do NOT add a new migration to work around this/.test(dg), "V5 and says not to paper over it with 0015");
+  ok(/OWNER MISMATCH/.test(dg), "V6 the recent-quote query flags an ownership mismatch");
+
+  ok(/conversion_unavailable/.test(a), "V7 a missing function is reported separately from a data failure");
+  ok(/503\)/.test(a.slice(a.indexOf("conversion_unavailable") - 200, a.indexOf("conversion_unavailable") + 300)),
+     "V8 as 503, not a generic 500");
+  for (const e of ["invoice_owner_mismatch", "duplicate_invoice_conflict", "invoiced_flag_without_invoice"])
+    ok(new RegExp(e).test(a), `V9 integrity failure ${e} maps to a stable code`);
+  const log = a.slice(a.indexOf("[admin-action] quote_to_invoice_v2 failed"), a.indexOf("[admin-action] quote_to_invoice_v2 failed") + 500);
+  for (const f of ["quoteId", "pg_code", "message", "detail", "hint"]) ok(log.includes(f), `V10 the server log keeps ${f}`);
+  ok(/slice\(0, 300\)/.test(log), "V11 logged values are truncated");
+  ok(/return json\(\{ error: 'conversion_failed' \}, 500\)/.test(a), "V12 the browser still gets a stable generic code");
+  ok(!/console\.error[^)]*rpcErr\)/.test(a), "V13 the raw error object is never logged wholesale");
+  // No new migration was created.
+  ok(!existsSync(R + "supabase/migrations/0015_.sql".replace("_.sql", "")), "V14 no 0015 migration was invented");
+}
+
+
+console.log("\n═══ 0015: PGCRYPTO SCHEMA QUALIFICATION ═══");
+{
+  const m = read("supabase/migrations/0015_fix_new_id_pgcrypto.sql");
+  ok(/create or replace function public\.new_id\(prefix text\) returns text/.test(m), "P1 replaces the same signature");
+  ok(/language sql volatile/.test(m), "P2 language and volatility preserved");
+  ok(/%I\.gen_random_bytes\(6\)/.test(m), "P3 the pgcrypto call is schema-qualified");
+  ok(/upper\(substr\(encode\(/.test(m), "P4 the id format is byte-for-byte the shipped one");
+  ok(/grant execute on function public\.new_id\(text\) to anon, authenticated, service_role/.test(m), "P5 grants preserved");
+  ok(/order by case n\.nspname when 'extensions' then 0/.test(m), "P6 the schema is resolved from the catalog, not hard-coded");
+  ok(/raise exception 'pgcrypto_not_found'/.test(m), "P7 aborts if pgcrypto is absent entirely");
+  ok(/search_path', 'public, pg_temp'/.test(m) && /INV-\[0-9A-F\]\{10\}/.test(m),
+     "P8 the migration self-tests under the RESTRICTED path before completing");
+  ok(!/alter function .*quote_to_invoice_v2/i.test(m) && !/search_path = public, extensions/i.test(m.replace(/--[^\n]*/g, "")),
+     "P9 it does NOT widen the conversion function's search_path");
+  ok(!/update (invoices|quotes) set id/i.test(m), "P10 no existing id is regenerated");
+  for (const n of ["0013","0014"]) ok(existsSync(R + "supabase/migrations/"), `P11 migration ${n} untouched`);
+}
+
+console.log("\n═══ DIAGNOSTIC MUST NOT MISREAD THE REAL ERROR ═══");
+{
+  const a = read("supabase/functions/admin-action/index.ts");
+  const re = /function\s+(public\.)?quote_to_invoice_v2\s*\(/i;
+  const classify = (msg) => (re.test(msg) && /does not exist/i.test(msg)) ? "conversion_unavailable" : "conversion_failed";
+  ok(classify("function quote_to_invoice_v2(unknown) does not exist") === "conversion_unavailable",
+     "D1 a genuinely missing conversion RPC is reported as unavailable");
+  ok(classify("function gen_random_bytes(integer) does not exist") === "conversion_failed",
+     "D2 THE REAL PRODUCTION ERROR is NOT misreported as '0014 missing'");
+  ok(classify("function new_id(text) does not exist") === "conversion_failed", "D3 nor is any other missing dependency");
+  const aCode = a.replace(/\/\/[^\n]*/g, "");   // strip comments: the removal is explained in one
+  ok(!/function \.\* does not exist/.test(aCode), "D4 the over-broad pattern is gone from the CODE");
+  ok(/quote_to_invoice_v2\\s\*\\\(/.test(a) || /quote_to_invoice_v2\\s\*\(/.test(a.replace(/\\\\/g, "\\")),
+     "D5 the narrowed pattern names the conversion RPC specifically");
+  const dg = read("internal-docs/DIAGNOSE_0014_deployment.sql");
+  ok(/CAUSE 3/.test(dg) && /UNQUALIFIED/.test(dg), "D6 the diagnostic recognises the pgcrypto cause");
+  ok(/new_id qualifies gen_random_bytes/.test(dg), "D7 and checks new_id's definition directly");
+  ok(!/most likely cause is simply that migration 0014 was never applied/.test(dg),
+     "D8 it no longer asserts 0014 is missing as the likely cause");
+}
+
+console.log("\n═══ ADMIN HTML IS WELL FORMED ═══");
+{
+  const h = read("docs/portal-admin.html");
+  ok(!/^\s*>\s*$/m.test(h), "H1 no stray '>' line");
+  ok(!/<\/div$/m.test(h), "H2 no unterminated closing tag");
+  const spBody = h.slice(h.indexOf('id="sp-body"'), h.indexOf('id="sp-body"') + 260);
+  ok(/<div class="empty-state">Select a customer to see their equipment and service plans\.<\/div>/.test(spBody),
+     "H3 #sp-body contains its original empty state");
+  ok((h.match(/Select a customer to see their equipment/g) || []).length === 1,
+     "H4 exactly one copy of that empty state — no stray duplicate");
+  ok((h.match(/id="sp-equip-modal"/g) || []).length === 1, "H5 exactly one equipment modal");
+  ok((h.match(/id="sp-equip-save"/g) || []).length === 1, "H6 exactly one Save control");
+  ok(/id="sp-equip-save" data-action="sp-equip-save"/.test(h), "H7 Save carries the global action");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

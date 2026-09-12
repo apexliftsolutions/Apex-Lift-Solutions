@@ -172,7 +172,10 @@ console.log("\n═══ BUG 1: LOCKED UNIT, DESCRIPTIVE EDIT MUST SUCCEED ═�
   ok(!/\("serial_number" in patch \|\| "make" in patch/.test(blk),
      "X5 the old key-presence rejection is gone");
   // Frontend: identity is added only when unlocked.
-  const save = pa.slice(pa.indexOf("function spWireModals"), pa.indexOf("sp-offer-save"));
+  // The save logic moved out of spWireModals() into the globally-routed
+  // spSaveEquip() so Add Forklift works without opening Service Plans first.
+  const save = pa.slice(pa.indexOf("async function spSaveEquip"), pa.indexOf("function spWireModals"));
+  ok(save.length > 400, "X5a spSaveEquip located (slice is not vacuous)");
   ok(/const identityLocked = !!\(id && SP\.agreements\.some\(a => a\.equipment_id === id\)\)/.test(save),
      "X6 admin save computes lock from agreement history");
   ok(/if \(!identityLocked\) \{[\s\S]{0,300}?payload\.serial_number/.test(save),
